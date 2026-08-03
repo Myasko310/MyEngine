@@ -1,0 +1,10 @@
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/libminizip.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/minizip.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/miniunzip.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/package.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/package_source.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/edit_cache.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/rebuild_cache.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/list_install_components.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/install.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/minizip/x64-windows-rel/CMakeFiles/install/local.dir

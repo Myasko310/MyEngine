@@ -1,45 +1,76 @@
 ﻿cmake_minimum_required(VERSION 3.20)
-project(MyEngine)
 
+project(MyEngine LANGUAGES CXX)
+
+# ============================================================
+# C++ Settings
+# ============================================================
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ── vcpkg packages ─────────────────────────────────────────
-find_package(SDL2   CONFIG REQUIRED)
-find_package(glad   CONFIG REQUIRED)
-find_package(glm    CONFIG REQUIRED)
-find_package(assimp CONFIG REQUIRED)
+# ============================================================
+# Required Packages
+# ============================================================
+find_package(OpenGL REQUIRED)
+find_package(glad CONFIG REQUIRED)
+find_package(glfw3 CONFIG REQUIRED)
+find_package(glm CONFIG REQUIRED)
 
-# ── Source files ───────────────────────────────────────────
+# ============================================================
+# Source Files
+# ============================================================
 set(SOURCES
     src/main.cpp
-    src/rendering/Window.cpp
+
     src/rendering/Shader.cpp
-    src/rendering/ModelLoader.cpp
-    src/core/GameTime.cpp
+    src/rendering/Mesh.cpp
+    src/rendering/MeshPrimitives.cpp
     src/core/Input.cpp
+    
+    src/ecs/Scene.cpp
+
+    src/systems/MeshRendererSystem.cpp
+    src/systems/CameraSystem.cpp
 )
 
+# ============================================================
+# Create Executable
+# ============================================================
 add_executable(MyEngine ${SOURCES})
 
-# ── Include root ───────────────────────────────────────────
+# ============================================================
+# Include Directories
+# ============================================================
 target_include_directories(MyEngine PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-# ── Link libraries ─────────────────────────────────────────
+# ============================================================
+# Link Libraries
+# ============================================================
 target_link_libraries(MyEngine PRIVATE
-    SDL2::SDL2
-    SDL2::SDL2main
+    OpenGL::GL
     glad::glad
+    glfw
     glm::glm
-    assimp::assimp
 )
 
-# ── Copy shaders to build output ───────────────────────────
-add_custom_command(TARGET MyEngine POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/shaders
-        $<TARGET_FILE_DIR:MyEngine>/shaders
-    COMMENT "Copying shaders to build output..."
+# ============================================================
+# Compile Definitions
+# ============================================================
+target_compile_definitions(MyEngine PRIVATE
+    GLM_ENABLE_EXPERIMENTAL
 )
+
+# ============================================================
+# Copy shaders folder next to executable
+# ============================================================
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+    add_custom_command(TARGET MyEngine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders
+            $<TARGET_FILE_DIR:MyEngine>/shaders
+        COMMENT "Copying shaders to build output..."
+    )
+endif()

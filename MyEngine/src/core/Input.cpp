@@ -1,67 +1,259 @@
 #include "core/Input.h"
-#include <unordered_map>
 
-namespace MyEngine {
+namespace MyEngine
+{
+    GLFWwindow* Input::s_window = nullptr;
 
-    // ── Statics ──────────────────────────────────────────────
+    std::unordered_map<int, bool> Input::s_currentKeys;
+    std::unordered_map<int, bool> Input::s_previousKeys;
+
+    std::unordered_map<int, bool> Input::s_currentMouseButtons;
+    std::unordered_map<int, bool> Input::s_previousMouseButtons;
+
     float Input::s_mouseDeltaX = 0.0f;
     float Input::s_mouseDeltaY = 0.0f;
-    float Input::s_rawDeltaX = 0.0f;
-    float Input::s_rawDeltaY = 0.0f;
 
-    static std::unordered_map<SDL_Keycode, bool> s_currentKeys;
-    static std::unordered_map<SDL_Keycode, bool> s_previousKeys;
+    float Input::s_mouseWheelX = 0.0f;
+    float Input::s_mouseWheelY = 0.0f;
 
-    void Input::Init()
+    double Input::s_lastMouseX = 0.0;
+    double Input::s_lastMouseY = 0.0;
+
+    bool Input::s_firstMouse = true;
+    bool Input::s_mouseCaptured = false;
+
+    void Input::Init(GLFWwindow* window, bool captureMouse)
     {
-        // Lock mouse to window and hide cursor
-        SDL_SetRelativeMouseMode(SDL_TRUE);
+        s_window = window;
+
+        s_currentKeys.clear();
+        s_previousKeys.clear();
+
+        s_currentMouseButtons.clear();
+        s_previousMouseButtons.clear();
+
+        s_mouseDeltaX = 0.0f;
+        s_mouseDeltaY = 0.0f;
+
+        s_mouseWheelX = 0.0f;
+        s_mouseWheelY = 0.0f;
+
+        s_firstMouse = true;
+
+        glfwSetKeyCallback(s_window, KeyCallback);
+        glfwSetMouseButtonCallback(s_window, MouseButtonCallback);
+        glfwSetCursorPosCallback(s_window, CursorPositionCallback);
+        glfwSetScrollCallback(s_window, ScrollCallback);
+
+        SetMouseCaptured(captureMouse);
     }
 
     void Input::Update()
     {
-        // Flush accumulated mouse delta into readable values
-        s_mouseDeltaX = s_rawDeltaX;
-        s_mouseDeltaY = s_rawDeltaY;
-
-        // Reset raw accumulators for next frame
-        s_rawDeltaX = 0.0f;
-        s_rawDeltaY = 0.0f;
-
-        // Snapshot keyboard state for IsKeyPressed
         s_previousKeys = s_currentKeys;
+        s_previousMouseButtons = s_currentMouseButtons;
+
+        s_mouseDeltaX = 0.0f;
+        s_mouseDeltaY = 0.0f;
+
+        s_mouseWheelX = 0.0f;
+        s_mouseWheelY = 0.0f;
     }
 
-    void Input::ProcessEvent(const SDL_Event& event)
+    void Input::Shutdown()
     {
-        if (event.type == SDL_MOUSEMOTION)
-        {
-            // Accumulate relative mouse movement
-            s_rawDeltaX += (float)event.motion.xrel;
-            s_rawDeltaY += (float)event.motion.yrel;
-        }
+        s_window = nullptr;
 
-        if (event.type == SDL_KEYDOWN)
-            s_currentKeys[event.key.keysym.sym] = true;
+        s_currentKeys.clear();
+        s_previousKeys.clear();
 
-        if (event.type == SDL_KEYUP)
-            s_currentKeys[event.key.keysym.sym] = false;
+        s_currentMouseButtons.clear();
+        s_previousMouseButtons.clear();
     }
 
-    bool Input::IsKeyDown(SDL_Keycode key)
+    bool Input::IsKeyDown(int key)
     {
         auto it = s_currentKeys.find(key);
-        return it != s_currentKeys.end() && it->second;
+
+        if (it == s_currentKeys.end())
+            return false;
+
+        return it->second;
     }
 
-    bool Input::IsKeyPressed(SDL_Keycode key)
+    bool Input::IsKeyPressed(int key)
     {
-        bool current = s_currentKeys.count(key) && s_currentKeys[key];
-        bool previous = s_previousKeys.count(key) && s_previousKeys[key];
+        bool current = IsKeyDown(key);
+
+        bool previous = false;
+        auto it = s_previousKeys.find(key);
+
+        if (it != s_previousKeys.end())
+            previous = it->second;
+
         return current && !previous;
     }
 
-    float Input::GetMouseDeltaX() { return s_mouseDeltaX; }
-    float Input::GetMouseDeltaY() { return s_mouseDeltaY; }
+    bool Input::IsKeyReleased(int key)
+    {
+        bool current = IsKeyDown(key);
 
-} // namespace MyEngine
+        bool previous = false;
+        auto it = s_previousKeys.find(key);
+
+        if (it != s_previousKeys.end())
+            previous = it->second;
+
+        return !current && previous;
+    }
+
+    bool Input::IsMouseButtonDown(int button)
+    {
+        auto it = s_currentMouseButtons.find(button);
+
+        if (it == s_currentMouseButtons.end())
+            return false;
+
+        return it->second;
+    }
+
+    bool Input::IsMouseButtonPressed(int button)
+    {
+        bool current = IsMouseButtonDown(button);
+
+        bool previous = false;
+        auto it = s_previousMouseButtons.find(button);
+
+        if (it != s_previousMouseButtons.end())
+            previous = it->second;
+
+        return current && !previous;
+    }
+
+    bool Input::IsMouseButtonReleased(int button)
+    {
+        bool current = IsMouseButtonDown(button);
+
+        bool previous = false;
+        auto it = s_previousMouseButtons.find(button);
+
+        if (it != s_previousMouseButtons.end())
+            previous = it->second;
+
+        return !current && previous;
+    }
+
+    float Input::GetMouseDeltaX()
+    {
+        return s_mouseDeltaX;
+    }
+
+    float Input::GetMouseDeltaY()
+    {
+        return s_mouseDeltaY;
+    }
+
+    float Input::GetMouseWheelX()
+    {
+        return s_mouseWheelX;
+    }
+
+    float Input::GetMouseWheelY()
+    {
+        return s_mouseWheelY;
+    }
+
+    void Input::SetMouseCaptured(bool captured)
+    {
+        if (!s_window)
+            return;
+
+        s_mouseCaptured = captured;
+        s_firstMouse = true;
+
+        glfwSetInputMode(
+            s_window,
+            GLFW_CURSOR,
+            captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL
+        );
+    }
+
+    bool Input::IsMouseCaptured()
+    {
+        return s_mouseCaptured;
+    }
+
+    GLFWwindow* Input::GetWindow()
+    {
+        return s_window;
+    }
+
+    void Input::KeyCallback(
+        GLFWwindow* window,
+        int key,
+        int scancode,
+        int action,
+        int mods
+    )
+    {
+        if (key == GLFW_KEY_UNKNOWN)
+            return;
+
+        if (action == GLFW_PRESS)
+        {
+            s_currentKeys[key] = true;
+        }
+        else if (action == GLFW_RELEASE)
+        {
+            s_currentKeys[key] = false;
+        }
+    }
+
+    void Input::MouseButtonCallback(
+        GLFWwindow* window,
+        int button,
+        int action,
+        int mods
+    )
+    {
+        if (action == GLFW_PRESS)
+        {
+            s_currentMouseButtons[button] = true;
+        }
+        else if (action == GLFW_RELEASE)
+        {
+            s_currentMouseButtons[button] = false;
+        }
+    }
+
+    void Input::CursorPositionCallback(
+        GLFWwindow* window,
+        double xpos,
+        double ypos
+    )
+    {
+        if (s_firstMouse)
+        {
+            s_lastMouseX = xpos;
+            s_lastMouseY = ypos;
+            s_firstMouse = false;
+            return;
+        }
+
+        s_mouseDeltaX += static_cast<float>(xpos - s_lastMouseX);
+        s_mouseDeltaY += static_cast<float>(s_lastMouseY - ypos);
+
+        s_lastMouseX = xpos;
+        s_lastMouseY = ypos;
+    }
+
+    void Input::ScrollCallback(
+        GLFWwindow* window,
+        double xoffset,
+        double yoffset
+    )
+    {
+        s_mouseWheelX += static_cast<float>(xoffset);
+        s_mouseWheelY += static_cast<float>(yoffset);
+    }
+}

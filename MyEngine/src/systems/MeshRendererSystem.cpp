@@ -1,91 +1,79 @@
-#pragma once
+#include "systems/MeshRendererSystem.h"
 
-#include "../ecs/System.h"
-#include "../ecs/Scene.h"
-#include "../components/MeshComponent.h"
-#include "../components/MeshRendererComponent.h"
-#include "../components/TransformComponent.h"
-#include "../components/CameraComponent.h"
+#include "components/MeshComponent.h"
+#include "components/MeshRendererComponent.h"
+#include "components/TransformComponent.h"
+#include "components/LightComponent.h"
+#include "ecs/Scene.h"
 
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <glad/glad.h>
-#include <cstdio>
+#include <algorithm>
 
-namespace MyEngine {
+void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::mat4& projection)
+{
+    // Find first directional light in the scene (if any)
+    glm::vec3 lightDir = glm::vec3(0.0f, -1.0f, 0.0f);
+    glm::vec3 lightColor = glm::vec3(1.0f);
+    glm::vec3 ambientColor = glm::vec3(0.08f);
 
-    class MeshRendererSystem : public System {
-    public:
-        void OnStart(Scene& scene) override {
-            // Upload all meshes to GPU on start
-            for (auto& entity : scene.GetEntities()) {
-                auto* mesh = scene.GetComponent<MeshComponent>(entity);
-                if (mesh && !mesh->isUploaded) {
-                    mesh->Upload();
-                    printf("[MeshRendererSystem] Uploaded mesh: %s\n",
-                        mesh->name.c_str());
-                }
-            }
+    for (const auto& e : scene.GetEntities())
+    {
+        if (!e)
+            continue;
+
+        if (!e->HasComponent<MyEngine::LightComponent>())
+            continue;
+
+        auto& L = e->GetComponent<MyEngine::LightComponent>();
+        if (L.type == MyEngine::LightComponent::Type::Directional)
+        {
+            lightDir = L.direction;
+            lightColor = L.color * L.intensity;
+            break;
         }
+    }
 
-        void OnUpdate(Scene& scene, float deltaTime) override {
-            // Find primary camera
-            CameraComponent* cam = nullptr;
-            TransformComponent* camTrans = nullptr;
+    for (const auto& entity : scene.GetEntities())
+    {
+        if (!entity)
+            continue;
 
-            for (auto& entity : scene.GetEntities()) {
-                auto* c = scene.GetComponent<CameraComponent>(entity);
-                if (c && c->isPrimary) {
-                    cam = c;
-                    camTrans = scene.GetComponent<TransformComponent>(entity);
-                    break;
-                }
-            }
+        if (!entity->HasComponent<TransformComponent>())
+            continue;
 
-            if (!cam) return;
+        if (!entity->HasComponent<MeshComponent>())
+            continue;
 
-            // Draw each entity with Mesh + MeshRenderer + Transform
-            for (auto& entity : scene.GetEntities()) {
-                auto* mesh = scene.GetComponent<MeshComponent>(entity);
-                auto* renderer = scene.GetComponent<MeshRendererComponent>(entity);
-                auto* transform = scene.GetComponent<TransformComponent>(entity);
+        if (!entity->HasComponent<MeshRendererComponent>())
+            continue;
 
-                if (!mesh || !renderer || !transform) continue;
-                if (!renderer->visible)               continue;
-                if (!mesh->isUploaded)                continue;
-                if (!renderer->shader)                continue;
+        auto& transform = entity->GetComponent<TransformComponent>();
+        auto& meshComponent = entity->GetComponent<MeshComponent>();
+        auto& renderer = entity->GetComponent<MeshRendererComponent>();
 
-                renderer->shader->Use();
+        if (!renderer.visible)
+            continue;
 
-                // Model matrix
-                glm::mat4 model = glm::mat4(1.0f);
-                model = glm::translate(model, transform->position);
-                model = glm::rotate(model,
-                    glm::radians(transform->rotation.y), { 0,1,0 });
-                model = glm::rotate(model,
-                    glm::radians(transform->rotation.x), { 1,0,0 });
-                model = glm::rotate(model,
-                    glm::radians(transform->rotation.z), { 0,0,1 });
-                model = glm::scale(model, transform->scale);
+        if (!meshComponent.mesh)
+            continue;
 
-                renderer->shader->SetMat4("model", model);
-                renderer->shader->SetMat4("view", cam->viewMatrix);
-                renderer->shader->SetMat4("projection", cam->projectionMatrix);
+        if (!renderer.shader)
+            continue;
 
-                glBindVertexArray(mesh->VAO);
-                glDrawElements(GL_TRIANGLES,
-                    (GLsizei)mesh->indices.size(),
-                    GL_UNSIGNED_INT, 0);
-                glBindVertexArray(0);
-            }
-        }
+        renderer.shader->Use();
 
-        void OnShutdown(Scene& scene) override {
-            for (auto& entity : scene.GetEntities()) {
-                auto* mesh = scene.GetComponent<MeshComponent>(entity);
-                if (mesh) mesh->Destroy();
-            }
-        }
-    };
+        renderer.shader->SetMat4("u_Model", transform.GetMatrix());
+        renderer.shader->SetMat4("u_View", view);
+        renderer.shader->SetMat4("u_Projection", projection);
 
-} // namespace MyEngine
+        // Material uniforms
+        renderer.shader->SetVec3("u_MaterialAlbedo", renderer.albedo);
+        renderer.shader->SetFloat("u_MaterialShininess", renderer.shininess);
+
+        // Light uniforms
+        renderer.shader->SetVec3("u_LightDirection", lightDir.x, lightDir.y, lightDir.z);
+        renderer.shader->SetVec3("u_LightColor", lightColor.x, lightColor.y, lightColor.z);
+        renderer.shader->SetVec3("u_AmbientColor", ambientColor.x, ambientColor.y, ambientColor.z);
+
+        meshComponent.mesh->Draw();
+    }
+}

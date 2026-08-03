@@ -1,25 +1,79 @@
 #pragma once
+
 #include <cstdint>
+#include <memory>
+#include <string>
+#include <typeindex>
+#include <unordered_map>
+#include <utility>
 
-namespace MyEngine {
+class Entity
+{
+public:
+    Entity() = default;
 
-    // An entity is just a unique ID
-    using EntityID = uint32_t;
-    const EntityID INVALID_ENTITY = 0;
+    Entity(uint32_t id, const std::string& name = "")
+        : m_ID(id), m_Name(name)
+    {
+    }
 
-    class Entity {
-    public:
-        Entity() : m_ID(0) {}
-        Entity(EntityID id) : m_ID(id) {}
+    uint32_t GetID() const
+    {
+        return m_ID;
+    }
 
-        EntityID GetID() const { return m_ID; }
-        bool IsValid() const { return m_ID != INVALID_ENTITY; }
+    const std::string& GetName() const
+    {
+        return m_Name;
+    }
 
-        bool operator==(const Entity& other) const { return m_ID == other.m_ID; }
-        bool operator!=(const Entity& other) const { return m_ID != other.m_ID; }
+    void SetName(const std::string& name)
+    {
+        m_Name = name;
+    }
 
-    private:
-        EntityID m_ID;
-    };
+    template<typename T, typename... Args>
+    T& AddComponent(Args&&... args)
+    {
+        auto component = std::make_shared<T>(std::forward<Args>(args)...);
+        T& reference = *component;
 
-} // namespace MyEngine
+        m_Components[std::type_index(typeid(T))] = component;
+
+        return reference;
+    }
+
+    template<typename T>
+    bool HasComponent() const
+    {
+        return m_Components.find(std::type_index(typeid(T))) != m_Components.end();
+    }
+
+    template<typename T>
+    T& GetComponent()
+    {
+        return *std::static_pointer_cast<T>(
+            m_Components.at(std::type_index(typeid(T)))
+        );
+    }
+
+    template<typename T>
+    const T& GetComponent() const
+    {
+        return *std::static_pointer_cast<T>(
+            m_Components.at(std::type_index(typeid(T)))
+        );
+    }
+
+    template<typename T>
+    void RemoveComponent()
+    {
+        m_Components.erase(std::type_index(typeid(T)));
+    }
+
+private:
+    uint32_t m_ID = 0;
+    std::string m_Name;
+
+    std::unordered_map<std::type_index, std::shared_ptr<void>> m_Components;
+};

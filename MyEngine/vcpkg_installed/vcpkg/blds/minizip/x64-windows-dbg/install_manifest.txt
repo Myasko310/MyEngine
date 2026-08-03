@@ -1,0 +1,14 @@
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/lib/minizipd.lib
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/bin/minizipd.dll
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/lib/cmake/minizip/minizip-shared.cmake
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/lib/cmake/minizip/minizip-shared-debug.cmake
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/bin/minizipd.pdb
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/lib/cmake/minizip/minizipConfig.cmake
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/lib/cmake/minizip/minizipConfigVersion.cmake
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/include/minizip/crypt.h
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/include/minizip/ints.h
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/include/minizip/ioapi.h
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/include/minizip/mztools.h
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/include/minizip/unzip.h
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/include/minizip/zip.h
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows/debug/lib/pkgconfig/minizip.pc

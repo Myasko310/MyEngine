@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/zlib/x64-windows-dbg/cmake_install.cmake",
+		"C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/zlib/x64-windows-dbg/contrib/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

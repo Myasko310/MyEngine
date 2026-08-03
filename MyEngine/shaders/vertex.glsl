@@ -9,9 +9,10 @@ out vec3 ourColor;
 out vec3 fragNormal;
 out vec2 fragTexCoords;
 
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
+uniform mat4 u_Model;
+uniform mat4 u_View;
+uniform mat4 u_Projection;
+
 
 void main()
 {

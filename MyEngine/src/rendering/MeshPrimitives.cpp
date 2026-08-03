@@ -1,77 +1,51 @@
-#include "MeshPrimitives.h"
+#include "rendering/MeshPrimitives.h"
 
-namespace MyEngine {
-    namespace MeshPrimitives {
+namespace MyEngine
+{
+    std::shared_ptr<Mesh> MeshPrimitives::CreateCube()
+    {
+        std::vector<Vertex> vertices =
+        {
+            // Front face
+            {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}},
+            {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
+            {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
+            {{-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 0.0f}},
 
-        MeshComponent CreateCube(glm::vec3 color) {
-            MeshComponent mesh;
-            mesh.name = "Cube";
+            // Back face
+            {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 1.0f}},
+            {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 1.0f}},
+            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}},
+            {{-0.5f,  0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}}
+        };
 
-            mesh.vertices = {
-                // Front face
-                {{ -0.5f, -0.5f,  0.5f }, { 0,0,1 }, { 0,0 }, color },
-                {{  0.5f, -0.5f,  0.5f }, { 0,0,1 }, { 1,0 }, color },
-                {{  0.5f,  0.5f,  0.5f }, { 0,0,1 }, { 1,1 }, color },
-                {{ -0.5f,  0.5f,  0.5f }, { 0,0,1 }, { 0,1 }, color },
+        std::vector<unsigned int> indices =
+        {
+            // Front
+            0, 1, 2,
+            2, 3, 0,
 
-                // Back face
-                {{  0.5f, -0.5f, -0.5f }, { 0,0,-1 }, { 0,0 }, color },
-                {{ -0.5f, -0.5f, -0.5f }, { 0,0,-1 }, { 1,0 }, color },
-                {{ -0.5f,  0.5f, -0.5f }, { 0,0,-1 }, { 1,1 }, color },
-                {{  0.5f,  0.5f, -0.5f }, { 0,0,-1 }, { 0,1 }, color },
+            // Right
+            1, 5, 6,
+            6, 2, 1,
 
-                // Left face
-                {{ -0.5f, -0.5f, -0.5f }, { -1,0,0 }, { 0,0 }, color },
-                {{ -0.5f, -0.5f,  0.5f }, { -1,0,0 }, { 1,0 }, color },
-                {{ -0.5f,  0.5f,  0.5f }, { -1,0,0 }, { 1,1 }, color },
-                {{ -0.5f,  0.5f, -0.5f }, { -1,0,0 }, { 0,1 }, color },
+            // Back
+            5, 4, 7,
+            7, 6, 5,
 
-                // Right face
-                {{  0.5f, -0.5f,  0.5f }, { 1,0,0 }, { 0,0 }, color },
-                {{  0.5f, -0.5f, -0.5f }, { 1,0,0 }, { 1,0 }, color },
-                {{  0.5f,  0.5f, -0.5f }, { 1,0,0 }, { 1,1 }, color },
-                {{  0.5f,  0.5f,  0.5f }, { 1,0,0 }, { 0,1 }, color },
+            // Left
+            4, 0, 3,
+            3, 7, 4,
 
-                // Top face
-                {{ -0.5f,  0.5f,  0.5f }, { 0,1,0 }, { 0,0 }, color },
-                {{  0.5f,  0.5f,  0.5f }, { 0,1,0 }, { 1,0 }, color },
-                {{  0.5f,  0.5f, -0.5f }, { 0,1,0 }, { 1,1 }, color },
-                {{ -0.5f,  0.5f, -0.5f }, { 0,1,0 }, { 0,1 }, color },
+            // Top
+            3, 2, 6,
+            6, 7, 3,
 
-                // Bottom face
-                {{ -0.5f, -0.5f, -0.5f }, { 0,-1,0 }, { 0,0 }, color },
-                {{  0.5f, -0.5f, -0.5f }, { 0,-1,0 }, { 1,0 }, color },
-                {{  0.5f, -0.5f,  0.5f }, { 0,-1,0 }, { 1,1 }, color },
-                {{ -0.5f, -0.5f,  0.5f }, { 0,-1,0 }, { 0,1 }, color },
-            };
+            // Bottom
+            4, 5, 1,
+            1, 0, 4
+        };
 
-            mesh.indices = {
-                 0,  1,  2,   2,  3,  0,   // Front
-                 4,  5,  6,   6,  7,  4,   // Back
-                 8,  9, 10,  10, 11,  8,   // Left
-                12, 13, 14,  14, 15, 12,   // Right
-                16, 17, 18,  18, 19, 16,   // Top
-                20, 21, 22,  22, 23, 20,   // Bottom
-            };
-
-            return mesh;
-        }
-
-        MeshComponent CreatePlane(glm::vec3 color) {
-            MeshComponent mesh;
-            mesh.name = "Plane";
-
-            mesh.vertices = {
-                {{ -5.0f, 0.0f,  5.0f }, { 0,1,0 }, { 0,0 }, color },
-                {{  5.0f, 0.0f,  5.0f }, { 0,1,0 }, { 1,0 }, color },
-                {{  5.0f, 0.0f, -5.0f }, { 0,1,0 }, { 1,1 }, color },
-                {{ -5.0f, 0.0f, -5.0f }, { 0,1,0 }, { 0,1 }, color },
-            };
-
-            mesh.indices = { 0, 1, 2,  2, 3, 0 };
-
-            return mesh;
-        }
-
+        return std::make_shared<Mesh>(vertices, indices);
     }
-} // namespace MyEngine::MeshPrimitives
+}

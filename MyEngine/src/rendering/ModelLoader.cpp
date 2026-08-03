@@ -1,132 +1,122 @@
-#include "rendering/ModelLoader.h"
+#include "model/ModelLoader.h"
 
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
 
-#include <iostream>
+#include <glm/glm.hpp>
 
-namespace MyEngine {
-
-    std::vector<MeshComponent> ModelLoader::Load(const std::string& path)
-    {
-        std::vector<MeshComponent> meshes;
-
-        Assimp::Importer importer;
-
-        const aiScene* scene = importer.ReadFile(
-            path,
-            aiProcess_Triangulate |
-            aiProcess_FlipUVs |
-            aiProcess_GenNormals
-        );
-
-        if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode)
-        {
-            std::cerr << "[ModelLoader] Assimp error: "
-                << importer.GetErrorString() << "\n";
-            return meshes;
-        }
-
-        ProcessNode(scene->mRootNode, scene, meshes);
-
-        return meshes;
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    void ModelLoader::ProcessNode(
-        const void* nodePtr,
-        const void* scenePtr,
-        std::vector<MeshComponent>& meshes
+namespace MyEngine
+{
+    static bool ParseOBJFaceVertex(
+        const std::string& token,
+        unsigned int& positionIndex
     )
     {
-        const aiNode* node = static_cast<const aiNode*>(nodePtr);
-        const aiScene* scene = static_cast<const aiScene*>(scenePtr);
+        // Supports:
+        // f 1 2 3
+        // f 1/1 2/2 3/3
+        // f 1/1/1 2/2/2 3/3/3
+        // f 1//1 2//2 3//3
 
-        if (!node || !scene)
-            return;
+        if (token.empty())
+            return false;
 
-        // Process all meshes in this node
-        for (unsigned int i = 0; i < node->mNumMeshes; i++)
-        {
-            const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            meshes.push_back(ProcessMesh(mesh, scene));
-        }
+        std::stringstream ss(token);
+        std::string indexString;
 
-        // Process children recursively
-        for (unsigned int i = 0; i < node->mNumChildren; i++)
-        {
-            ProcessNode(node->mChildren[i], scene, meshes);
-        }
+        if (!std::getline(ss, indexString, '/'))
+            return false;
+
+        if (indexString.empty())
+            return false;
+
+        positionIndex = static_cast<unsigned int>(std::stoul(indexString));
+
+        return true;
     }
 
-    // ─────────────────────────────────────────────────────────────
-    MeshComponent ModelLoader::ProcessMesh(
-        const void* meshPtr,
-        const void* /*scenePtr*/
-    )
+    std::shared_ptr<Mesh> ModelLoader::LoadOBJ(const std::string& filepath)
     {
-        const aiMesh* m = static_cast<const aiMesh*>(meshPtr);
+        std::ifstream file(filepath);
 
-        MeshComponent mesh;
-
-        if (!m)
-            return mesh;
-
-        // ── Vertices ─────────────────────────────────────────────
-        for (unsigned int i = 0; i < m->mNumVertices; i++)
+        if (!file.is_open())
         {
-            Vertex v;
-
-            v.position = glm::vec3(
-                m->mVertices[i].x,
-                m->mVertices[i].y,
-                m->mVertices[i].z
-            );
-
-            if (m->HasNormals())
-            {
-                v.normal = glm::vec3(
-                    m->mNormals[i].x,
-                    m->mNormals[i].y,
-                    m->mNormals[i].z
-                );
-            }
-            else
-            {
-                v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
-            }
-
-            if (m->mTextureCoords[0])
-            {
-                v.texCoords = glm::vec2(
-                    m->mTextureCoords[0][i].x,
-                    m->mTextureCoords[0][i].y
-                );
-            }
-            else
-            {
-                v.texCoords = glm::vec2(0.0f, 0.0f);
-            }
-
-            // Default white vertex color
-            v.color = glm::vec3(1.0f, 1.0f, 1.0f);
-
-            mesh.vertices.push_back(v);
+            return nullptr;
         }
 
-        // ── Indices ──────────────────────────────────────────────
-        for (unsigned int i = 0; i < m->mNumFaces; i++)
-        {
-            const aiFace& face = m->mFaces[i];
+        std::vector<glm::vec3> positions;
 
-            for (unsigned int j = 0; j < face.mNumIndices; j++)
+        std::vector<Vertex> vertices;
+        std::vector<unsigned int> indices;
+
+        std::string line;
+
+        while (std::getline(file, line))
+        {
+            std::stringstream ss(line);
+
+            std::string prefix;
+            ss >> prefix;
+
+            if (prefix == "v")
             {
-                mesh.indices.push_back(face.mIndices[j]);
+                glm::vec3 position{};
+                ss >> position.x >> position.y >> position.z;
+                positions.push_back(position);
+            }
+            else if (prefix == "f")
+            {
+                std::vector<unsigned int> facePositionIndices;
+
+                std::string token;
+                while (ss >> token)
+                {
+                    unsigned int objPositionIndex = 0;
+
+                    if (ParseOBJFaceVertex(token, objPositionIndex))
+                    {
+                        // OBJ indices start at 1
+                        facePositionIndices.push_back(objPositionIndex - 1);
+                    }
+                }
+
+                if (facePositionIndices.size() < 3)
+                    continue;
+
+                // Triangulate polygon fan:
+                // 0,1,2 then 0,2,3 etc.
+                for (size_t i = 1; i + 1 < facePositionIndices.size(); ++i)
+                {
+                    unsigned int tri[3] =
+                    {
+                        facePositionIndices[0],
+                        facePositionIndices[i],
+                        facePositionIndices[i + 1]
+                    };
+
+                    for (unsigned int idx : tri)
+                    {
+                        if (idx >= positions.size())
+                            continue;
+
+                        Vertex vertex;
+                        vertex.Position = positions[idx];
+                        vertex.Color = glm::vec3(1.0f, 1.0f, 1.0f);
+
+                        vertices.push_back(vertex);
+                        indices.push_back(static_cast<unsigned int>(indices.size()));
+                    }
+                }
             }
         }
 
-        return mesh;
+        if (vertices.empty() || indices.empty())
+        {
+            return nullptr;
+        }
+
+        return std::make_shared<Mesh>(vertices, indices);
     }
-
-} // namespace MyEngine
+}

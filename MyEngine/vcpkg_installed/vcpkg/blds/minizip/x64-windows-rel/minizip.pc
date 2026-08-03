@@ -1,0 +1,13 @@
+prefix=C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/minizip_x64-windows
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: minizip
+Description: Minizip zip file manipulation library
+Requires:
+Version: 1.0.0
+License: Zlib
+Libs: -L${prefix}/lib -lminizip
+Requires.private: zlib 
+Cflags: -I${prefix}/include

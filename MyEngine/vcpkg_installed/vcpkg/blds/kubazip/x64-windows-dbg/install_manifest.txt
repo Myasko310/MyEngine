@@ -1,0 +1,7 @@
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/kubazip_x64-windows/debug/lib/cmake/zip/zipConfig.cmake
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/kubazip_x64-windows/debug/lib/cmake/zip/zipConfigVersion.cmake
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/kubazip_x64-windows/debug/lib/cmake/zip/zipTargets.cmake
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/kubazip_x64-windows/debug/lib/cmake/zip/zipTargets-debug.cmake
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/kubazip_x64-windows/debug/lib/kubazip.lib
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/kubazip_x64-windows/debug/bin/kubazip.dll
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/kubazip_x64-windows/debug/include/kubazip/zip/zip.h

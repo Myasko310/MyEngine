@@ -1,21 +1,15 @@
 #pragma once
 
-#include "ecs/Component.h"
-#include "rendering/Shader.h"
-#include <glm/glm.hpp>
 #include <memory>
-#include <string>
 
-namespace MyEngine {
+#include <glm/glm.hpp>
 
-    struct MeshRendererComponent : public Component {
-        std::shared_ptr<Shader> shader;
+#include "rendering/Shader.h"
 
-        glm::vec3 color = glm::vec3(1.0f);
-        bool      wireframe = false;
-        bool      visible = true;
-
-        std::string modelPath = ""; // for model loading
-    };
-
-} // namespace MyEngine
+struct MeshRendererComponent
+{
+    std::shared_ptr<MyEngine::Shader> shader = nullptr;
+    bool visible = true;
+    glm::vec3 albedo = glm::vec3(1.0f);
+    float shininess = 32.0f;
+};

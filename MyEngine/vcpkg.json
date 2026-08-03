@@ -1,0 +1,10 @@
+{
+  "name": "myengine",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "glfw3",
+    "glm",
+    "glad"
+  ],
+  "builtin-baseline": "c93f37f1b1d20963ceab60bcd78b946af902ffe9"
+}

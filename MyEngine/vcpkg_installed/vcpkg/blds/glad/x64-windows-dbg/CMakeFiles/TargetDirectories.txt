@@ -1,0 +1,7 @@
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/glad/x64-windows-dbg/CMakeFiles/glad-generate-files.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/glad/x64-windows-dbg/CMakeFiles/glad.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/glad/x64-windows-dbg/CMakeFiles/edit_cache.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/glad/x64-windows-dbg/CMakeFiles/rebuild_cache.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/glad/x64-windows-dbg/CMakeFiles/list_install_components.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/glad/x64-windows-dbg/CMakeFiles/install.dir
+C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/glad/x64-windows-dbg/CMakeFiles/install/local.dir

@@ -25,9 +25,6 @@
 
 // Systems
 #include "systems/CameraSystem.h"
-
-// If your project has a render system, include it here.
-// Change this include/name if your renderer is named differently.
 #include "systems/MeshRendererSystem.h"
 
 using namespace MyEngine;

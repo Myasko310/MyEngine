@@ -145,9 +145,11 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     {
         m_Impl->shadowMap.BindForWriting();
     }
-    // Cull front faces to reduce peter-panning and enable polygon offset to
-    // further reduce shadow acne.
-    glCullFace(GL_FRONT);
+    // For the shadow depth pass we render both sides (disable face culling)
+    // so planar geometry (like the ground) is recorded in the depth map
+    // regardless of triangle winding. We still use polygon offset to reduce
+    // shadow acne.
+    glDisable(GL_CULL_FACE);
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(2.0f, 4.0f);
     depthShader->Use();
@@ -195,8 +197,10 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         // Restore the previous viewport (window size)
         glViewport(lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3]);
     }
-    // Restore polygon offset and face culling
+    // Restore polygon offset and face culling (enable back-face culling for
+    // the main pass)
     glDisable(GL_POLYGON_OFFSET_FILL);
+    glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
 
 

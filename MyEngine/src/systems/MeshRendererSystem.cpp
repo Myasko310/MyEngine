@@ -13,19 +13,75 @@
 #include "rendering/Shader.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include "renderer/FrustumCuller.h"
+#include "MeshRendererSystem_Impl.h"
+
+struct MeshRendererSystem::Impl;
+
+// Definitions for constructor/destructor
+MeshRendererSystem::MeshRendererSystem()
+    : m_Impl(std::make_unique<Impl>())
+{
+}
+
+MeshRendererSystem::~MeshRendererSystem() = default;
+
+void MeshRendererSystem::SetShadowsEnabled(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->shadowsEnabled = enabled;
+}
+
+bool MeshRendererSystem::GetShadowsEnabled() const
+{
+    return m_Impl ? m_Impl->shadowsEnabled : false;
+}
+
+void MeshRendererSystem::SetShadowSize(unsigned int size)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->shadowSize = size;
+    if (m_Impl->shadowMap.GetDepthTexture() == 0)
+        m_Impl->shadowMap.Init(size, size);
+}
+
+unsigned int MeshRendererSystem::GetShadowSize() const
+{
+    return m_Impl ? m_Impl->shadowSize : 0;
+}
+
+void MeshRendererSystem::SetShadowBias(float bias)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->shadowBias = bias;
+}
+
+float MeshRendererSystem::GetShadowBias() const
+{
+    return m_Impl ? m_Impl->shadowBias : 0.0f;
+}
+
+unsigned int MeshRendererSystem::GetShadowTexture() const
+{
+    return m_Impl ? m_Impl->shadowMap.GetDepthTexture() : 0;
+}
+
 
 void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::mat4& projection)
 {
+    if (!m_Impl)
+        m_Impl = std::make_unique<Impl>();
+
     // Static resources: depth shader and shadow map
     static std::shared_ptr<MyEngine::Shader> depthShader = nullptr;
-    static MyEngine::ShadowMap shadowMap;
     static bool initialized = false;
-    const unsigned int SHADOW_SIZE = 2048;
 
     if (!initialized)
     {
         depthShader = std::make_shared<MyEngine::Shader>("shaders/depth.vert", "shaders/depth.frag");
-        shadowMap.Init(SHADOW_SIZE, SHADOW_SIZE);
+        // Initialize impl shadow map
+        if (!m_Impl)
+            m_Impl = std::make_unique<Impl>();
+        m_Impl->shadowMap.Init(m_Impl->shadowSize, m_Impl->shadowSize);
         initialized = true;
     }
 
@@ -52,23 +108,32 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     }
 
     // Compute light-space matrix for directional light
+    // Use a conventional orthographic near/far range (positive distances)
     float orthoSize = 10.0f;
-    float nearPlane = -10.0f;
-    float farPlane = 30.0f;
+    float nearPlane = 1.0f;
+    float farPlane = 50.0f;
     glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
-    glm::vec3 lightPos = -lightDir * 10.0f; // position the light back along its direction
+    // Place the light further back along its direction to cover the scene from above
+    glm::vec3 lightPos = -lightDir * 20.0f;
     glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 
     // Update frustum from view-projection for culling
     MyEngine::FrustumCuller culler;
-    glm::mat4 vp = projection * view;
+    const glm::mat4 vp = projection * view;
     culler.Update(vp);
 
     // 1) Render depth of scene from light's perspective
-    shadowMap.BindForWriting();
-    // Cull front faces to reduce peter-panning
+    if (m_Impl && m_Impl->shadowsEnabled)
+    {
+        m_Impl->shadowMap.BindForWriting();
+    }
+    // Cull front faces to reduce peter-panning and enable polygon offset to
+    // further reduce shadow acne. Polygon offset helps avoid fragments
+    // self-shadowing when using integer depth maps.
     glCullFace(GL_FRONT);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(2.0f, 4.0f);
     depthShader->Use();
     for (const auto& entity : scene.GetEntities())
     {
@@ -106,7 +171,12 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         meshComponent.mesh->Draw();
     }
 
-    shadowMap.Unbind();
+    if (m_Impl && m_Impl->shadowsEnabled)
+    {
+        m_Impl->shadowMap.Unbind();
+    }
+    // Restore polygon offset and face culling
+    glDisable(GL_POLYGON_OFFSET_FILL);
     glCullFace(GL_BACK);
 
 
@@ -156,9 +226,13 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
         // Shadow uniforms
         renderer.shader->SetMat4("u_LightSpace", lightSpaceMatrix);
-        // Bind shadow map to texture unit 1
-        shadowMap.BindForReading(1);
-        renderer.shader->SetInt("u_ShadowMap", 1);
+        if (m_Impl && m_Impl->shadowsEnabled)
+        {
+            // Bind shadow map to texture unit 1
+            m_Impl->shadowMap.BindForReading(1);
+            renderer.shader->SetInt("u_ShadowMap", 1);
+            renderer.shader->SetFloat("u_ShadowBias", m_Impl->shadowBias);
+        }
 
         meshComponent.mesh->Draw();
     }

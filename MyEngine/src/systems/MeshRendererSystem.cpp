@@ -156,7 +156,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
         // Shadow uniforms
         renderer.shader->SetMat4("u_LightSpace", lightSpaceMatrix);
-        // bind shadow map to texture unit 1
+        // Bind shadow map to texture unit 1
         shadowMap.BindForReading(1);
         renderer.shader->SetInt("u_ShadowMap", 1);
 

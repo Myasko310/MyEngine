@@ -1,7 +1,0 @@
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/kubazip/x64-windows-rel/CMakeFiles/zip.dir
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/kubazip/x64-windows-rel/CMakeFiles/uninstall.dir
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/kubazip/x64-windows-rel/CMakeFiles/edit_cache.dir
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/kubazip/x64-windows-rel/CMakeFiles/rebuild_cache.dir
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/kubazip/x64-windows-rel/CMakeFiles/list_install_components.dir
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/kubazip/x64-windows-rel/CMakeFiles/install.dir
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/kubazip/x64-windows-rel/CMakeFiles/install/local.dir

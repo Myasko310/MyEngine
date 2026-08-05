@@ -1,5 +1,0 @@
-# ninja log v7
-6	177	8071513733953282	CMakeFiles/zip.dir/src/zip.c.obj	7cf2d91b648d5368
-178	421	8071513737883179	kubazip.dll	d567c59a9c9fdcc8
-178	421	8071513737883179	kubazip.lib	d567c59a9c9fdcc8
-421	524	8071513738106441	CMakeFiles/install.util	f9d8883d3dbfc1d8

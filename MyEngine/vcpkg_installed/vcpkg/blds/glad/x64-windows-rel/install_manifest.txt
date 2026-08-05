@@ -1,7 +1,0 @@
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/glad_x64-windows/lib/glad.lib
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/glad_x64-windows/include/glad/glad.h
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/glad_x64-windows/include/KHR/khrplatform.h
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/glad_x64-windows/lib/cmake/glad/gladConfig.cmake
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/glad_x64-windows/lib/cmake/glad/gladConfigVersion.cmake
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/glad_x64-windows/lib/cmake/glad/gladTargets.cmake
-C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/pkgs/glad_x64-windows/lib/cmake/glad/gladTargets-release.cmake

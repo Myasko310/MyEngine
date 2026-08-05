@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/pugixml/x64-windows-rel/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

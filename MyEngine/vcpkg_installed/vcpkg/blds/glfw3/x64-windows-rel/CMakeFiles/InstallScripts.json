@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/glfw3/x64-windows-rel/cmake_install.cmake",
-		"C:/Users/micha/source/repos/MyEngine/MyEngine/vcpkg_installed/vcpkg/blds/glfw3/x64-windows-rel/src/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

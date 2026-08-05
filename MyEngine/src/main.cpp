@@ -265,10 +265,51 @@ int main()
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     ImGui::StyleColorsDark();
 
-    // Increase UI scale and style sizes so the overlay is much more visible on
-    // modern high-DPI displays and larger window sizes.
-    io.FontGlobalScale = 1.6f;
-    ImGui::GetStyle().ScaleAllSizes(1.6f);
+    // Try to make the process per-monitor DPI aware on Windows so framebuffer
+    // sizes reported by GLFW reflect the actual DPI scaling.
+#ifdef _WIN32
+    // This is best-effort; if the symbol is available it will set DPI awareness.
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+#endif
+
+    // Compute DPI scale from GLFW framebuffer vs window size and load an
+    // explicit TTF font at a pixel size accounting for DPI. This avoids
+    // relying only on global scaling which can cause glyph artifacts.
+    int fbw = 0, fbh = 0, ww = 0, wh = 0;
+    glfwGetFramebufferSize(window, &fbw, &fbh);
+    glfwGetWindowSize(window, &ww, &wh);
+    float dpi_scale = 1.0f;
+    if (ww > 0 && wh > 0)
+        dpi_scale = static_cast<float>(fbw) / static_cast<float>(ww);
+
+    // Load a system font at a reasonable pixel size multiplied by DPI scale.
+    const char* fontPath = "C:/Windows/Fonts/arial.ttf";
+    FILE* f = nullptr;
+#ifdef _MSC_VER
+    fopen_s(&f, fontPath, "rb");
+#else
+    f = fopen(fontPath, "rb");
+#endif
+    if (f)
+    {
+        fclose(f);
+        io.Fonts->AddFontFromFileTTF(fontPath, 16.0f * dpi_scale);
+    }
+    else
+    {
+        // Fall back to default font if TTF not found
+        io.Fonts->AddFontDefault();
+    }
+
+    // Use 1:1 global scale and rely on the font pixel size + framebuffer scale
+    // to make ImGui look correct on high-DPI displays.
+    io.FontGlobalScale = 1.0f;
+    ImGui::GetStyle().ScaleAllSizes(1.0f);
+
+    // Diagnostic output to help debug remaining issues
+    std::printf("ImGui diagnostics: FontGlobalScale=%.2f DisplayFramebufferScale=(%.2f,%.2f) dpi_scale=%.2f FontsCount=%d\n",
+                io.FontGlobalScale, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y,
+                dpi_scale, io.Fonts->Fonts.Size);
 
     // Setup Platform/Renderer bindings
     ImGui_ImplGlfw_InitForOpenGL(window, true);

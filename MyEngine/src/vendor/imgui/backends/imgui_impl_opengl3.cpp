@@ -216,7 +216,12 @@ void ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
 			{
 				ImTextureID tex_ref = pcmd->GetTexID();
 				GLuint tex_id = (GLuint)(intptr_t)tex_ref;
-				glBindTexture(GL_TEXTURE_2D, tex_id);
+					// Ensure we're binding the texture to texture unit 0 because the shader
+					// sampler is set to use unit 0. Some drivers preserve the active
+					// texture unit from the application and glBindTexture will affect
+					// that unit, so be explicit here.
+					glActiveTexture(GL_TEXTURE0);
+					glBindTexture(GL_TEXTURE_2D, tex_id);
 				glScissor((int)pcmd->ClipRect.x, (int)(fb_height - pcmd->ClipRect.w),
 						  (int)(pcmd->ClipRect.z - pcmd->ClipRect.x), (int)(pcmd->ClipRect.w - pcmd->ClipRect.y));
 				// Note: ImDrawCmd uses VtxOffset/IdxOffset fields; we accumulate them when uploading

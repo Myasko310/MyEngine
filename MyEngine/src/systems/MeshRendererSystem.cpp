@@ -118,10 +118,17 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 
-    // Update frustum from view-projection for culling
-    MyEngine::FrustumCuller culler;
-    const glm::mat4 vp = projection * view;
-    culler.Update(vp);
+    // Prepare frustum cullers: one for the light (depth pass) and one for the
+    // camera (main pass). Using the light frustum for the depth pass avoids
+    // accidentally skipping objects that are visible to the light but not to
+    // the camera.
+    MyEngine::FrustumCuller lightCuller;
+    glm::mat4 lightVP = lightProjection * lightView;
+    lightCuller.Update(lightVP);
+
+    MyEngine::FrustumCuller cameraCuller;
+    glm::mat4 cameraVP = projection * view;
+    cameraCuller.Update(cameraVP);
 
     // 1) Render depth of scene from light's perspective
     GLint lastViewport[4];

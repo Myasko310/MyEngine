@@ -45,8 +45,8 @@
 using namespace MyEngine;
 
 // Make the initial window larger so UI and scene are more visible by default
-static int g_WindowWidth = 1600;
-static int g_WindowHeight = 900;
+static int g_WindowWidth = 3200;
+static int g_WindowHeight = 1800;
 
 static void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
@@ -350,7 +350,8 @@ int main()
         {{-5.0f, 0.0f,  5.0f}, {0.6f, 0.6f, 0.6f}, {0.0f, 1.0f, 0.0f}}
     };
 
-    std::vector<unsigned int> planeIndices = { 0,1,2, 2,3,0 };
+    // Ensure triangle winding produces an upwards-facing normal (CCW)
+    std::vector<unsigned int> planeIndices = { 0,2,1, 0,3,2 };
 
     auto planeMesh = std::make_shared<MyEngine::Mesh>(planeVertices, planeIndices);
 

@@ -101,6 +101,9 @@ bool ImGui_ImplOpenGL3_Init(const char* glsl_version)
 	glBindTexture(GL_TEXTURE_2D, g_FontTexture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// Ensure tight pixel packing for font uploads. Default alignment (4) can
+	// cause glyph rows to be incorrectly uploaded on some drivers/sizes.
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 	io.Fonts->SetTexID((ImTextureID)(intptr_t)g_FontTexture);

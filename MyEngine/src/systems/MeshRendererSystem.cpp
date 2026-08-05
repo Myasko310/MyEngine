@@ -114,8 +114,16 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     float farPlane = 50.0f;
     glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
     // Place the light further back along its direction to cover the scene from above
+    // Ensure the light 'up' is consistent with world up to avoid flipping the
+    // shadow projection when the light direction is near-up or near-down.
+    glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
+    if (fabs(glm::dot(lightDir, up)) > 0.99f)
+    {
+        // If nearly parallel, pick a different up vector to avoid singularity.
+        up = glm::vec3(0.0f, 0.0f, 1.0f);
+    }
     glm::vec3 lightPos = -lightDir * 20.0f;
-    glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f), up);
     glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 
     // Prepare frustum cullers: one for the light (depth pass) and one for the

@@ -21,6 +21,9 @@ namespace MyEngine
         Mesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices);
         ~Mesh();
 
+        const glm::vec3& GetBoundingCenter() const { return m_BoundingCenter; }
+        float GetBoundingRadius() const { return m_BoundingRadius; }
+
         Mesh(const Mesh&) = delete;
         Mesh& operator=(const Mesh&) = delete;
 
@@ -37,6 +40,8 @@ namespace MyEngine
         unsigned int m_VBO = 0;
         unsigned int m_EBO = 0;
         unsigned int m_IndexCount = 0;
+        glm::vec3 m_BoundingCenter{0.0f};
+        float m_BoundingRadius{0.0f};
 
     private:
         void SetupMesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices);

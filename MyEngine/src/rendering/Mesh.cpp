@@ -48,6 +48,28 @@ namespace MyEngine
 
     void Mesh::SetupMesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices)
     {
+        // Compute bounding sphere from vertex positions (AABB-based)
+        if (!vertices.empty())
+        {
+            glm::vec3 minV = vertices[0].Position;
+            glm::vec3 maxV = vertices[0].Position;
+
+            for (size_t i = 1; i < vertices.size(); ++i)
+            {
+                const glm::vec3& p = vertices[i].Position;
+                minV = glm::min(minV, p);
+                maxV = glm::max(maxV, p);
+            }
+
+            m_BoundingCenter = (minV + maxV) * 0.5f;
+            m_BoundingRadius = glm::length(maxV - m_BoundingCenter);
+        }
+        else
+        {
+            m_BoundingCenter = glm::vec3(0.0f);
+            m_BoundingRadius = 0.0f;
+        }
+
         glGenVertexArrays(1, &m_VAO);
         glGenBuffers(1, &m_VBO);
         glGenBuffers(1, &m_EBO);
@@ -134,5 +156,7 @@ namespace MyEngine
         }
 
         m_IndexCount = 0;
+        m_BoundingCenter = glm::vec3(0.0f);
+        m_BoundingRadius = 0.0f;
     }
 }

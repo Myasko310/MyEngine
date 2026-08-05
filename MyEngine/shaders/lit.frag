@@ -3,6 +3,7 @@
 in vec3 v_Position;
 in vec3 v_Color;
 in vec3 v_Normal;
+in vec4 v_FragPosLightSpace;
 
 out vec4 FragColor;
 
@@ -12,6 +13,27 @@ uniform vec3 u_AmbientColor;
 
 uniform vec3 u_MaterialAlbedo;
 uniform float u_MaterialShininess;
+uniform sampler2D u_ShadowMap;
+
+float ShadowCalculation(vec4 fragPosLightSpace)
+{
+	// perform perspective divide
+	vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+	// transform to [0,1]
+	projCoords = projCoords * 0.5 + 0.5;
+	// get closest depth value from light's perspective (using [0,1] range)
+	float closestDepth = texture(u_ShadowMap, projCoords.xy).r;
+	// current depth
+	float currentDepth = projCoords.z;
+	// bias to avoid shadow acne
+	float bias = max(0.005 * (1.0 - dot(normalize(v_Normal), normalize(-u_LightDirection))), 0.0005);
+	// simple shadow
+	float shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
+	// if outside far plane
+	if (projCoords.z > 1.0)
+		shadow = 0.0;
+	return shadow;
+}
 
 void main()
 {
@@ -31,8 +53,9 @@ void main()
 	float spec = pow(max(dot(N, H), 0.0), u_MaterialShininess);
 	vec3 specular = spec * u_LightColor;
 
-	vec3 color = ambient + diffuse + specular;
-	color *= v_Color; // modulate by vertex color
+	float shadow = ShadowCalculation(v_FragPosLightSpace);
+	vec3 lighting = ambient + (1.0 - shadow) * (diffuse + specular);
+	vec3 color = lighting * v_Color;
 
 	FragColor = vec4(color, 1.0);
 }

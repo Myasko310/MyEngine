@@ -7,4 +7,6 @@
 struct MeshComponent
 {
     std::shared_ptr<MyEngine::Mesh> mesh = nullptr;
+    // Optional asset path for serialized/loadable meshes
+    std::string assetPath;
 };

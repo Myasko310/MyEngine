@@ -2,6 +2,9 @@
 #include <GLFW/glfw3.h>
 
 #include <iostream>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <memory>
 #include <chrono>
 #include <vector>
@@ -16,12 +19,24 @@
 // Components
 #include "components/CameraComponent.h"
 #include "components/TransformComponent.h"
+#include "components/BoundingSphereComponent.h"
 #include "components/MeshComponent.h"
 #include "components/MeshRendererComponent.h"
 
 // Rendering
 #include "rendering/Mesh.h"
 #include "rendering/Shader.h"
+// Model / serialization
+#include "rendering/Model.h"
+#include "serialization/SceneSerializer.h"
+// Asset manager
+#include "core/AssetManager.h"
+
+#ifdef USE_IMGUI
+#include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_opengl3.h"
+#endif
 
 // Systems
 #include "systems/CameraSystem.h"
@@ -29,8 +44,9 @@
 
 using namespace MyEngine;
 
-static int g_WindowWidth = 1280;
-static int g_WindowHeight = 720;
+// Make the initial window larger so UI and scene are more visible by default
+static int g_WindowWidth = 1600;
+static int g_WindowHeight = 900;
 
 static void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
@@ -58,6 +74,49 @@ static void APIENTRY OpenGLDebugCallback(
 
 int main()
 {
+    // Runtime diagnostics: print exe path, working dir, PATH, and attempt to LoadLibrary
+    // for common DLLs so we can see exactly which dependency is missing at startup.
+#ifdef _WIN32
+    auto DumpRuntimeInfo = []()
+    {
+        char exePath[MAX_PATH] = {0};
+        GetModuleFileNameA(NULL, exePath, MAX_PATH);
+        std::cout << "[Runtime] Exe Path: " << exePath << std::endl;
+
+        char cwd[MAX_PATH] = {0};
+        GetCurrentDirectoryA(MAX_PATH, cwd);
+        std::cout << "[Runtime] Current Dir: " << cwd << std::endl;
+
+        const char* pathEnv = getenv("PATH");
+        std::cout << "[Runtime] PATH=" << (pathEnv ? pathEnv : "") << std::endl;
+
+        const char* probes[] = {
+            "assimp-vc145-mtd.dll",
+            "assimp-vc145-mt.dll",
+            "glfw3.dll",
+            "vcruntime140d.dll",
+            "vcruntime140_1d.dll",
+            "msvcp140d.dll",
+            "ucrtbased.dll"
+        };
+
+        for (const char* name : probes)
+        {
+            HMODULE h = LoadLibraryA(name);
+            if (h)
+            {
+                std::cout << "[Runtime] Successfully loaded: " << name << std::endl;
+                FreeLibrary(h);
+            }
+            else
+            {
+                DWORD err = GetLastError();
+                std::cout << "[Runtime] Failed to load: " << name << " -> GetLastError=" << err << std::endl;
+            }
+        }
+    };
+    DumpRuntimeInfo();
+#endif
     // ------------------------------------------------------------
     // GLFW init
     // ------------------------------------------------------------
@@ -95,6 +154,8 @@ int main()
 
     // Enable vsync
     glfwSwapInterval(1);
+
+
 
     // ------------------------------------------------------------
     // GLAD init
@@ -177,6 +238,18 @@ int main()
 
     MeshRendererSystem renderSystem;
 
+    std::cout << "Controls:\n"
+              << "  WASD + mouse: move/look (camera)\n"
+              << "  F: toggle wireframe\n"
+              << "  TAB: cycle selected cube\n"
+              << "  Arrow keys: rotate directional light\n"
+              << "  X/Z: increase/decrease light intensity\n"
+              << "  U/J I/K O/L: adjust selected cube color (R/G/B)\n"
+              << "  M: load model from assets/model.obj\n"
+              << "  P: save scene to scene.json\n"
+              << "  O: load scene from scene.json\n"
+              << std::endl;
+
     // ------------------------------------------------------------
     // Create simple geometry and place objects in the scene
     // ------------------------------------------------------------
@@ -184,6 +257,26 @@ int main()
         "shaders/lit.vert",
         "shaders/lit.frag"
     );
+
+#ifdef USE_IMGUI
+    // Setup ImGui context (after GL is initialized)
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark();
+
+    // Increase UI scale and style sizes so the overlay is much more visible on
+    // modern high-DPI displays and larger window sizes.
+    io.FontGlobalScale = 1.6f;
+    ImGui::GetStyle().ScaleAllSizes(1.6f);
+
+    // Setup Platform/Renderer bindings
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330 core");
+    std::cout << "ImGui: initialized and enabled\n";
+#else
+    std::cout << "ImGui: not available (build without ImGui)\n";
+#endif
 
     // Cube geometry (8 unique vertices, 36 indices)
     std::vector<MyEngine::Vertex> cubeVertices = {
@@ -227,11 +320,12 @@ int main()
         t.position = glm::vec3(0.0f, 0.0f, 0.0f);
         t.scale = glm::vec3(1.0f);
 
-        auto& mc = planeEntity->AddComponent<MeshComponent>();
-        mc.mesh = planeMesh;
-
-        auto& mr = planeEntity->AddComponent<MeshRendererComponent>();
-        mr.shader = litShader;
+        // Auto-attach mesh, renderer and bounding sphere
+        MyEngine::AssetManager::AttachMeshToEntity(planeEntity, planeMesh, "", litShader);
+        // Optionally override bounding sphere radius for the ground if desired
+        // auto& bsPlane = planeEntity->GetComponent<BoundingSphereComponent>();
+        // bsPlane.center = glm::vec3(0.0f, 0.0f, 0.0f);
+        // bsPlane.radius = 8.0f;
     }
 
     // Create a few cubes to interact with
@@ -243,11 +337,10 @@ int main()
         t.position = glm::vec3(static_cast<float>(i) - 2.0f, 0.5f, -2.0f - static_cast<float>(i));
         t.scale = glm::vec3(1.0f);
 
-        auto& mc = cubeEntity->AddComponent<MeshComponent>();
-        mc.mesh = cubeMesh;
-
-        auto& mr = cubeEntity->AddComponent<MeshRendererComponent>();
-        mr.shader = litShader;
+        // Auto-attach mesh, renderer and bounding sphere
+        MyEngine::AssetManager::AttachMeshToEntity(cubeEntity, cubeMesh, "", litShader);
+        // Set per-cube material color
+        auto& mr = cubeEntity->GetComponent<MeshRendererComponent>();
         mr.albedo = glm::vec3(0.6f + 0.1f * i, 0.3f + 0.1f * i, 0.4f);
 
         cubes.push_back(cubeEntity);
@@ -267,6 +360,7 @@ int main()
 
     int selectedCube = 0;
     bool wireframe = false;
+    bool showUI = true;
     float lightYaw = -90.0f;
     float lightPitch = -20.0f;
 
@@ -327,12 +421,35 @@ int main()
             glPolygonMode(GL_FRONT_AND_BACK, wireframe ? GL_LINE : GL_FILL);
         }
 
+        // Toggle UI visibility (press F1)
+        if (Input::IsKeyPressed(GLFW_KEY_F1))
+        {
+#ifdef USE_IMGUI
+            showUI = !showUI;
+#endif
+        }
+
         // Cycle selected cube
         if (Input::IsKeyPressed(GLFW_KEY_TAB))
         {
             if (!cubes.empty())
             {
                 selectedCube = (selectedCube + 1) % static_cast<int>(cubes.size());
+            }
+        }
+
+        // Load model from assets
+        if (Input::IsKeyPressed(GLFW_KEY_M))
+        {
+            const std::string path = "assets/model.obj";
+            auto meshes = MyEngine::AssetManager::LoadModel(path);
+            if (!meshes.empty())
+            {
+                auto ent = scene.CreateEntity("Model");
+                auto& t = ent->AddComponent<TransformComponent>();
+                t.position = glm::vec3(0.0f, 0.5f, -3.0f);
+                t.scale = glm::vec3(1.0f);
+                MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], path, litShader);
             }
         }
 
@@ -417,7 +534,45 @@ int main()
         // --------------------------------------------------------
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+#ifdef USE_IMGUI
+        // Start the Dear ImGui frame
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        // Example UI: larger, more visible overlay window
+        if (showUI)
+        {
+            // Keep the status overlay pinned top-left with a larger size
+            ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(420, 220), ImGuiCond_Always);
+            ImGui::Begin("Engine Status", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Text("FPS: %.1f", 1.0f / std::max(0.0001f, deltaTime));
+            ImGui::Text("Entities: %zu", scene.GetEntities().size());
+            if (ImGui::Button("Load Model (M)"))
+            {
+                const std::string path = "assets/model.obj";
+                auto meshes = MyEngine::AssetManager::LoadModel(path);
+                if (!meshes.empty())
+                {
+                    auto ent = scene.CreateEntity("Model");
+                    auto& t = ent->AddComponent<TransformComponent>();
+                    t.position = glm::vec3(0.0f, 0.5f, -3.0f);
+                    t.scale = glm::vec3(1.0f);
+                    MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], path, litShader);
+                }
+            }
+            ImGui::End();
+        }
+#endif
+
         renderSystem.Render(scene, view, projection);
+
+#ifdef USE_IMGUI
+        // Rendering ImGui
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#endif
 
         glfwSwapBuffers(window);
     }
@@ -425,6 +580,12 @@ int main()
     // ------------------------------------------------------------
     // Shutdown
     // ------------------------------------------------------------
+#ifdef USE_IMGUI
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+#endif
+
     Input::Shutdown();
 
     glfwDestroyWindow(window);

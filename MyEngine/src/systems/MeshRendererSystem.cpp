@@ -124,13 +124,14 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     culler.Update(vp);
 
     // 1) Render depth of scene from light's perspective
+    GLint lastViewport[4];
+    glGetIntegerv(GL_VIEWPORT, lastViewport);
     if (m_Impl && m_Impl->shadowsEnabled)
     {
         m_Impl->shadowMap.BindForWriting();
     }
     // Cull front faces to reduce peter-panning and enable polygon offset to
-    // further reduce shadow acne. Polygon offset helps avoid fragments
-    // self-shadowing when using integer depth maps.
+    // further reduce shadow acne.
     glCullFace(GL_FRONT);
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(2.0f, 4.0f);
@@ -143,14 +144,16 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         if (!entity->HasComponent<TransformComponent>())
             continue;
 
-        // Frustum culling: if entity has a bounding sphere, test it
+        // Frustum culling against the light frustum: if entity has a bounding
+        // sphere, test it against the light's frustum so we only render what
+        // the light can see into the shadow map.
         if (entity->HasComponent<BoundingSphereComponent>())
         {
             auto& bs = entity->GetComponent<BoundingSphereComponent>();
             glm::vec3 worldCenter = entity->GetComponent<TransformComponent>().position + bs.center;
             float maxScale = glm::compMax(entity->GetComponent<TransformComponent>().scale);
             float worldRadius = bs.radius * maxScale;
-            if (!culler.IsSphereVisible(worldCenter, worldRadius))
+            if (!lightCuller.IsSphereVisible(worldCenter, worldRadius))
                 continue;
         }
 
@@ -174,6 +177,8 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     if (m_Impl && m_Impl->shadowsEnabled)
     {
         m_Impl->shadowMap.Unbind();
+        // Restore the previous viewport (window size)
+        glViewport(lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3]);
     }
     // Restore polygon offset and face culling
     glDisable(GL_POLYGON_OFFSET_FILL);

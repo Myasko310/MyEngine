@@ -94,18 +94,22 @@ namespace MyEngine
 
     void Shader::SetBool(const std::string& name, bool value) const
     {
-        glUniform1i(
-            glGetUniformLocation(m_ID, name.c_str()),
-            static_cast<int>(value)
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+        {
+            std::cerr << "[Shader] Warning: Uniform '" << name << "' not found in shader program " << m_ID << std::endl;
+        }
+        glUniform1i(location, static_cast<int>(value));
     }
 
     void Shader::SetInt(const std::string& name, int value) const
     {
-        glUniform1i(
-            glGetUniformLocation(m_ID, name.c_str()),
-            value
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+        {
+            std::cerr << "[Shader] Warning: Uniform '" << name << "' not found in shader program " << m_ID << std::endl;
+        }
+        glUniform1i(location, value);
     }
 
     void Shader::SetFloat(const std::string& name, float value) const

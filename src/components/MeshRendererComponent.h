@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 
 #include "rendering/Shader.h"
+#include "rendering/Texture.h"
 
 struct MeshRendererComponent
 {
@@ -12,4 +13,6 @@ struct MeshRendererComponent
     bool visible = true;
     glm::vec3 albedo = glm::vec3(1.0f);
     float shininess = 32.0f;
+    std::shared_ptr<MyEngine::Texture> texture = nullptr;
+    bool useTexture = false;
 };

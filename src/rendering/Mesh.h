@@ -13,6 +13,7 @@ namespace MyEngine
         glm::vec3 Position{ 0.0f };
         glm::vec3 Color{ 1.0f };
         glm::vec3 Normal{ 0.0f };
+        glm::vec2 TexCoords{ 0.0f };
     };
 
     class Mesh

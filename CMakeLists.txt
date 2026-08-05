@@ -80,6 +80,7 @@ endif()
 # Try find_package first (works with config-mode packages)
 find_package(Assimp CONFIG QUIET)
 find_package(imgui CONFIG QUIET)
+find_package(Stb REQUIRED)
 
 # ============================================================
 # Source Files
@@ -92,6 +93,7 @@ set(SOURCES
     src/rendering/Model.cpp
     src/rendering/ShadowMap.cpp
     src/rendering/MeshPrimitives.cpp
+    src/rendering/Texture.cpp
     src/renderer/FrustumCuller.cpp
     src/core/Input.cpp
     src/core/AssetManager.cpp
@@ -260,6 +262,18 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
     )
 endif()
 
+# ============================================================
+# Copy assets folder next to executable
+# ============================================================
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    add_custom_command(TARGET MyEngine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets
+            $<TARGET_FILE_DIR:MyEngine>/assets
+        COMMENT "Copying assets to build output..."
+    )
+endif()
+
 # Copy vcpkg runtime DLLs next to the executable so the app can find them at runtime
 if(EXISTS "C:/vcpkg/installed/x64-windows/bin")
     add_custom_command(TARGET MyEngine POST_BUILD
@@ -270,3 +284,8 @@ if(EXISTS "C:/vcpkg/installed/x64-windows/bin")
         COMMENT "Copying vcpkg runtime DLLs..."
     )
 endif()
+
+# ============================================================
+# Tools subdirectory
+# ============================================================
+add_subdirectory(tools)

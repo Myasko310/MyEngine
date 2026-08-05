@@ -8,6 +8,7 @@
 #include "components/BoundingSphereComponent.h"
 
 #include <algorithm>
+#include <iostream>
 #include <glad/glad.h>
 #include "rendering/ShadowMap.h"
 #include "rendering/Shader.h"
@@ -242,6 +243,30 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         // Material uniforms
         renderer.shader->SetVec3("u_MaterialAlbedo", renderer.albedo);
         renderer.shader->SetFloat("u_MaterialShininess", renderer.shininess);
+
+        // Texture uniforms
+        if (renderer.useTexture && renderer.texture)
+        {
+            renderer.texture->Bind(0);
+            renderer.shader->SetInt("u_Texture", 0);
+            renderer.shader->SetBool("u_UseTexture", true);
+
+            // Debug: verify texture is valid
+            static bool debugOnce = false;
+            if (!debugOnce)
+            {
+                std::cout << "[MeshRendererSystem] Texture enabled!" << std::endl;
+                std::cout << "  - Texture ID: " << renderer.texture->GetID() << std::endl;
+                std::cout << "  - Path: " << renderer.texture->GetPath() << std::endl;
+                std::cout << "  - UseTexture uniform: true" << std::endl;
+                std::cout << "  - Texture unit: 0" << std::endl;
+                debugOnce = true;
+            }
+        }
+        else
+        {
+            renderer.shader->SetBool("u_UseTexture", false);
+        }
 
         // Light uniforms
         renderer.shader->SetVec3("u_LightDirection", lightDir.x, lightDir.y, lightDir.z);

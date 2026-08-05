@@ -125,6 +125,17 @@ namespace MyEngine
             reinterpret_cast<void*>(offsetof(Vertex, Normal))
         );
 
+        // layout(location = 3) in vec2 a_TexCoords;
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(
+            3,
+            2,
+            GL_FLOAT,
+            GL_FALSE,
+            sizeof(Vertex),
+            reinterpret_cast<void*>(offsetof(Vertex, TexCoords))
+        );
+
         glBindVertexArray(0);
     }
 

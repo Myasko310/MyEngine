@@ -14,6 +14,10 @@
 #include <algorithm>
 #include <cmath>
 
+#ifdef USE_IMGUI
+#include <imgui.h>
+#endif
+
 namespace MyEngine
 {
     static glm::vec3 GetForward(float yaw, float pitch)
@@ -51,12 +55,20 @@ namespace MyEngine
 
             if (camera.enableInput)
             {
+#ifdef USE_IMGUI
+                // Skip keyboard input if ImGui wants to capture it (e.g., typing in a text field)
+                ImGuiIO& io = ImGui::GetIO();
+                bool allowKeyboardInput = !io.WantCaptureKeyboard;
+#else
+                bool allowKeyboardInput = true;
+#endif
+
                 float speed = camera.moveSpeed;
 
-                if (Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT))
+                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT))
                     speed *= camera.sprintMultiplier;
 
-                if (Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL))
+                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL))
                     speed *= camera.slowMultiplier;
 
                 glm::vec3 forward = GetForward(camera.yaw, camera.pitch);
@@ -71,24 +83,24 @@ namespace MyEngine
 
                 glm::vec3 movement = glm::vec3(0.0f);
 
-                if (Input::IsKeyDown(GLFW_KEY_W))
+                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_W))
                     movement += forward;
 
-                if (Input::IsKeyDown(GLFW_KEY_S))
+                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_S))
                     movement -= forward;
 
-                if (Input::IsKeyDown(GLFW_KEY_D))
+                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_D))
                     movement += right;
 
-                if (Input::IsKeyDown(GLFW_KEY_A))
+                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_A))
                     movement -= right;
 
                 if (camera.flyMode)
                 {
-                    if (Input::IsKeyDown(GLFW_KEY_E) || Input::IsKeyDown(GLFW_KEY_SPACE))
+                    if (allowKeyboardInput && (Input::IsKeyDown(GLFW_KEY_E) || Input::IsKeyDown(GLFW_KEY_SPACE)))
                         movement += up;
 
-                    if (Input::IsKeyDown(GLFW_KEY_Q))
+                    if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_Q))
                         movement -= up;
                 }
 
@@ -97,7 +109,8 @@ namespace MyEngine
 
                 transform.position += movement * speed * deltaTime;
 
-                if (camera.enableMouseLook)
+                // Only process mouse look if mouse is captured (camera control mode)
+                if (camera.enableMouseLook && Input::IsMouseCaptured())
                 {
                     // Use Input's mouse delta (already accumulated per-frame)
                     float deltaX = Input::GetMouseDeltaX();
@@ -117,6 +130,12 @@ namespace MyEngine
                     camera.pitch += camera.smoothedMouseDelta.y * camera.mouseSensitivity;
 
                     camera.pitch = std::clamp(camera.pitch, -89.0f, 89.0f);
+                }
+                else if (!Input::IsMouseCaptured())
+                {
+                    // When mouse is not captured (UI mode), reset smoothed delta
+                    // to avoid jumps when returning to camera mode
+                    camera.smoothedMouseDelta = glm::vec2(0.0f);
                 }
             }
 

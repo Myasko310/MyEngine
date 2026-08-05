@@ -3,6 +3,7 @@
 in vec3 v_Position;
 in vec3 v_Color;
 in vec3 v_Normal;
+in vec2 v_TexCoords;
 in vec4 v_FragPosLightSpace;
 
 out vec4 FragColor;
@@ -13,6 +14,8 @@ uniform vec3 u_AmbientColor;
 
 uniform vec3 u_MaterialAlbedo;
 uniform float u_MaterialShininess;
+uniform bool u_UseTexture;
+uniform sampler2D u_Texture;
 uniform sampler2D u_ShadowMap;
 
 float ShadowCalculation(vec4 fragPosLightSpace)
@@ -40,12 +43,15 @@ void main()
 	vec3 N = normalize(v_Normal);
 	vec3 L = normalize(-u_LightDirection);
 
+	// Sample texture if enabled, otherwise use material albedo
+	vec3 baseColor = u_UseTexture ? texture(u_Texture, v_TexCoords).rgb : u_MaterialAlbedo;
+
 	// Ambient
-	vec3 ambient = u_AmbientColor * u_MaterialAlbedo;
+	vec3 ambient = u_AmbientColor * baseColor;
 
 	// Diffuse
 	float diff = max(dot(N, L), 0.0);
-	vec3 diffuse = diff * u_LightColor * u_MaterialAlbedo;
+	vec3 diffuse = diff * u_LightColor * baseColor;
 
 	// Specular (Blinn-Phong)
 	vec3 V = normalize(-v_Position);
@@ -55,7 +61,9 @@ void main()
 
 	float shadow = ShadowCalculation(v_FragPosLightSpace);
 	vec3 lighting = ambient + (1.0 - shadow) * (diffuse + specular);
-	vec3 color = lighting * v_Color;
+
+	// Only multiply by vertex color if NOT using texture
+	vec3 color = u_UseTexture ? lighting : lighting * v_Color;
 
 	FragColor = vec4(color, 1.0);
 }

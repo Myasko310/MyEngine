@@ -11,12 +11,16 @@ namespace MyEngine
 {
 	class Mesh;
 	class Shader;
+	class Texture;
 
 	class AssetManager
 	{
 	public:
 		// Load model and return its meshes (cached)
 		static std::vector<std::shared_ptr<Mesh>> LoadModel(const std::string& path);
+
+		// Load texture (cached)
+		static std::shared_ptr<Texture> LoadTexture(const std::string& path, bool generateMipmaps = true);
 
 		// Attach a mesh to an entity and automatically add MeshComponent, MeshRendererComponent (if shader provided),
 		// and BoundingSphereComponent derived from the mesh bounds. assetPath may be empty.
@@ -27,5 +31,6 @@ namespace MyEngine
 
 	private:
 		static std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> s_ModelCache;
+		static std::unordered_map<std::string, std::shared_ptr<Texture>> s_TextureCache;
 	};
 }

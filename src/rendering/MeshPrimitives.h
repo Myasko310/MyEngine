@@ -10,5 +10,6 @@ namespace MyEngine
     {
     public:
         static std::shared_ptr<Mesh> CreateCube();
+        static std::shared_ptr<Mesh> CreateSphere(unsigned int segments = 32, unsigned int rings = 16);
     };
 }

@@ -5,6 +5,7 @@
 #include "components/RigidbodyComponent.h"
 #include "components/BoundingSphereComponent.h"
 #include "components/PlaneColliderComponent.h"
+#include "components/BoxColliderComponent.h"
 
 #include <iostream>
 #include <algorithm>
@@ -110,33 +111,59 @@ namespace MyEngine
 		}
 	}
 
+	// Shared response logic for a dynamic body resting/colliding against a static plane.
+	static void ResolvePlaneContact(RigidbodyComponent& rb, glm::vec3& position, const glm::vec3& normal, float penetration)
+	{
+		// Only apply position correction if there's significant penetration
+		// Small threshold prevents constant micro-corrections when resting
+		const float penetrationThreshold = 0.005f;
+		if (penetration > penetrationThreshold)
+		{
+			position += normal * penetration;
+		}
+
+		// Reflect velocity with bounciness
+		float velAlongNormal = glm::dot(rb.velocity, normal);
+		if (velAlongNormal < 0.0f)
+		{
+			rb.velocity -= (1.0f + rb.bounciness) * velAlongNormal * normal;
+
+			// Apply resting contact threshold to prevent micro-bouncing
+			// Increased threshold to catch slow-falling objects
+			if (glm::length(rb.velocity) < 0.5f && rb.bounciness < 0.01f)
+			{
+				rb.velocity = glm::vec3(0.0f);
+			}
+		}
+		// If object is resting on ground (minimal velocity), zero out any remaining drift
+		else if (std::abs(velAlongNormal) < 0.01f && penetration <= penetrationThreshold)
+		{
+			// Remove velocity component along normal to prevent drift
+			rb.velocity -= velAlongNormal * normal;
+		}
+	}
+
 	void PhysicsSystem::DetectAndResolveCollisions(Scene& scene)
 	{
-		// First, check sphere vs plane collisions
+		// --- Dynamic bodies vs plane colliders (spheres and boxes) ---
 		for (const auto& dynamicEntity : scene.GetEntities())
 		{
 			if (!dynamicEntity || !dynamicEntity->HasComponent<RigidbodyComponent>() ||
-				!dynamicEntity->HasComponent<TransformComponent>() ||
-				!dynamicEntity->HasComponent<BoundingSphereComponent>())
+				!dynamicEntity->HasComponent<TransformComponent>())
 				continue;
 
 			auto& rb = dynamicEntity->GetComponent<RigidbodyComponent>();
 			auto& transform = dynamicEntity->GetComponent<TransformComponent>();
-			auto& bs = dynamicEntity->GetComponent<BoundingSphereComponent>();
 
 			// Skip kinematic objects (they don't collide with planes)
 			if (rb.isKinematic)
 				continue;
 
-			// Debug: log once when a dynamic rigid body with bounding sphere exists
-			static bool loggedDynamic = false;
-			if (!loggedDynamic) {
-				std::cout << "[Physics] Found dynamic body at Y=" << transform.position.y 
-					<< " radius=" << bs.radius 
-					<< " useGravity=" << rb.useGravity 
-					<< " velocity.y=" << rb.velocity.y << std::endl;
-				loggedDynamic = true;
-			}
+			bool hasSphere = dynamicEntity->HasComponent<BoundingSphereComponent>();
+			bool hasBox = dynamicEntity->HasComponent<BoxColliderComponent>();
+
+			if (!hasSphere && !hasBox)
+				continue;
 
 			// Check against all plane colliders
 			for (const auto& planeEntity : scene.GetEntities())
@@ -145,76 +172,61 @@ namespace MyEngine
 					!planeEntity->HasComponent<TransformComponent>())
 					continue;
 
-				auto& planeTransform = planeEntity->GetComponent<TransformComponent>();
 				auto& plane = planeEntity->GetComponent<PlaneColliderComponent>();
 
 				collisionChecks++;
 
-				// Check collision
 				glm::vec3 normal;
 				float penetration;
-				if (CheckSpherePlaneCollision(
-					transform.position, bs.radius,
-					plane.normal, plane.distance,
-					normal, penetration))
+
+				// Prefer box collider over sphere when both are present
+				if (hasBox)
 				{
-					collisionsDetected++;
-
-					// Only apply position correction if there's significant penetration
-					// Small threshold prevents constant micro-corrections when resting
-					const float penetrationThreshold = 0.005f;
-					if (penetration > penetrationThreshold)
+					auto& box = dynamicEntity->GetComponent<BoxColliderComponent>();
+					glm::vec3 boxCenter = transform.position + box.center;
+					if (CheckBoxPlaneCollision(boxCenter, box.halfExtents, plane.normal, plane.distance, normal, penetration))
 					{
-						// Move sphere out of plane
-						transform.position += normal * penetration;
+						collisionsDetected++;
+						ResolvePlaneContact(rb, transform.position, normal, penetration);
 					}
-
-					// Reflect velocity with bounciness
-					float velAlongNormal = glm::dot(rb.velocity, normal);
-					if (velAlongNormal < 0.0f)
+				}
+				else if (hasSphere)
+				{
+					auto& bs = dynamicEntity->GetComponent<BoundingSphereComponent>();
+					if (CheckSpherePlaneCollision(transform.position, bs.radius, plane.normal, plane.distance, normal, penetration))
 					{
-						rb.velocity -= (1.0f + rb.bounciness) * velAlongNormal * normal;
-
-						// Apply resting contact threshold to prevent micro-bouncing
-						// Increased threshold to catch slow-falling objects
-						if (glm::length(rb.velocity) < 0.5f && rb.bounciness < 0.01f)
-						{
-							rb.velocity = glm::vec3(0.0f);
-						}
-					}
-					// If object is resting on ground (minimal velocity), zero out any remaining drift
-					else if (std::abs(velAlongNormal) < 0.01f && penetration <= penetrationThreshold)
-					{
-						// Remove velocity component along normal to prevent drift
-						rb.velocity -= velAlongNormal * normal;
+						collisionsDetected++;
+						ResolvePlaneContact(rb, transform.position, normal, penetration);
 					}
 				}
 			}
 		}
 
-		// Then, collect all entities with rigidbodies and bounding spheres for sphere-sphere
-		std::vector<std::shared_ptr<Entity>> entities;
+		// --- Collect all dynamic-collider entities (sphere or box) for pairwise checks ---
+		std::vector<std::shared_ptr<Entity>> sphereEntities;
+		std::vector<std::shared_ptr<Entity>> boxEntities;
 		for (const auto& entity : scene.GetEntities())
 		{
-			if (entity && entity->HasComponent<RigidbodyComponent>() && 
-				entity->HasComponent<TransformComponent>() && 
-				entity->HasComponent<BoundingSphereComponent>())
-			{
-				entities.push_back(entity);
-			}
+			if (!entity || !entity->HasComponent<RigidbodyComponent>() || !entity->HasComponent<TransformComponent>())
+				continue;
+
+			if (entity->HasComponent<BoxColliderComponent>())
+				boxEntities.push_back(entity);
+			else if (entity->HasComponent<BoundingSphereComponent>())
+				sphereEntities.push_back(entity);
 		}
 
-		// Broad phase: simple N² check for sphere-sphere
-		for (size_t i = 0; i < entities.size(); ++i)
+		// --- Sphere vs sphere ---
+		for (size_t i = 0; i < sphereEntities.size(); ++i)
 		{
-			auto& entityA = entities[i];
+			auto& entityA = sphereEntities[i];
 			auto& rbA = entityA->GetComponent<RigidbodyComponent>();
 			auto& transformA = entityA->GetComponent<TransformComponent>();
 			auto& bsA = entityA->GetComponent<BoundingSphereComponent>();
 
-			for (size_t j = i + 1; j < entities.size(); ++j)
+			for (size_t j = i + 1; j < sphereEntities.size(); ++j)
 			{
-				auto& entityB = entities[j];
+				auto& entityB = sphereEntities[j];
 				auto& rbB = entityB->GetComponent<RigidbodyComponent>();
 				auto& transformB = entityB->GetComponent<TransformComponent>();
 				auto& bsB = entityB->GetComponent<BoundingSphereComponent>();
@@ -225,7 +237,6 @@ namespace MyEngine
 				if (rbA.isKinematic && rbB.isKinematic)
 					continue;
 
-				// Check collision
 				glm::vec3 normal;
 				float penetration;
 				if (CheckSphereSphereCollision(
@@ -235,10 +246,85 @@ namespace MyEngine
 				{
 					collisionsDetected++;
 
-					// Resolve collision
 					ResolveSphereCollision(
 						transformA.position, rbA.velocity, rbA.mass, rbA.bounciness, rbA.isKinematic,
 						transformB.position, rbB.velocity, rbB.mass, rbB.bounciness, rbB.isKinematic,
+						normal, penetration
+					);
+				}
+			}
+		}
+
+		// --- Box vs box ---
+		for (size_t i = 0; i < boxEntities.size(); ++i)
+		{
+			auto& entityA = boxEntities[i];
+			auto& rbA = entityA->GetComponent<RigidbodyComponent>();
+			auto& transformA = entityA->GetComponent<TransformComponent>();
+			auto& boxA = entityA->GetComponent<BoxColliderComponent>();
+
+			for (size_t j = i + 1; j < boxEntities.size(); ++j)
+			{
+				auto& entityB = boxEntities[j];
+				auto& rbB = entityB->GetComponent<RigidbodyComponent>();
+				auto& transformB = entityB->GetComponent<TransformComponent>();
+				auto& boxB = entityB->GetComponent<BoxColliderComponent>();
+
+				collisionChecks++;
+
+				if (rbA.isKinematic && rbB.isKinematic)
+					continue;
+
+				glm::vec3 normal;
+				float penetration;
+				if (CheckBoxBoxCollision(
+					transformA.position + boxA.center, boxA.halfExtents,
+					transformB.position + boxB.center, boxB.halfExtents,
+					normal, penetration))
+				{
+					collisionsDetected++;
+
+					ResolveSphereCollision(
+						transformA.position, rbA.velocity, rbA.mass, rbA.bounciness, rbA.isKinematic,
+						transformB.position, rbB.velocity, rbB.mass, rbB.bounciness, rbB.isKinematic,
+						normal, penetration
+					);
+				}
+			}
+		}
+
+		// --- Box vs sphere (mixed shapes) ---
+		for (const auto& boxEntity : boxEntities)
+		{
+			auto& rbBox = boxEntity->GetComponent<RigidbodyComponent>();
+			auto& transformBox = boxEntity->GetComponent<TransformComponent>();
+			auto& box = boxEntity->GetComponent<BoxColliderComponent>();
+
+			for (const auto& sphereEntity : sphereEntities)
+			{
+				auto& rbSphere = sphereEntity->GetComponent<RigidbodyComponent>();
+				auto& transformSphere = sphereEntity->GetComponent<TransformComponent>();
+				auto& bs = sphereEntity->GetComponent<BoundingSphereComponent>();
+
+				collisionChecks++;
+
+				if (rbBox.isKinematic && rbSphere.isKinematic)
+					continue;
+
+				glm::vec3 normal;
+				float penetration;
+				if (CheckBoxSphereCollision(
+					transformBox.position + box.center, box.halfExtents,
+					transformSphere.position, bs.radius,
+					normal, penetration))
+				{
+					collisionsDetected++;
+
+					// Normal points from box surface toward sphere; ResolveSphereCollision expects
+					// normal pointing from A to B, so box = A, sphere = B.
+					ResolveSphereCollision(
+						transformBox.position, rbBox.velocity, rbBox.mass, rbBox.bounciness, rbBox.isKinematic,
+						transformSphere.position, rbSphere.velocity, rbSphere.mass, rbSphere.bounciness, rbSphere.isKinematic,
 						normal, penetration
 					);
 				}
@@ -291,6 +377,106 @@ namespace MyEngine
 		{
 			outNormal = planeNormal;
 			outPenetration = sphereRadius - distToPlane;
+			return true;
+		}
+
+		return false;
+	}
+
+	bool PhysicsSystem::CheckBoxPlaneCollision(
+		const glm::vec3& boxCenter, const glm::vec3& boxHalfExtents,
+		const glm::vec3& planeNormal, float planeDistance,
+		glm::vec3& outNormal, float& outPenetration)
+	{
+		// Project the box's half-extents onto the plane normal to find the
+		// "radius" of the box along the normal direction (support mapping).
+		float projectedRadius =
+			boxHalfExtents.x * std::abs(planeNormal.x) +
+			boxHalfExtents.y * std::abs(planeNormal.y) +
+			boxHalfExtents.z * std::abs(planeNormal.z);
+
+		float distToPlane = glm::dot(boxCenter, planeNormal) - planeDistance;
+
+		if (distToPlane < projectedRadius)
+		{
+			outNormal = planeNormal;
+			outPenetration = projectedRadius - distToPlane;
+			return true;
+		}
+
+		return false;
+	}
+
+	bool PhysicsSystem::CheckBoxBoxCollision(
+		const glm::vec3& centerA, const glm::vec3& halfExtentsA,
+		const glm::vec3& centerB, const glm::vec3& halfExtentsB,
+		glm::vec3& outNormal, float& outPenetration)
+	{
+		// Axis-aligned box overlap test (SAT on the 3 world axes)
+		glm::vec3 delta = centerB - centerA;
+		glm::vec3 overlap = (halfExtentsA + halfExtentsB) - glm::abs(delta);
+
+		// If there's no overlap on any axis, the boxes aren't colliding
+		if (overlap.x <= 0.0f || overlap.y <= 0.0f || overlap.z <= 0.0f)
+			return false;
+
+		// Find axis of minimum penetration (least overlap = separating axis for MTV)
+		if (overlap.x < overlap.y && overlap.x < overlap.z)
+		{
+			outNormal = glm::vec3(delta.x < 0.0f ? -1.0f : 1.0f, 0.0f, 0.0f);
+			outPenetration = overlap.x;
+		}
+		else if (overlap.y < overlap.z)
+		{
+			outNormal = glm::vec3(0.0f, delta.y < 0.0f ? -1.0f : 1.0f, 0.0f);
+			outPenetration = overlap.y;
+		}
+		else
+		{
+			outNormal = glm::vec3(0.0f, 0.0f, delta.z < 0.0f ? -1.0f : 1.0f);
+			outPenetration = overlap.z;
+		}
+
+		return true;
+	}
+
+	bool PhysicsSystem::CheckBoxSphereCollision(
+		const glm::vec3& boxCenter, const glm::vec3& boxHalfExtents,
+		const glm::vec3& spherePos, float sphereRadius,
+		glm::vec3& outNormal, float& outPenetration)
+	{
+		// Find the closest point on the AABB to the sphere center
+		glm::vec3 boxMin = boxCenter - boxHalfExtents;
+		glm::vec3 boxMax = boxCenter + boxHalfExtents;
+		glm::vec3 closestPoint = glm::clamp(spherePos, boxMin, boxMax);
+
+		glm::vec3 delta = spherePos - closestPoint;
+		float distSq = glm::dot(delta, delta);
+
+		if (distSq < sphereRadius * sphereRadius)
+		{
+			float dist = std::sqrt(distSq);
+
+			if (dist < 0.0001f)
+			{
+				// Sphere center is inside the box; push out along smallest penetration axis
+				glm::vec3 toMin = spherePos - boxMin;
+				glm::vec3 toMax = boxMax - spherePos;
+				float minPen = toMin.x;
+				outNormal = glm::vec3(-1.0f, 0.0f, 0.0f);
+				if (toMax.x < minPen) { minPen = toMax.x; outNormal = glm::vec3(1.0f, 0.0f, 0.0f); }
+				if (toMin.y < minPen) { minPen = toMin.y; outNormal = glm::vec3(0.0f, -1.0f, 0.0f); }
+				if (toMax.y < minPen) { minPen = toMax.y; outNormal = glm::vec3(0.0f, 1.0f, 0.0f); }
+				if (toMin.z < minPen) { minPen = toMin.z; outNormal = glm::vec3(0.0f, 0.0f, -1.0f); }
+				if (toMax.z < minPen) { minPen = toMax.z; outNormal = glm::vec3(0.0f, 0.0f, 1.0f); }
+				outPenetration = minPen + sphereRadius;
+			}
+			else
+			{
+				outNormal = delta / dist;
+				outPenetration = sphereRadius - dist;
+			}
+
 			return true;
 		}
 

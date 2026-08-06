@@ -8,6 +8,8 @@
 #include <memory>
 #include <chrono>
 #include <vector>
+#include <filesystem>
+#include <algorithm>
 
 // Core
 #include "core/Input.h"
@@ -24,6 +26,7 @@
 #include "components/MeshRendererComponent.h"
 #include "components/RigidbodyComponent.h"
 #include "components/PlaneColliderComponent.h"
+#include "components/BoxColliderComponent.h"
 
 // Rendering
 #include "rendering/Mesh.h"
@@ -41,10 +44,18 @@
 #include "backends/imgui_impl_opengl3.h"
 #endif
 
+#ifdef USE_IMGUIZMO
+#include "ImGuizmo.h"
+#include <glm/gtc/type_ptr.hpp>
+#endif
+
 // Systems
 #include "systems/CameraSystem.h"
 #include "systems/MeshRendererSystem.h"
 #include "systems/PhysicsSystem.h"
+
+// Core (picking)
+#include "core/Raycast.h"
 
 using namespace MyEngine;
 
@@ -439,6 +450,12 @@ int main()
     bool showPerformancePanel = true;
     bool showPhysicsPanel = true;
 
+#ifdef USE_IMGUIZMO
+    // Gizmo editor state (Translate/Rotate/Scale)
+    ImGuizmo::OPERATION gizmoOperation = ImGuizmo::TRANSLATE;
+    ImGuizmo::MODE gizmoMode = ImGuizmo::WORLD;
+#endif
+
     // ------------------------------------------------------------
     // Timing
     // ------------------------------------------------------------
@@ -489,14 +506,27 @@ int main()
         // --------------------------------------------------------
         // Debug controls (keyboard)
         // --------------------------------------------------------
+        // Gate all global/editor hotkeys behind ImGui keyboard capture so that
+        // typing into UI text fields never triggers world/editor shortcuts.
+        // Camera movement (WASD/E/Q) is intentionally NOT gated here since it is
+        // gated independently inside CameraSystem, and gizmo mode keys (W/E/R)
+        // are additionally restricted to when the mouse is not captured (i.e.
+        // the editor/gizmo is the active input target rather than the flying camera).
+#ifdef USE_IMGUI
+        ImGuiIO& io = ImGui::GetIO();
+        bool allowGlobalHotkeys = !io.WantCaptureKeyboard;
+#else
+        bool allowGlobalHotkeys = true;
+#endif
+
         // Toggle wireframe
-        if (Input::IsKeyPressed(GLFW_KEY_F))
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F))
         {
             wireframe = !wireframe;
             glPolygonMode(GL_FRONT_AND_BACK, wireframe ? GL_LINE : GL_FILL);
         }
 
-        // Toggle UI visibility (press F1)
+        // Toggle UI visibility (press F1) - always allowed, even while typing
         if (Input::IsKeyPressed(GLFW_KEY_F1))
         {
 #ifdef USE_IMGUI
@@ -505,13 +535,13 @@ int main()
         }
 
         // Toggle Play/Pause (press Space)
-        if (Input::IsKeyPressed(GLFW_KEY_SPACE))
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_SPACE))
         {
             isPlaying = !isPlaying;
         }
 
         // Cycle selected cube
-        if (Input::IsKeyPressed(GLFW_KEY_TAB))
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_TAB))
         {
             if (!cubes.empty())
             {
@@ -519,8 +549,41 @@ int main()
             }
         }
 
+        // Delete selected entity (press Delete)
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_DELETE))
+        {
+            if (selectedEntity != nullptr)
+            {
+                uint32_t idToDelete = selectedEntity->GetID();
+                selectedEntity = nullptr;
+                scene.DestroyEntity(idToDelete);
+            }
+        }
+
+#ifdef USE_IMGUIZMO
+        // Gizmo operation shortcuts. Only active when not typing into an ImGui
+        // text field AND the mouse is not captured by the fly camera (which
+        // otherwise conflicts with W/E used for camera movement).
+        {
+#ifdef USE_IMGUI
+            bool allowGizmoShortcuts = !io.WantTextInput && !Input::IsMouseCaptured();
+#else
+            bool allowGizmoShortcuts = !Input::IsMouseCaptured();
+#endif
+            if (allowGizmoShortcuts)
+            {
+                if (Input::IsKeyPressed(GLFW_KEY_W))
+                    gizmoOperation = ImGuizmo::TRANSLATE;
+                if (Input::IsKeyPressed(GLFW_KEY_E))
+                    gizmoOperation = ImGuizmo::ROTATE;
+                if (Input::IsKeyPressed(GLFW_KEY_R))
+                    gizmoOperation = ImGuizmo::SCALE;
+            }
+        }
+#endif
+
         // Load model from assets
-        if (Input::IsKeyPressed(GLFW_KEY_M))
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_M))
         {
             const std::string path = "assets/model.obj";
             auto meshes = MyEngine::AssetManager::LoadModel(path);
@@ -536,24 +599,24 @@ int main()
 
         // Adjust light direction using arrow keys (yaw/pitch)
         float lightAdjustSpeed = 60.0f; // degrees per second
-        if (Input::IsKeyDown(GLFW_KEY_LEFT))
+        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_LEFT))
             lightYaw -= lightAdjustSpeed * deltaTime;
-        if (Input::IsKeyDown(GLFW_KEY_RIGHT))
+        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_RIGHT))
             lightYaw += lightAdjustSpeed * deltaTime;
-        if (Input::IsKeyDown(GLFW_KEY_UP))
+        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_UP))
             lightPitch += lightAdjustSpeed * deltaTime;
-        if (Input::IsKeyDown(GLFW_KEY_DOWN))
+        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_DOWN))
             lightPitch -= lightAdjustSpeed * deltaTime;
 
         // Light intensity
-        if (Input::IsKeyDown(GLFW_KEY_X))
+        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_X))
         {
             // increase
             for (auto& e : scene.GetEntities())
                 if (e && e->HasComponent<LightComponent>())
                     e->GetComponent<LightComponent>().intensity += 1.0f * deltaTime;
         }
-        if (Input::IsKeyDown(GLFW_KEY_Z))
+        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_Z))
         {
             // decrease
             for (auto& e : scene.GetEntities())
@@ -562,7 +625,7 @@ int main()
         }
 
         // Modify selected cube color (U/J = R up/down, I/K = G up/down, O/L = B up/down)
-        if (!cubes.empty())
+        if (allowGlobalHotkeys && !cubes.empty())
         {
             auto selected = cubes[selectedCube];
             if (selected && selected->HasComponent<MeshRendererComponent>())
@@ -672,6 +735,22 @@ int main()
                         wireframe = !wireframe;
                         glPolygonMode(GL_FRONT_AND_BACK, wireframe ? GL_LINE : GL_FILL);
                     }
+#ifdef USE_IMGUIZMO
+                    ImGui::Separator();
+                    ImGui::Text("Gizmo Mode");
+                    if (ImGui::MenuItem("Translate", "W", gizmoOperation == ImGuizmo::TRANSLATE))
+                        gizmoOperation = ImGuizmo::TRANSLATE;
+                    if (ImGui::MenuItem("Rotate", "E", gizmoOperation == ImGuizmo::ROTATE))
+                        gizmoOperation = ImGuizmo::ROTATE;
+                    if (ImGui::MenuItem("Scale", "R", gizmoOperation == ImGuizmo::SCALE))
+                        gizmoOperation = ImGuizmo::SCALE;
+                    ImGui::Separator();
+                    bool isWorldSpace = (gizmoMode == ImGuizmo::WORLD);
+                    if (ImGui::MenuItem("World Space", nullptr, isWorldSpace))
+                        gizmoMode = ImGuizmo::WORLD;
+                    if (ImGui::MenuItem("Local Space", nullptr, !isWorldSpace))
+                        gizmoMode = ImGuizmo::LOCAL;
+#endif
                     ImGui::EndMenu();
                 }
 
@@ -686,6 +765,9 @@ int main()
                         MyEngine::AssetManager::AttachMeshToEntity(ent, 
                             MyEngine::MeshPrimitives::CreateCube(), 
                             "primitive_cube", litShader);
+                        // Use a box collider for accurate physics against the cube shape
+                        auto& box = ent->AddComponent<BoxColliderComponent>();
+                        box.halfExtents = glm::vec3(0.5f);
                         selectedEntity = ent.get();
                     }
                     if (ImGui::MenuItem("Sphere"))
@@ -853,6 +935,8 @@ int main()
                             auto& renderer = selectedEntity->GetComponent<MeshRendererComponent>();
                             ImGui::Checkbox("Visible", &renderer.visible);
                             ImGui::ColorEdit3("Albedo", &renderer.albedo.x);
+                            // Shininess affects specular highlights for both textured and
+                            // untextured materials, so keep it always editable here.
                             ImGui::DragFloat("Shininess", &renderer.shininess, 1.0f, 0.0f, 256.0f);
 
                             ImGui::Separator();
@@ -871,6 +955,64 @@ int main()
                             else
                             {
                                 ImGui::Text("No texture loaded");
+                            }
+
+                            // Cache the list of available textures found under assets/textures
+                            // (rescanned each time the folder mtime changes would be ideal, but
+                            // a simple static cache populated once keeps this lightweight).
+                            static std::vector<std::string> availableTextures;
+                            static bool texturesScanned = false;
+                            if (!texturesScanned)
+                            {
+                                texturesScanned = true;
+                                const std::string texturesDir = "assets/textures";
+                                std::error_code ec;
+                                if (std::filesystem::exists(texturesDir, ec))
+                                {
+                                    for (const auto& entry : std::filesystem::directory_iterator(texturesDir, ec))
+                                    {
+                                        if (!entry.is_regular_file())
+                                            continue;
+
+                                        std::string ext = entry.path().extension().string();
+                                        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+                                        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tga")
+                                        {
+                                            availableTextures.push_back(entry.path().generic_string());
+                                        }
+                                    }
+                                    std::sort(availableTextures.begin(), availableTextures.end());
+                                }
+                            }
+
+                            if (ImGui::Button("Refresh Texture List"))
+                            {
+                                texturesScanned = false;
+                                availableTextures.clear();
+                            }
+
+                            std::string currentTextureName = renderer.texture ? renderer.texture->GetPath() : "None";
+                            if (ImGui::BeginCombo("Select Texture", currentTextureName.c_str()))
+                            {
+                                for (const auto& texPath : availableTextures)
+                                {
+                                    bool isSelected = renderer.texture && renderer.texture->GetPath() == texPath;
+                                    if (ImGui::Selectable(texPath.c_str(), isSelected))
+                                    {
+                                        try
+                                        {
+                                            renderer.texture = MyEngine::AssetManager::LoadTexture(texPath);
+                                            renderer.useTexture = true;
+                                        }
+                                        catch (const std::exception& e)
+                                        {
+                                            std::cerr << "Failed to load texture: " << e.what() << std::endl;
+                                        }
+                                    }
+                                    if (isSelected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
                             }
 
                             static char texturePath[256] = "";
@@ -937,6 +1079,12 @@ int main()
                                 ImGui::Text("Bounding Sphere Radius: %.2f", bs.radius);
                                 ImGui::Text("Bottom Y: %.2f", transform.position.y - bs.radius);
                             }
+                            if (selectedEntity->HasComponent<BoxColliderComponent>())
+                            {
+                                auto& box = selectedEntity->GetComponent<BoxColliderComponent>();
+                                ImGui::Text("Box Half-Extents: (%.2f, %.2f, %.2f)", box.halfExtents.x, box.halfExtents.y, box.halfExtents.z);
+                                ImGui::Text("Bottom Y: %.2f", transform.position.y + box.center.y - box.halfExtents.y);
+                            }
                         }
                     }
                     else
@@ -945,10 +1093,40 @@ int main()
                         if (ImGui::Button("Add Rigidbody"))
                         {
                             selectedEntity->AddComponent<RigidbodyComponent>();
-                            // Also ensure bounding sphere exists for collisions
-                            if (!selectedEntity->HasComponent<BoundingSphereComponent>())
+                            // Also ensure a collider shape exists for collisions
+                            if (!selectedEntity->HasComponent<BoundingSphereComponent>() &&
+                                !selectedEntity->HasComponent<BoxColliderComponent>())
                             {
                                 selectedEntity->AddComponent<BoundingSphereComponent>();
+                            }
+                        }
+                    }
+
+                    // Box Collider Component
+                    if (selectedEntity->HasComponent<BoxColliderComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Box Collider", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            auto& box = selectedEntity->GetComponent<BoxColliderComponent>();
+                            ImGui::DragFloat3("Center Offset", &box.center.x, 0.05f);
+                            ImGui::DragFloat3("Half Extents", &box.halfExtents.x, 0.05f, 0.01f, 100.0f);
+
+                            if (ImGui::Button("Remove Box Collider"))
+                            {
+                                selectedEntity->RemoveComponent<BoxColliderComponent>();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Box Collider"))
+                        {
+                            auto& box = selectedEntity->AddComponent<BoxColliderComponent>();
+                            box.halfExtents = glm::vec3(0.5f);
+                            // A box collider replaces a bounding-sphere collider for physics purposes
+                            if (selectedEntity->HasComponent<BoundingSphereComponent>())
+                            {
+                                selectedEntity->RemoveComponent<BoundingSphereComponent>();
                             }
                         }
                     }
@@ -1129,6 +1307,130 @@ int main()
             }
         }
 #endif
+
+        #ifdef USE_IMGUIZMO
+        // --------------------------------------------------------
+        // Transform gizmo for the selected entity
+        // --------------------------------------------------------
+        // NOTE: This must run BEFORE mouse picking below. ImGuizmo::IsOver()/
+        // IsUsing() reflect the state computed by the last Manipulate() call.
+        // If picking ran first, it would read stale hover/use state from the
+        // previous frame (last frame's mouse position), causing clicks on the
+        // gizmo to be misinterpreted as scene picks - deselecting the entity
+        // (and thus the gizmo) before it could ever be dragged.
+        if (selectedEntity && selectedEntity->HasComponent<TransformComponent>())
+        {
+            ImGuizmo::SetOrthographic(false);
+            ImGuizmo::BeginFrame();
+            // SetDrawlist() with no window context (i.e. not inside an active
+            // ImGui::Begin()/End() block) does not reliably bind to a valid
+            // drawlist, which made the gizmo's interactive draw list not
+            // properly overlay the viewport for mouse hit-testing. Explicitly
+            // draw to the foreground drawlist, which always exists and is
+            // rendered on top of every other window.
+            ImGuizmo::SetDrawlist(ImGui::GetForegroundDrawList());
+
+            // ImGuizmo operates in the same coordinate space as ImGui's IO
+            // (screen/window coordinates), NOT framebuffer pixel coordinates.
+            // g_WindowWidth/g_WindowHeight are updated from the framebuffer size
+            // (glfwGetFramebufferSize via FramebufferSizeCallback), which differs
+            // from window size on DPI-scaled displays. Using the mismatched size
+            // here made the gizmo's hit-testing rect not line up with the mouse
+            // cursor position ImGui reports, so it could never be clicked/dragged.
+            int windowW = 0, windowH = 0;
+            glfwGetWindowSize(window, &windowW, &windowH);
+            ImGuizmo::SetRect(0.0f, 0.0f, static_cast<float>(windowW), static_cast<float>(windowH));
+
+            auto& gizmoTransform = selectedEntity->GetComponent<TransformComponent>();
+            glm::mat4 gizmoMatrix = gizmoTransform.GetMatrix();
+
+            ImGuizmo::Manipulate(
+                glm::value_ptr(view),
+                glm::value_ptr(projection),
+                gizmoOperation,
+                gizmoMode,
+                glm::value_ptr(gizmoMatrix)
+            );
+
+            if (ImGuizmo::IsUsing())
+            {
+                float translation[3];
+                float rotation[3];
+                float scale[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(gizmoMatrix), translation, rotation, scale);
+
+                gizmoTransform.position = glm::vec3(translation[0], translation[1], translation[2]);
+                gizmoTransform.rotation = glm::radians(glm::vec3(rotation[0], rotation[1], rotation[2]));
+                gizmoTransform.scale = glm::vec3(scale[0], scale[1], scale[2]);
+            }
+        }
+#endif
+
+        // --------------------------------------------------------
+        // Mouse picking (viewport click-to-select)
+        // --------------------------------------------------------
+        {
+#ifdef USE_IMGUI
+            ImGuiIO& pickIO = ImGui::GetIO();
+            bool imguiWantsMouse = pickIO.WantCaptureMouse;
+#else
+            bool imguiWantsMouse = false;
+#endif
+
+#ifdef USE_IMGUIZMO
+            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+#else
+            bool overGizmo = false;
+#endif
+
+            // Only pick with left click when the mouse is free (not driving the fly camera)
+            // and ImGui/the gizmo isn't already handling the click.
+            if (!imguiWantsMouse && !overGizmo && !Input::IsMouseCaptured() &&
+                Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT))
+            {
+                double mouseX = 0.0, mouseY = 0.0;
+                glfwGetCursorPos(window, &mouseX, &mouseY);
+
+                Ray ray = ScreenPointToRay(mouseX, mouseY, g_WindowWidth, g_WindowHeight, view, projection);
+
+                Entity* closestEntity = nullptr;
+                float closestDistance = std::numeric_limits<float>::max();
+
+                for (auto& entity : scene.GetEntities())
+                {
+                    if (!entity || !entity->HasComponent<TransformComponent>())
+                        continue;
+
+                    auto& transform = entity->GetComponent<TransformComponent>();
+                    float hitDistance = 0.0f;
+                    bool hit = false;
+
+                    if (entity->HasComponent<BoxColliderComponent>())
+                    {
+                        auto& box = entity->GetComponent<BoxColliderComponent>();
+                        glm::vec3 worldCenter = transform.position + box.center;
+                        glm::vec3 worldHalfExtents = box.halfExtents * transform.scale;
+                        hit = RayIntersectsAABB(ray, worldCenter, worldHalfExtents, hitDistance);
+                    }
+                    else if (entity->HasComponent<BoundingSphereComponent>())
+                    {
+                        auto& sphere = entity->GetComponent<BoundingSphereComponent>();
+                        glm::vec3 worldCenter = transform.position + sphere.center;
+                        float maxScale = std::max({ transform.scale.x, transform.scale.y, transform.scale.z });
+                        float worldRadius = sphere.radius * maxScale;
+                        hit = RayIntersectsSphere(ray, worldCenter, worldRadius, hitDistance);
+                    }
+
+                    if (hit && hitDistance < closestDistance)
+                    {
+                        closestDistance = hitDistance;
+                        closestEntity = entity.get();
+                    }
+                }
+
+                selectedEntity = closestEntity;
+            }
+        }
 
         renderSystem.Render(scene, view, projection);
 

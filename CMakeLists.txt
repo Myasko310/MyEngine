@@ -81,6 +81,7 @@ endif()
 find_package(Assimp CONFIG QUIET)
 find_package(imgui CONFIG QUIET)
 find_package(Stb REQUIRED)
+find_package(imguizmo CONFIG QUIET)
 
 # ============================================================
 # Source Files
@@ -97,6 +98,7 @@ set(SOURCES
     src/renderer/FrustumCuller.cpp
     src/core/Input.cpp
     src/core/AssetManager.cpp
+    src/core/Raycast.cpp
 
     src/ecs/Scene.cpp
 
@@ -206,6 +208,21 @@ target_link_libraries(MyEngine PRIVATE
     glfw
     glm::glm
 )
+
+if(TARGET imguizmo::imguizmo)
+    target_link_libraries(MyEngine PRIVATE imguizmo::imguizmo)
+    target_compile_definitions(MyEngine PRIVATE USE_IMGUIZMO)
+elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/imguizmo.lib")
+    target_include_directories(MyEngine PRIVATE "C:/vcpkg/installed/x64-windows/include")
+    target_link_libraries(MyEngine PRIVATE "C:/vcpkg/installed/x64-windows/lib/imguizmo.lib")
+    target_compile_definitions(MyEngine PRIVATE USE_IMGUIZMO)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imguizmo.lib")
+    target_include_directories(MyEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+    target_link_libraries(MyEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imguizmo.lib")
+    target_compile_definitions(MyEngine PRIVATE USE_IMGUIZMO)
+else()
+    message(WARNING "ImGuizmo target not found; viewport gizmos will not be available unless imguizmo is installed via vcpkg.")
+endif()
 
 if(TARGET imgui::imgui)
     target_link_libraries(MyEngine PRIVATE imgui::imgui)

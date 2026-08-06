@@ -47,6 +47,24 @@ namespace MyEngine
 				glm::vec3& outNormal, float& outPenetration
 			);
 
+			bool CheckBoxPlaneCollision(
+				const glm::vec3& boxCenter, const glm::vec3& boxHalfExtents,
+				const glm::vec3& planeNormal, float planeDistance,
+				glm::vec3& outNormal, float& outPenetration
+			);
+
+			bool CheckBoxBoxCollision(
+				const glm::vec3& centerA, const glm::vec3& halfExtentsA,
+				const glm::vec3& centerB, const glm::vec3& halfExtentsB,
+				glm::vec3& outNormal, float& outPenetration
+			);
+
+			bool CheckBoxSphereCollision(
+				const glm::vec3& boxCenter, const glm::vec3& boxHalfExtents,
+				const glm::vec3& spherePos, float sphereRadius,
+				glm::vec3& outNormal, float& outPenetration
+			);
+
 			// Collision response
 			void ResolveSphereCollision(
 				glm::vec3& posA, glm::vec3& velA, float massA, float bouncinessA, bool isKinematicA,

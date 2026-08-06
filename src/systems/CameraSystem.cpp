@@ -65,10 +65,17 @@ namespace MyEngine
 
                 float speed = camera.moveSpeed;
 
-                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT))
+                // Movement is only active while the mouse is captured (fly mode).
+                // When the mouse is released (e.g. to interact with the editor UI
+                // or transform gizmos), WASD/E/Q must not move the camera, since
+                // those keys are also used as gizmo mode shortcuts (W/E) and would
+                // otherwise fight with editor controls and prevent gizmo dragging.
+                bool cameraActive = Input::IsMouseCaptured();
+
+                if (allowKeyboardInput && cameraActive && Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT))
                     speed *= camera.sprintMultiplier;
 
-                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL))
+                if (allowKeyboardInput && cameraActive && Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL))
                     speed *= camera.slowMultiplier;
 
                 glm::vec3 forward = GetForward(camera.yaw, camera.pitch);
@@ -83,24 +90,27 @@ namespace MyEngine
 
                 glm::vec3 movement = glm::vec3(0.0f);
 
-                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_W))
+                if (allowKeyboardInput && cameraActive && Input::IsKeyDown(GLFW_KEY_W))
                     movement += forward;
 
-                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_S))
+                if (allowKeyboardInput && cameraActive && Input::IsKeyDown(GLFW_KEY_S))
                     movement -= forward;
 
-                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_D))
+                if (allowKeyboardInput && cameraActive && Input::IsKeyDown(GLFW_KEY_D))
                     movement += right;
 
-                if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_A))
+                if (allowKeyboardInput && cameraActive && Input::IsKeyDown(GLFW_KEY_A))
                     movement -= right;
 
                 if (camera.flyMode)
                 {
-                    if (allowKeyboardInput && (Input::IsKeyDown(GLFW_KEY_E) || Input::IsKeyDown(GLFW_KEY_SPACE)))
+                    // Note: SPACE is intentionally not used here because it is the
+                    // global Play/Pause shortcut; using it for fly-up would toggle
+                    // simulation state while flying. E/Q are dedicated to vertical fly movement.
+                    if (allowKeyboardInput && cameraActive && Input::IsKeyDown(GLFW_KEY_E))
                         movement += up;
 
-                    if (allowKeyboardInput && Input::IsKeyDown(GLFW_KEY_Q))
+                    if (allowKeyboardInput && cameraActive && Input::IsKeyDown(GLFW_KEY_Q))
                         movement -= up;
                 }
 

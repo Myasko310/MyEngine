@@ -102,6 +102,7 @@ set(SOURCES
 
     src/systems/MeshRendererSystem.cpp
     src/systems/CameraSystem.cpp
+    src/systems/PhysicsSystem.cpp
     src/serialization/SceneSerializer.cpp
 )
 

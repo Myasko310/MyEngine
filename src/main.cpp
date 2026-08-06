@@ -22,6 +22,8 @@
 #include "components/BoundingSphereComponent.h"
 #include "components/MeshComponent.h"
 #include "components/MeshRendererComponent.h"
+#include "components/RigidbodyComponent.h"
+#include "components/PlaneColliderComponent.h"
 
 // Rendering
 #include "rendering/Mesh.h"
@@ -42,6 +44,7 @@
 // Systems
 #include "systems/CameraSystem.h"
 #include "systems/MeshRendererSystem.h"
+#include "systems/PhysicsSystem.h"
 
 using namespace MyEngine;
 
@@ -239,12 +242,16 @@ int main()
 
     MeshRendererSystem renderSystem;
 
+    PhysicsSystem physicsSystem;
+
     std::cout << "Controls:\n"
               << "  Right-click: toggle mouse (camera control / UI interaction)\n"
               << "  WASD + mouse: move/look (when mouse captured)\n"
+              << "  SPACE: play/pause physics simulation\n"
               << "  F1: toggle UI visibility\n"
               << "  F: toggle wireframe\n"
               << "  TAB: cycle selected cube\n"
+              << "  DELETE: delete selected entity\n"
               << "  Arrow keys: rotate directional light\n"
               << "  X/Z: increase/decrease light intensity\n"
               << "  M: load model from assets/model.obj\n"
@@ -367,10 +374,22 @@ int main()
 
         // Auto-attach mesh, renderer and bounding sphere
         MyEngine::AssetManager::AttachMeshToEntity(planeEntity, planeMesh, "", litShader);
-        // Optionally override bounding sphere radius for the ground if desired
-        // auto& bsPlane = planeEntity->GetComponent<BoundingSphereComponent>();
-        // bsPlane.center = glm::vec3(0.0f, 0.0f, 0.0f);
-        // bsPlane.radius = 8.0f;
+
+        // Remove the bounding sphere - we'll use a plane collider instead
+        if (planeEntity->HasComponent<BoundingSphereComponent>())
+        {
+            planeEntity->RemoveComponent<BoundingSphereComponent>();
+        }
+
+        // Make the ground a kinematic rigidbody so objects can collide with it
+        auto& rb = planeEntity->AddComponent<RigidbodyComponent>();
+        rb.isKinematic = true; // Won't move or respond to forces
+        rb.useGravity = false;
+
+        // Add plane collider for infinite flat ground at Y=0
+        auto& plane = planeEntity->AddComponent<PlaneColliderComponent>();
+        plane.normal = glm::vec3(0.0f, 1.0f, 0.0f); // Pointing up
+        plane.distance = 0.0f; // At Y=0
     }
 
     // Create a few cubes to interact with
@@ -409,12 +428,16 @@ int main()
     float lightYaw = -90.0f;
     float lightPitch = -20.0f;
 
+    // Scene simulation state
+    bool isPlaying = false;
+
     // UI state
     Entity* selectedEntity = nullptr;
     bool showSceneHierarchy = true;
     bool showInspector = true;
     bool showLightingPanel = true;
     bool showPerformancePanel = true;
+    bool showPhysicsPanel = true;
 
     // ------------------------------------------------------------
     // Timing
@@ -479,6 +502,12 @@ int main()
 #ifdef USE_IMGUI
             showUI = !showUI;
 #endif
+        }
+
+        // Toggle Play/Pause (press Space)
+        if (Input::IsKeyPressed(GLFW_KEY_SPACE))
+        {
+            isPlaying = !isPlaying;
         }
 
         // Cycle selected cube
@@ -576,6 +605,12 @@ int main()
                           static_cast<float>(g_WindowHeight);
         }
 
+        // Update physics before camera (so camera can follow physics objects)
+        if (isPlaying)
+        {
+            physicsSystem.OnUpdate(scene, deltaTime);
+        }
+
         cameraSystem.Update(scene, window, deltaTime, aspectRatio);
 
         glm::mat4 view = cameraSystem.GetViewMatrix();
@@ -597,6 +632,15 @@ int main()
             // Menu Bar (standalone)
             if (ImGui::BeginMainMenuBar())
             {
+            // Play/Pause button with icon
+            ImGui::PushStyleColor(ImGuiCol_Button, isPlaying ? ImVec4(0.8f, 0.3f, 0.3f, 1.0f) : ImVec4(0.3f, 0.8f, 0.3f, 1.0f));
+            if (ImGui::Button(isPlaying ? " || Pause (Space)" : " > Play (Space)"))
+            {
+                isPlaying = !isPlaying;
+            }
+            ImGui::PopStyleColor();
+            ImGui::Separator();
+
             if (ImGui::BeginMenu("File"))
             {
                 if (ImGui::MenuItem("Save Scene", "P"))
@@ -637,7 +681,7 @@ int main()
                     {
                         auto ent = scene.CreateEntity("Cube");
                         auto& t = ent->AddComponent<TransformComponent>();
-                        t.position = glm::vec3(0.0f, 1.0f, 0.0f);
+                        t.position = glm::vec3(0.0f, 2.0f, 0.0f); // Start at Y=2 so it falls and lands on ground
                         t.scale = glm::vec3(1.0f);
                         MyEngine::AssetManager::AttachMeshToEntity(ent, 
                             MyEngine::MeshPrimitives::CreateCube(), 
@@ -704,6 +748,19 @@ int main()
                     if (ImGui::IsItemClicked())
                     {
                         selectedEntity = entity.get();
+                    }
+
+                    // Right-click context menu for entity
+                    if (ImGui::BeginPopupContextItem())
+                    {
+                        if (ImGui::MenuItem("Delete"))
+                        {
+                            uint32_t idToDelete = entity->GetID();
+                            if (selectedEntity == entity.get())
+                                selectedEntity = nullptr;
+                            scene.DestroyEntity(idToDelete);
+                        }
+                        ImGui::EndPopup();
                     }
                 }
 
@@ -832,15 +889,94 @@ int main()
                             }
                         }
                     }
-                }
-                else
-                {
-                    ImGui::Text("No entity selected");
-                    ImGui::Text("Select an entity from the hierarchy");
-                }
 
-                ImGui::End();
-            }
+                    // Rigidbody Component
+                    if (selectedEntity->HasComponent<RigidbodyComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Rigidbody", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            auto& rb = selectedEntity->GetComponent<RigidbodyComponent>();
+
+                            ImGui::Text("Physics Properties");
+                            ImGui::Separator();
+
+                            ImGui::DragFloat("Mass", &rb.mass, 0.1f, 0.1f, 1000.0f);
+                            ImGui::DragFloat("Drag", &rb.drag, 0.01f, 0.0f, 10.0f);
+                            ImGui::SliderFloat("Bounciness", &rb.bounciness, 0.0f, 1.0f);
+
+                            ImGui::Separator();
+                            ImGui::Checkbox("Use Gravity", &rb.useGravity);
+                            ImGui::DragFloat("Gravity Scale", &rb.gravityScale, 0.1f, -10.0f, 10.0f);
+
+                            ImGui::Separator();
+                            ImGui::Checkbox("Kinematic", &rb.isKinematic);
+                            ImGui::Text("Freeze Position:");
+                            ImGui::Checkbox("X##freezeX", &rb.freezePositionX); ImGui::SameLine();
+                            ImGui::Checkbox("Y##freezeY", &rb.freezePositionY); ImGui::SameLine();
+                            ImGui::Checkbox("Z##freezeZ", &rb.freezePositionZ);
+
+                            ImGui::Separator();
+                            ImGui::Text("Current Velocity:");
+                            ImGui::Text("  (%.2f, %.2f, %.2f)", rb.velocity.x, rb.velocity.y, rb.velocity.z);
+
+                            if (ImGui::Button("Reset Velocity"))
+                            {
+                                rb.velocity = glm::vec3(0.0f);
+                            }
+
+                            // Debug info
+                            ImGui::Separator();
+                            ImGui::Text("Debug Info:");
+                            auto& transform = selectedEntity->GetComponent<TransformComponent>();
+                            ImGui::Text("Position: (%.2f, %.2f, %.2f)", 
+                                transform.position.x, transform.position.y, transform.position.z);
+
+                            if (selectedEntity->HasComponent<BoundingSphereComponent>())
+                            {
+                                auto& bs = selectedEntity->GetComponent<BoundingSphereComponent>();
+                                ImGui::Text("Bounding Sphere Radius: %.2f", bs.radius);
+                                ImGui::Text("Bottom Y: %.2f", transform.position.y - bs.radius);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Add Rigidbody button
+                        if (ImGui::Button("Add Rigidbody"))
+                        {
+                            selectedEntity->AddComponent<RigidbodyComponent>();
+                            // Also ensure bounding sphere exists for collisions
+                            if (!selectedEntity->HasComponent<BoundingSphereComponent>())
+                            {
+                                selectedEntity->AddComponent<BoundingSphereComponent>();
+                            }
+                        }
+                    }
+                }
+                    else
+                    {
+                        ImGui::Text("No entity selected");
+                        ImGui::Text("Select an entity from the hierarchy");
+                    }
+
+                    // Delete entity button at bottom of inspector
+                    if (selectedEntity)
+                    {
+                        ImGui::Separator();
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.1f, 0.1f, 1.0f));
+                        if (ImGui::Button("Delete Entity (DEL)", ImVec2(-1, 0)))
+                        {
+                            uint32_t idToDelete = selectedEntity->GetID();
+                            selectedEntity = nullptr;
+                            scene.DestroyEntity(idToDelete);
+                        }
+                        ImGui::PopStyleColor(3);
+                    }
+
+                    ImGui::End();
+                }
 
             // ============================================================
             // Lighting Panel
@@ -947,6 +1083,47 @@ int main()
                 {
                     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                 }
+
+                ImGui::End();
+            }
+
+            // ============================================================
+            // Physics Panel
+            // ============================================================
+            if (showPhysicsPanel)
+            {
+                ImGui::SetNextWindowPos(ImVec2(10, 700), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Physics", &showPhysicsPanel);
+
+                ImGui::Text("Physics System");
+                ImGui::Separator();
+
+                // Play state indicator
+                ImGui::PushStyleColor(ImGuiCol_Text, isPlaying ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f) : ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+                ImGui::Text(isPlaying ? "RUNNING" : "PAUSED");
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                if (ImGui::Button(isPlaying ? "Pause" : "Play"))
+                {
+                    isPlaying = !isPlaying;
+                }
+                ImGui::Separator();
+
+                // Gravity controls
+                ImGui::DragFloat3("Gravity", &physicsSystem.gravity.x, 0.1f, -50.0f, 50.0f);
+
+                // Timestep controls
+                ImGui::DragFloat("Fixed Timestep", &physicsSystem.fixedTimestep, 0.001f, 0.001f, 0.1f, "%.3f");
+                ImGui::SliderInt("Max Substeps", &physicsSystem.maxSubsteps, 1, 10);
+
+                // Collision toggle
+                ImGui::Checkbox("Enable Collisions", &physicsSystem.enableCollisions);
+
+                ImGui::Separator();
+                ImGui::Text("Stats:");
+                ImGui::Text("  Collision Checks: %d", physicsSystem.collisionChecks);
+                ImGui::Text("  Collisions: %d", physicsSystem.collisionsDetected);
 
                 ImGui::End();
             }

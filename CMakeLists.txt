@@ -80,8 +80,32 @@ endif()
 # Try find_package first (works with config-mode packages)
 find_package(Assimp CONFIG QUIET)
 find_package(imgui CONFIG QUIET)
+
+# Stb ships a FindStb.cmake module (not a Config package), so it must be
+# discoverable via CMAKE_MODULE_PATH rather than CMAKE_PREFIX_PATH. The module
+# also needs Stb_DIR pointed at the vcpkg install prefix so it can locate
+# stb_image.h under <prefix>/include.
+if(EXISTS "C:/vcpkg/installed/x64-windows/share/stb")
+    list(APPEND CMAKE_MODULE_PATH "C:/vcpkg/installed/x64-windows/share/stb")
+    set(Stb_DIR "C:/vcpkg/installed/x64-windows")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/share/stb")
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/share/stb")
+    set(Stb_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows")
+endif()
 find_package(Stb REQUIRED)
+
 find_package(imguizmo CONFIG QUIET)
+
+# OpenAL Soft (audio backend)
+find_package(OpenAL CONFIG QUIET)
+if(NOT TARGET OpenAL::OpenAL)
+    if(EXISTS "C:/vcpkg/installed/x64-windows/share/openal-soft")
+        set(OpenAL_DIR "C:/vcpkg/installed/x64-windows/share/openal-soft")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/share/openal-soft")
+        set(OpenAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/share/openal-soft")
+    endif()
+    find_package(OpenAL CONFIG QUIET)
+endif()
 
 # ============================================================
 # Source Files
@@ -99,12 +123,17 @@ set(SOURCES
     src/core/Input.cpp
     src/core/AssetManager.cpp
     src/core/Raycast.cpp
+    src/core/FileDialog.cpp
+
+    src/audio/AudioEngine.cpp
+    src/audio/AudioClip.cpp
 
     src/ecs/Scene.cpp
 
     src/systems/MeshRendererSystem.cpp
     src/systems/CameraSystem.cpp
     src/systems/PhysicsSystem.cpp
+    src/systems/AudioSystem.cpp
     src/serialization/SceneSerializer.cpp
 )
 
@@ -208,6 +237,22 @@ target_link_libraries(MyEngine PRIVATE
     glfw
     glm::glm
 )
+
+if(TARGET OpenAL::OpenAL)
+    target_link_libraries(MyEngine PRIVATE OpenAL::OpenAL)
+elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/OpenAL32.lib")
+    target_include_directories(MyEngine PRIVATE "C:/vcpkg/installed/x64-windows/include")
+    target_link_libraries(MyEngine PRIVATE "C:/vcpkg/installed/x64-windows/lib/OpenAL32.lib")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/OpenAL32.lib")
+    target_include_directories(MyEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+    target_link_libraries(MyEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/OpenAL32.lib")
+else()
+    message(WARNING "OpenAL not found as CMake target and no fallback library found. Audio will fail to link.")
+endif()
+
+if(WIN32)
+    target_link_libraries(MyEngine PRIVATE comdlg32)
+endif()
 
 if(TARGET imguizmo::imguizmo)
     target_link_libraries(MyEngine PRIVATE imguizmo::imguizmo)

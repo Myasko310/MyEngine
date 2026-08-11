@@ -5,6 +5,7 @@
 #include "components/TransformComponent.h"
 #include "components/LightComponent.h"
 #include "ecs/Scene.h"
+#include "ecs/TransformHierarchy.h"
 #include "components/BoundingSphereComponent.h"
 
 #include <algorithm>
@@ -165,10 +166,11 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         // Frustum culling against the light frustum: if entity has a bounding
         // sphere, test it against the light's frustum so we only render what
         // the light can see into the shadow map.
+        glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
         if (entity->HasComponent<BoundingSphereComponent>())
         {
             auto& bs = entity->GetComponent<BoundingSphereComponent>();
-            glm::vec3 worldCenter = entity->GetComponent<TransformComponent>().position + bs.center;
+            glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(bs.center, 1.0f));
             float maxScale = glm::compMax(entity->GetComponent<TransformComponent>().scale);
             float worldRadius = bs.radius * maxScale;
             if (!lightCuller.IsSphereVisible(worldCenter, worldRadius))
@@ -188,7 +190,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             continue;
 
         depthShader->SetMat4("u_LightSpace", lightSpaceMatrix);
-        depthShader->SetMat4("u_Model", transform.GetMatrix());
+        depthShader->SetMat4("u_Model", worldMatrix);
         meshComponent.mesh->Draw();
     }
 
@@ -236,7 +238,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
         renderer.shader->Use();
 
-        renderer.shader->SetMat4("u_Model", transform.GetMatrix());
+        renderer.shader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
         renderer.shader->SetMat4("u_View", view);
         renderer.shader->SetMat4("u_Projection", projection);
 

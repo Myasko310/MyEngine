@@ -7,11 +7,14 @@
 #include "components/MeshRendererComponent.h"
 #include "components/BoundingSphereComponent.h"
 #include "rendering/Shader.h"
+#include "audio/AudioClip.h"
 
 namespace MyEngine
 {
 	std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> AssetManager::s_ModelCache;
 	std::unordered_map<std::string, std::shared_ptr<Texture>> AssetManager::s_TextureCache;
+	std::unordered_map<std::string, std::shared_ptr<Shader>> AssetManager::s_ShaderCache;
+	std::unordered_map<std::string, std::shared_ptr<AudioClip>> AssetManager::s_AudioClipCache;
 
 	std::vector<std::shared_ptr<Mesh>> AssetManager::LoadModel(const std::string& path)
 	{
@@ -40,6 +43,32 @@ namespace MyEngine
 		auto texture = std::make_shared<Texture>(path, generateMipmaps);
 		s_TextureCache[path] = texture;
 		return texture;
+	}
+
+	std::shared_ptr<Shader> AssetManager::LoadShader(const std::string& vertexPath, const std::string& fragmentPath)
+	{
+		std::string key = vertexPath + "|" + fragmentPath;
+		auto it = s_ShaderCache.find(key);
+		if (it != s_ShaderCache.end())
+			return it->second;
+
+		auto shader = std::make_shared<Shader>(vertexPath, fragmentPath);
+		s_ShaderCache[key] = shader;
+		return shader;
+	}
+
+	std::shared_ptr<AudioClip> AssetManager::LoadAudioClip(const std::string& path)
+	{
+		auto it = s_AudioClipCache.find(path);
+		if (it != s_AudioClipCache.end())
+			return it->second;
+
+		auto clip = std::make_shared<AudioClip>(path);
+		if (!clip->IsValid())
+			return nullptr;
+
+		s_AudioClipCache[path] = clip;
+		return clip;
 	}
 
 	void AssetManager::AttachMeshToEntity(const std::shared_ptr<::Entity>& entity,

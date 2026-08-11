@@ -12,6 +12,7 @@
 namespace MyEngine
 {
     Shader::Shader(const std::string& vertexPath, const std::string& fragmentPath)
+        : m_VertexPath(vertexPath), m_FragmentPath(fragmentPath)
     {
         std::string vertSrc = LoadFile(vertexPath);
         std::string fragSrc = LoadFile(fragmentPath);
@@ -54,6 +55,8 @@ namespace MyEngine
     {
         m_ID = other.m_ID;
         other.m_ID = 0;
+        m_VertexPath = std::move(other.m_VertexPath);
+        m_FragmentPath = std::move(other.m_FragmentPath);
     }
 
     Shader& Shader::operator=(Shader&& other) noexcept
@@ -67,6 +70,8 @@ namespace MyEngine
 
             m_ID = other.m_ID;
             other.m_ID = 0;
+            m_VertexPath = std::move(other.m_VertexPath);
+            m_FragmentPath = std::move(other.m_FragmentPath);
         }
 
         return *this;

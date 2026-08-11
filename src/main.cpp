@@ -10,11 +10,16 @@
 #include <vector>
 #include <filesystem>
 #include <algorithm>
+#include <functional>
+#include <fstream>
 
 // Core
 #include "core/Input.h"
+#include "core/FileDialog.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
+#include "ecs/TransformHierarchy.h"
+#include "editor/EditorUndo.h"
 
 #include "components/LightComponent.h"
 
@@ -27,6 +32,13 @@
 #include "components/RigidbodyComponent.h"
 #include "components/PlaneColliderComponent.h"
 #include "components/BoxColliderComponent.h"
+#include "components/AudioSourceComponent.h"
+#include "components/AudioListenerComponent.h"
+
+// Audio
+#include "audio/AudioEngine.h"
+#include "audio/AudioClip.h"
+#include <AL/al.h>
 
 // Rendering
 #include "rendering/Mesh.h"
@@ -53,6 +65,7 @@
 #include "systems/CameraSystem.h"
 #include "systems/MeshRendererSystem.h"
 #include "systems/PhysicsSystem.h"
+#include "systems/AudioSystem.h"
 
 // Core (picking)
 #include "core/Raycast.h"
@@ -69,6 +82,62 @@ static void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
     g_WindowHeight = height;
 
     glViewport(0, 0, width, height);
+}
+
+// ------------------------------------------------------------
+// Recent scenes list persistence (simple one-path-per-line file)
+// ------------------------------------------------------------
+static const char* kRecentScenesFile = "recent_scenes.txt";
+static const size_t kMaxRecentScenes = 5;
+
+static std::vector<std::string> LoadRecentScenes()
+{
+    std::vector<std::string> recents;
+    std::ifstream ifs(kRecentScenesFile);
+    if (!ifs)
+        return recents;
+
+    std::string line;
+    while (std::getline(ifs, line))
+    {
+        if (!line.empty())
+            recents.push_back(line);
+    }
+    return recents;
+}
+
+static void SaveRecentScenes(const std::vector<std::string>& recents)
+{
+    std::ofstream ofs(kRecentScenesFile, std::ios::trunc);
+    if (!ofs)
+        return;
+
+    for (const auto& path : recents)
+        ofs << path << "\n";
+}
+
+static void AddRecentScene(std::vector<std::string>& recents, const std::string& path)
+{
+    if (path.empty())
+        return;
+
+    recents.erase(std::remove(recents.begin(), recents.end(), path), recents.end());
+    recents.insert(recents.begin(), path);
+    if (recents.size() > kMaxRecentScenes)
+        recents.resize(kMaxRecentScenes);
+
+    SaveRecentScenes(recents);
+}
+
+static void UpdateWindowTitle(GLFWwindow* window, const std::string& scenePath)
+{
+    std::string title = "MyEngine";
+    if (!scenePath.empty())
+    {
+        std::filesystem::path p(scenePath);
+        title += " - " + p.filename().string();
+    }
+    glfwSetWindowTitle(window, title.c_str());
 }
 
 static void APIENTRY OpenGLDebugCallback(
@@ -227,6 +296,9 @@ int main()
 
     camera.isPrimary = true;
 
+    auto& audioListener = cameraEntity->AddComponent<AudioListenerComponent>();
+    audioListener.isPrimary = true;
+
     camera.fov = 60.0f;
     // CameraComponent uses nearPlane / farPlane and mouseSmoothing naming
     camera.nearPlane = 0.1f;
@@ -255,6 +327,13 @@ int main()
 
     PhysicsSystem physicsSystem;
 
+    AudioSystem audioSystem;
+
+    if (!AudioEngine::Init())
+    {
+        std::cerr << "Failed to initialize audio engine; audio playback will be disabled." << std::endl;
+    }
+
     std::cout << "Controls:\n"
               << "  Right-click: toggle mouse (camera control / UI interaction)\n"
               << "  WASD + mouse: move/look (when mouse captured)\n"
@@ -266,8 +345,8 @@ int main()
               << "  Arrow keys: rotate directional light\n"
               << "  X/Z: increase/decrease light intensity\n"
               << "  M: load model from assets/model.obj\n"
-              << "  P: save scene (also in File menu)\n"
-              << "  O: load scene (also in File menu)\n"
+              << "  Ctrl+P: save scene (also in File menu)\n"
+              << "  Ctrl+O: open scene (also in File menu)\n"
               << "  ESC: exit\n"
               << std::endl;
 
@@ -442,6 +521,17 @@ int main()
     // Scene simulation state
     bool isPlaying = false;
 
+    // Play/edit mode snapshot: the scene is serialized to a temp file when
+    // entering play mode and restored when stopping, so simulation changes
+    // (physics, scripts) don't permanently alter the edited scene.
+    bool hasPlaySnapshot = false;
+    const std::string playSnapshotPath =
+        (std::filesystem::temp_directory_path() / "MyEngine_playmode_snapshot.scene").generic_string();
+
+    // Scene file state
+    std::string currentScenePath;
+    std::vector<std::string> recentScenes = LoadRecentScenes();
+
     // UI state
     Entity* selectedEntity = nullptr;
     bool showSceneHierarchy = true;
@@ -449,12 +539,52 @@ int main()
     bool showLightingPanel = true;
     bool showPerformancePanel = true;
     bool showPhysicsPanel = true;
+    bool showAssetBrowser = true;
+    std::string assetBrowserPath = "assets";
 
 #ifdef USE_IMGUIZMO
     // Gizmo editor state (Translate/Rotate/Scale)
     ImGuizmo::OPERATION gizmoOperation = ImGuizmo::TRANSLATE;
     ImGuizmo::MODE gizmoMode = ImGuizmo::WORLD;
 #endif
+
+    // Editor undo/redo state. Transform edits are captured as a single
+    // command per gizmo drag (snapshot on drag start, commit on release).
+    EditorUndo::UndoStack undoStack;
+    bool gizmoWasUsing = false;
+    uint32_t gizmoEditEntityID = 0;
+    TransformComponent gizmoEditBefore;
+
+    // Central play-state switch: snapshot the scene when starting play,
+    // restore the snapshot when stopping so edits made during simulation
+    // are discarded.
+    auto setPlaying = [&](bool play)
+    {
+        if (play == isPlaying)
+            return;
+
+        if (play)
+        {
+            hasPlaySnapshot = MyEngine::Serialization::SaveScene(scene, playSnapshotPath);
+            isPlaying = true;
+        }
+        else
+        {
+            isPlaying = false;
+            if (hasPlaySnapshot)
+            {
+                selectedEntity = nullptr;
+                undoStack.Clear();
+                std::vector<uint32_t> ids;
+                for (auto& e : scene.GetEntities())
+                    if (e) ids.push_back(e->GetID());
+                for (uint32_t id : ids)
+                    scene.DestroyEntity(id);
+                MyEngine::Serialization::LoadScene(scene, playSnapshotPath, litShader);
+                hasPlaySnapshot = false;
+            }
+        }
+    };
 
     // ------------------------------------------------------------
     // Timing
@@ -537,7 +667,7 @@ int main()
         // Toggle Play/Pause (press Space)
         if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_SPACE))
         {
-            isPlaying = !isPlaying;
+            setPlaying(!isPlaying);
         }
 
         // Cycle selected cube
@@ -582,6 +712,23 @@ int main()
         }
 #endif
 
+        // Undo/redo shortcuts (Ctrl+Z / Ctrl+Y)
+        {
+#ifdef USE_IMGUI
+            bool allowUndoShortcuts = !io.WantTextInput;
+#else
+            bool allowUndoShortcuts = true;
+#endif
+            bool ctrlDown = Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL) || Input::IsKeyDown(GLFW_KEY_RIGHT_CONTROL);
+            if (allowUndoShortcuts && ctrlDown)
+            {
+                if (Input::IsKeyPressed(GLFW_KEY_Z))
+                    undoStack.Undo(scene);
+                if (Input::IsKeyPressed(GLFW_KEY_Y))
+                    undoStack.Redo(scene);
+            }
+        }
+
         // Load model from assets
         if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_M))
         {
@@ -594,6 +741,35 @@ int main()
                 t.position = glm::vec3(0.0f, 0.5f, -3.0f);
                 t.scale = glm::vec3(1.0f);
                 MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], path, litShader);
+            }
+        }
+
+        // Save/Open scene hotkeys (Ctrl+P / Ctrl+O, mirrors File menu behavior).
+        // Ctrl is required because plain O is already used for cube color adjustment.
+        bool ctrlHeld = Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL) || Input::IsKeyDown(GLFW_KEY_RIGHT_CONTROL);
+        if (allowGlobalHotkeys && ctrlHeld && Input::IsKeyPressed(GLFW_KEY_P))
+        {
+            if (currentScenePath.empty())
+                currentScenePath = MyEngine::FileDialog::SaveSceneFile();
+
+            if (!currentScenePath.empty())
+            {
+                MyEngine::Serialization::SaveScene(scene, currentScenePath);
+                AddRecentScene(recentScenes, currentScenePath);
+                UpdateWindowTitle(window, currentScenePath);
+            }
+        }
+
+        if (allowGlobalHotkeys && ctrlHeld && Input::IsKeyPressed(GLFW_KEY_O))
+        {
+            std::string path = MyEngine::FileDialog::OpenSceneFile();
+            if (!path.empty())
+            {
+                MyEngine::Serialization::LoadScene(scene, path, litShader);
+                selectedEntity = nullptr;
+                currentScenePath = path;
+                AddRecentScene(recentScenes, path);
+                UpdateWindowTitle(window, currentScenePath);
             }
         }
 
@@ -676,6 +852,8 @@ int main()
 
         cameraSystem.Update(scene, window, deltaTime, aspectRatio);
 
+        audioSystem.Update(scene, deltaTime);
+
         glm::mat4 view = cameraSystem.GetViewMatrix();
         glm::mat4 projection = cameraSystem.GetProjectionMatrix();
 
@@ -695,25 +873,76 @@ int main()
             // Menu Bar (standalone)
             if (ImGui::BeginMainMenuBar())
             {
-            // Play/Pause button with icon
+            // Play/Stop button with icon
             ImGui::PushStyleColor(ImGuiCol_Button, isPlaying ? ImVec4(0.8f, 0.3f, 0.3f, 1.0f) : ImVec4(0.3f, 0.8f, 0.3f, 1.0f));
-            if (ImGui::Button(isPlaying ? " || Pause (Space)" : " > Play (Space)"))
+            if (ImGui::Button(isPlaying ? " [] Stop (Space)" : " > Play (Space)"))
             {
-                isPlaying = !isPlaying;
+                setPlaying(!isPlaying);
             }
             ImGui::PopStyleColor();
             ImGui::Separator();
 
             if (ImGui::BeginMenu("File"))
             {
-                if (ImGui::MenuItem("Save Scene", "P"))
+                if (ImGui::MenuItem("New Scene"))
                 {
-                    MyEngine::Serialization::SaveScene(scene, "scene.json");
-                }
-                if (ImGui::MenuItem("Load Scene", "O"))
-                {
-                    MyEngine::Serialization::LoadScene(scene, "scene.json");
+                    for (auto& e : scene.GetEntities())
+                        if (e) scene.DestroyEntity(e->GetID());
                     selectedEntity = nullptr;
+                    currentScenePath.clear();
+                    UpdateWindowTitle(window, currentScenePath);
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Open Scene...", "Ctrl+O"))
+                {
+                    std::string path = MyEngine::FileDialog::OpenSceneFile();
+                    if (!path.empty())
+                    {
+                        MyEngine::Serialization::LoadScene(scene, path, litShader);
+                        selectedEntity = nullptr;
+                        currentScenePath = path;
+                        AddRecentScene(recentScenes, path);
+                        UpdateWindowTitle(window, currentScenePath);
+                    }
+                }
+                if (ImGui::BeginMenu("Open Recent", !recentScenes.empty()))
+                {
+                    for (const auto& recentPath : recentScenes)
+                    {
+                        if (ImGui::MenuItem(recentPath.c_str()))
+                        {
+                            MyEngine::Serialization::LoadScene(scene, recentPath, litShader);
+                            selectedEntity = nullptr;
+                            currentScenePath = recentPath;
+                            AddRecentScene(recentScenes, recentPath);
+                            UpdateWindowTitle(window, currentScenePath);
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Save Scene", "Ctrl+P"))
+                {
+                    if (currentScenePath.empty())
+                        currentScenePath = MyEngine::FileDialog::SaveSceneFile();
+
+                    if (!currentScenePath.empty())
+                    {
+                        MyEngine::Serialization::SaveScene(scene, currentScenePath);
+                        AddRecentScene(recentScenes, currentScenePath);
+                        UpdateWindowTitle(window, currentScenePath);
+                    }
+                }
+                if (ImGui::MenuItem("Save Scene As..."))
+                {
+                    std::string path = MyEngine::FileDialog::SaveSceneFile();
+                    if (!path.empty())
+                    {
+                        MyEngine::Serialization::SaveScene(scene, path);
+                        currentScenePath = path;
+                        AddRecentScene(recentScenes, currentScenePath);
+                        UpdateWindowTitle(window, currentScenePath);
+                    }
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit", "ESC"))
@@ -729,6 +958,7 @@ int main()
                     ImGui::MenuItem("Inspector", nullptr, &showInspector);
                     ImGui::MenuItem("Lighting", nullptr, &showLightingPanel);
                     ImGui::MenuItem("Performance", nullptr, &showPerformancePanel);
+                    ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
                     ImGui::Separator();
                     if (ImGui::MenuItem("Toggle Wireframe", "F"))
                     {
@@ -802,6 +1032,119 @@ int main()
             }
 
             // ============================================================
+            // Asset Browser Panel
+            // ============================================================
+            if (showAssetBrowser)
+            {
+                ImGui::SetNextWindowPos(ImVec2(10, 440), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Asset Browser", &showAssetBrowser);
+
+                namespace fs = std::filesystem;
+
+                // Breadcrumb: navigate back up to "assets"
+                if (assetBrowserPath != "assets")
+                {
+                    if (ImGui::Button("<- Back"))
+                    {
+                        fs::path parent = fs::path(assetBrowserPath).parent_path();
+                        assetBrowserPath = parent.empty() ? "assets" : parent.generic_string();
+                    }
+                    ImGui::SameLine();
+                }
+                ImGui::TextDisabled("%s", assetBrowserPath.c_str());
+                ImGui::Separator();
+
+                if (fs::exists(assetBrowserPath) && fs::is_directory(assetBrowserPath))
+                {
+                    // Directories first
+                    for (const auto& entry : fs::directory_iterator(assetBrowserPath))
+                    {
+                        if (!entry.is_directory())
+                            continue;
+                        std::string label = "[DIR] " + entry.path().filename().string();
+                        if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
+                            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                        {
+                            assetBrowserPath = entry.path().generic_string();
+                        }
+                    }
+
+                    // Files with type-aware actions
+                    for (const auto& entry : fs::directory_iterator(assetBrowserPath))
+                    {
+                        if (!entry.is_regular_file())
+                            continue;
+
+                        std::string filePath = entry.path().generic_string();
+                        std::string fileName = entry.path().filename().string();
+                        std::string ext = entry.path().extension().string();
+                        std::transform(ext.begin(), ext.end(), ext.begin(),
+                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+                        ImGui::Selectable(fileName.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick);
+
+                        bool doubleClicked = ImGui::IsItemHovered() &&
+                            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+
+                        if (doubleClicked)
+                        {
+                            if (ext == ".obj")
+                            {
+                                auto meshes = MyEngine::AssetManager::LoadModel(filePath);
+                                if (!meshes.empty())
+                                {
+                                    auto ent = scene.CreateEntity(entry.path().stem().string());
+                                    auto& t = ent->AddComponent<TransformComponent>();
+                                    t.position = glm::vec3(0.0f, 0.5f, -3.0f);
+                                    MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], filePath, litShader);
+                                    selectedEntity = ent.get();
+                                }
+                            }
+                            else if (ext == ".wav")
+                            {
+                                if (selectedEntity)
+                                {
+                                    if (!selectedEntity->HasComponent<AudioSourceComponent>())
+                                        selectedEntity->AddComponent<AudioSourceComponent>();
+                                    auto& as = selectedEntity->GetComponent<AudioSourceComponent>();
+                                    as.clipPath = filePath;
+                                    as.clip = MyEngine::AssetManager::LoadAudioClip(filePath);
+                                }
+                            }
+                            else if (ext == ".scene" || ext == ".json")
+                            {
+                                selectedEntity = nullptr;
+                                undoStack.Clear();
+                                if (MyEngine::Serialization::LoadScene(scene, filePath, litShader))
+                                {
+                                    currentScenePath = filePath;
+                                    AddRecentScene(recentScenes, currentScenePath);
+                                    UpdateWindowTitle(window, currentScenePath);
+                                }
+                            }
+                        }
+
+                        if (ImGui::IsItemHovered())
+                        {
+                            if (ext == ".obj")
+                                ImGui::SetTooltip("Double-click: add model to scene");
+                            else if (ext == ".wav")
+                                ImGui::SetTooltip("Double-click: assign clip to selected entity's audio source");
+                            else if (ext == ".scene" || ext == ".json")
+                                ImGui::SetTooltip("Double-click: open scene");
+                        }
+                    }
+                }
+                else
+                {
+                    ImGui::TextDisabled("Folder not found: %s", assetBrowserPath.c_str());
+                }
+
+                ImGui::End();
+            }
+
+            // ============================================================
             // Scene Hierarchy Panel
             // ============================================================
             if (showSceneHierarchy)
@@ -819,31 +1162,121 @@ int main()
 
                 ImGui::Separator();
 
-                for (auto& entity : scene.GetEntities())
+                // Recursive hierarchy tree: root entities (parentID == 0) at top
+                // level, children nested underneath. Drag an entity onto another
+                // to reparent it; drop onto the "(root)" target to unparent.
+                std::function<void(const std::shared_ptr<Entity>&)> drawEntityNode =
+                    [&](const std::shared_ptr<Entity>& entity)
                 {
-                    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+                    bool hasChildren = false;
+                    for (auto& other : scene.GetEntities())
+                    {
+                        if (other && other != entity && other->HasComponent<TransformComponent>() &&
+                            other->GetComponent<TransformComponent>().parentID == entity->GetID())
+                        {
+                            hasChildren = true;
+                            break;
+                        }
+                    }
+
+                    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DefaultOpen;
+                    if (!hasChildren)
+                        flags |= ImGuiTreeNodeFlags_Leaf;
                     if (selectedEntity == entity.get())
                         flags |= ImGuiTreeNodeFlags_Selected;
 
-                    ImGui::TreeNodeEx(entity.get(), flags, "%s", entity->GetName().c_str());
+                    bool open = ImGui::TreeNodeEx(entity.get(), flags, "%s", entity->GetName().c_str());
 
-                    if (ImGui::IsItemClicked())
+                    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
                     {
                         selectedEntity = entity.get();
+                    }
+
+                    // Drag source: carry the entity ID
+                    if (ImGui::BeginDragDropSource())
+                    {
+                        uint32_t draggedID = entity->GetID();
+                        ImGui::SetDragDropPayload("ENTITY_HIERARCHY", &draggedID, sizeof(uint32_t));
+                        ImGui::Text("%s", entity->GetName().c_str());
+                        ImGui::EndDragDropSource();
+                    }
+
+                    // Drop target: reparent the dragged entity under this one
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY"))
+                        {
+                            uint32_t draggedID = *static_cast<const uint32_t*>(payload->Data);
+                            auto dragged = TransformHierarchy::FindEntityByID(scene, draggedID);
+                            if (dragged && dragged.get() != entity.get())
+                                TransformHierarchy::SetParent(scene, *dragged, entity->GetID());
+                        }
+                        ImGui::EndDragDropTarget();
                     }
 
                     // Right-click context menu for entity
                     if (ImGui::BeginPopupContextItem())
                     {
+                        if (ImGui::MenuItem("Unparent", nullptr, false,
+                            entity->HasComponent<TransformComponent>() &&
+                            entity->GetComponent<TransformComponent>().parentID != 0))
+                        {
+                            TransformHierarchy::SetParent(scene, *entity, 0);
+                        }
                         if (ImGui::MenuItem("Delete"))
                         {
                             uint32_t idToDelete = entity->GetID();
                             if (selectedEntity == entity.get())
                                 selectedEntity = nullptr;
+                            // Unparent any children so they don't reference a dead ID.
+                            for (auto& other : scene.GetEntities())
+                            {
+                                if (other && other->HasComponent<TransformComponent>() &&
+                                    other->GetComponent<TransformComponent>().parentID == idToDelete)
+                                    TransformHierarchy::SetParent(scene, *other, 0);
+                            }
                             scene.DestroyEntity(idToDelete);
                         }
                         ImGui::EndPopup();
                     }
+
+                    if (open)
+                    {
+                        for (auto& child : scene.GetEntities())
+                        {
+                            if (child && child != entity && child->HasComponent<TransformComponent>() &&
+                                child->GetComponent<TransformComponent>().parentID == entity->GetID())
+                            {
+                                drawEntityNode(child);
+                            }
+                        }
+                        ImGui::TreePop();
+                    }
+                };
+
+                for (auto& entity : scene.GetEntities())
+                {
+                    if (!entity)
+                        continue;
+                    uint32_t parentID = entity->HasComponent<TransformComponent>()
+                        ? entity->GetComponent<TransformComponent>().parentID
+                        : 0;
+                    if (parentID == 0)
+                        drawEntityNode(entity);
+                }
+
+                // Drop area to unparent (drag onto empty space below the tree)
+                ImGui::Dummy(ImVec2(-1.0f, 30.0f));
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY"))
+                    {
+                        uint32_t draggedID = *static_cast<const uint32_t*>(payload->Data);
+                        auto dragged = TransformHierarchy::FindEntityByID(scene, draggedID);
+                        if (dragged)
+                            TransformHierarchy::SetParent(scene, *dragged, 0);
+                    }
+                    ImGui::EndDragDropTarget();
                 }
 
                 ImGui::End();
@@ -869,9 +1302,17 @@ int main()
                         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
                         {
                             auto& transform = selectedEntity->GetComponent<TransformComponent>();
-                            ImGui::DragFloat3("Position", &transform.position.x, 0.1f);
-                            ImGui::DragFloat3("Rotation", &transform.rotation.x, 1.0f);
-                            ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f, 0.01f, 100.0f);
+                            TransformComponent beforeEdit = transform;
+                            bool edited = false;
+                            edited |= ImGui::DragFloat3("Position", &transform.position.x, 0.1f);
+                            edited |= ImGui::DragFloat3("Rotation", &transform.rotation.x, 1.0f);
+                            edited |= ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f, 0.01f, 100.0f);
+                            // Commit a single undo command when the drag/edit finishes.
+                            if (edited && ImGui::IsItemDeactivatedAfterEdit())
+                            {
+                                undoStack.Push(std::make_unique<EditorUndo::TransformEditCommand>(
+                                    selectedEntity->GetID(), beforeEdit, transform));
+                            }
                         }
                     }
 
@@ -1130,6 +1571,142 @@ int main()
                             }
                         }
                     }
+
+                    // Audio Source Component
+                    if (selectedEntity->HasComponent<AudioSourceComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Audio Source", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            auto& source = selectedEntity->GetComponent<AudioSourceComponent>();
+
+                            // Clip selection
+                            if (source.clip)
+                                ImGui::Text("Clip: %s", source.clipPath.c_str());
+                            else
+                                ImGui::Text("No clip loaded");
+
+                            // Cache the list of available clips found under assets/audio
+                            static std::vector<std::string> availableClips;
+                            static bool clipsScanned = false;
+                            if (!clipsScanned)
+                            {
+                                clipsScanned = true;
+                                availableClips.clear();
+                                const std::string audioDir = "assets/audio";
+                                if (std::filesystem::exists(audioDir))
+                                {
+                                    for (const auto& entry : std::filesystem::directory_iterator(audioDir))
+                                    {
+                                        if (entry.is_regular_file() && entry.path().extension() == ".wav")
+                                            availableClips.push_back(entry.path().generic_string());
+                                    }
+                                }
+                            }
+
+                            if (ImGui::Button("Rescan Clips"))
+                                clipsScanned = false;
+
+                            if (ImGui::BeginCombo("Clip##audioClipCombo", source.clipPath.empty() ? "<select clip>" : source.clipPath.c_str()))
+                            {
+                                for (const auto& clipPath : availableClips)
+                                {
+                                    bool isSelected = (clipPath == source.clipPath);
+                                    if (ImGui::Selectable(clipPath.c_str(), isSelected))
+                                    {
+                                        auto newClip = AssetManager::LoadAudioClip(clipPath);
+                                        if (newClip && newClip->IsValid())
+                                        {
+                                            // Release the old OpenAL source so it gets recreated
+                                            // with the new buffer on the next AudioSystem update.
+                                            if (source.sourceID != 0)
+                                            {
+                                                alSourceStop(source.sourceID);
+                                                alDeleteSources(1, &source.sourceID);
+                                                source.sourceID = 0;
+                                            }
+                                            source.clip = newClip;
+                                            source.clipPath = clipPath;
+                                            source.isPlaying = false;
+                                        }
+                                    }
+                                    if (isSelected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            ImGui::SliderFloat("Volume", &source.volume, 0.0f, 1.0f);
+                            ImGui::DragFloat("Pitch", &source.pitch, 0.01f, 0.1f, 4.0f);
+                            ImGui::Checkbox("Loop", &source.loop);
+                            ImGui::Checkbox("Auto Play", &source.autoPlay);
+
+                            ImGui::Separator();
+                            ImGui::Checkbox("Spatial (3D)", &source.spatial);
+                            if (source.spatial)
+                            {
+                                ImGui::DragFloat("Min Distance", &source.minDistance, 0.1f, 0.1f, 1000.0f);
+                                ImGui::DragFloat("Max Distance", &source.maxDistance, 1.0f, 1.0f, 10000.0f);
+                            }
+
+                            ImGui::Separator();
+                            if (source.clip && source.clip->IsValid())
+                            {
+                                if (!source.isPlaying)
+                                {
+                                    if (ImGui::Button("Play"))
+                                        source.playRequested = true;
+                                }
+                                else
+                                {
+                                    if (ImGui::Button("Stop"))
+                                        source.stopRequested = true;
+                                }
+                                ImGui::SameLine();
+                                ImGui::Text(source.isPlaying ? "Playing" : "Stopped");
+                            }
+
+                            if (ImGui::Button("Remove Audio Source"))
+                            {
+                                if (source.sourceID != 0)
+                                {
+                                    alSourceStop(source.sourceID);
+                                    alDeleteSources(1, &source.sourceID);
+                                    source.sourceID = 0;
+                                }
+                                selectedEntity->RemoveComponent<AudioSourceComponent>();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Audio Source"))
+                        {
+                            selectedEntity->AddComponent<AudioSourceComponent>();
+                        }
+                    }
+
+                    // Audio Listener Component
+                    if (selectedEntity->HasComponent<AudioListenerComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Audio Listener", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            auto& listener = selectedEntity->GetComponent<AudioListenerComponent>();
+                            ImGui::Checkbox("Primary Listener", &listener.isPrimary);
+                            ImGui::SliderFloat("Gain", &listener.gain, 0.0f, 2.0f);
+
+                            if (ImGui::Button("Remove Audio Listener"))
+                            {
+                                selectedEntity->RemoveComponent<AudioListenerComponent>();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Audio Listener"))
+                        {
+                            selectedEntity->AddComponent<AudioListenerComponent>();
+                        }
+                    }
                 }
                     else
                     {
@@ -1282,9 +1859,9 @@ int main()
                 ImGui::Text(isPlaying ? "RUNNING" : "PAUSED");
                 ImGui::PopStyleColor();
                 ImGui::SameLine();
-                if (ImGui::Button(isPlaying ? "Pause" : "Play"))
+                if (ImGui::Button(isPlaying ? "Stop" : "Play"))
                 {
-                    isPlaying = !isPlaying;
+                    setPlaying(!isPlaying);
                 }
                 ImGui::Separator();
 
@@ -1342,7 +1919,16 @@ int main()
             ImGuizmo::SetRect(0.0f, 0.0f, static_cast<float>(windowW), static_cast<float>(windowH));
 
             auto& gizmoTransform = selectedEntity->GetComponent<TransformComponent>();
-            glm::mat4 gizmoMatrix = gizmoTransform.GetMatrix();
+            // Manipulate in world space; for parented entities the world matrix
+            // includes the parent chain, and edits are converted back to local.
+            glm::mat4 parentWorld(1.0f);
+            if (gizmoTransform.parentID != 0)
+            {
+                auto parent = TransformHierarchy::FindEntityByID(scene, gizmoTransform.parentID);
+                if (parent)
+                    parentWorld = TransformHierarchy::GetWorldMatrix(scene, *parent);
+            }
+            glm::mat4 gizmoMatrix = parentWorld * gizmoTransform.GetMatrix();
 
             ImGuizmo::Manipulate(
                 glm::value_ptr(view),
@@ -1354,14 +1940,34 @@ int main()
 
             if (ImGuizmo::IsUsing())
             {
+                // Snapshot the transform on the first frame of a drag so the
+                // whole drag becomes a single undoable command.
+                if (!gizmoWasUsing)
+                {
+                    gizmoWasUsing = true;
+                    gizmoEditEntityID = selectedEntity->GetID();
+                    gizmoEditBefore = gizmoTransform;
+                }
+
+                glm::mat4 localMatrix = glm::inverse(parentWorld) * gizmoMatrix;
+
                 float translation[3];
                 float rotation[3];
                 float scale[3];
-                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(gizmoMatrix), translation, rotation, scale);
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(localMatrix), translation, rotation, scale);
 
                 gizmoTransform.position = glm::vec3(translation[0], translation[1], translation[2]);
                 gizmoTransform.rotation = glm::radians(glm::vec3(rotation[0], rotation[1], rotation[2]));
                 gizmoTransform.scale = glm::vec3(scale[0], scale[1], scale[2]);
+            }
+            else if (gizmoWasUsing)
+            {
+                gizmoWasUsing = false;
+                if (gizmoEditEntityID == selectedEntity->GetID())
+                {
+                    undoStack.Push(std::make_unique<EditorUndo::TransformEditCommand>(
+                        gizmoEditEntityID, gizmoEditBefore, gizmoTransform));
+                }
             }
         }
 #endif
@@ -1402,20 +2008,21 @@ int main()
                         continue;
 
                     auto& transform = entity->GetComponent<TransformComponent>();
+                    glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
                     float hitDistance = 0.0f;
                     bool hit = false;
 
                     if (entity->HasComponent<BoxColliderComponent>())
                     {
                         auto& box = entity->GetComponent<BoxColliderComponent>();
-                        glm::vec3 worldCenter = transform.position + box.center;
+                        glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(box.center, 1.0f));
                         glm::vec3 worldHalfExtents = box.halfExtents * transform.scale;
                         hit = RayIntersectsAABB(ray, worldCenter, worldHalfExtents, hitDistance);
                     }
                     else if (entity->HasComponent<BoundingSphereComponent>())
                     {
                         auto& sphere = entity->GetComponent<BoundingSphereComponent>();
-                        glm::vec3 worldCenter = transform.position + sphere.center;
+                        glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(sphere.center, 1.0f));
                         float maxScale = std::max({ transform.scale.x, transform.scale.y, transform.scale.z });
                         float worldRadius = sphere.radius * maxScale;
                         hit = RayIntersectsSphere(ray, worldCenter, worldRadius, hitDistance);
@@ -1453,6 +2060,9 @@ int main()
 #endif
 
     Input::Shutdown();
+
+    audioSystem.ReleaseAll(scene);
+    AudioEngine::Shutdown();
 
     glfwDestroyWindow(window);
     glfwTerminate();

@@ -136,6 +136,41 @@ namespace MyEngine
             reinterpret_cast<void*>(offsetof(Vertex, TexCoords))
         );
 
+        // layout(location = 6) in vec3 a_Tangent;
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(
+            6,
+            3,
+            GL_FLOAT,
+            GL_FALSE,
+            sizeof(Vertex),
+            reinterpret_cast<void*>(offsetof(Vertex, Tangent))
+        );
+
+        // layout(location = 4) in ivec4 a_BoneIDs;
+        // Bone indices must use the integer attribute pointer variant (not the
+        // float one) so they are read as ints in the shader rather than being
+        // implicitly converted, which would corrupt indices above 24 bits.
+        glEnableVertexAttribArray(4);
+        glVertexAttribIPointer(
+            4,
+            MAX_BONE_INFLUENCE,
+            GL_INT,
+            sizeof(Vertex),
+            reinterpret_cast<void*>(offsetof(Vertex, BoneIDs))
+        );
+
+        // layout(location = 5) in vec4 a_BoneWeights;
+        glEnableVertexAttribArray(5);
+        glVertexAttribPointer(
+            5,
+            MAX_BONE_INFLUENCE,
+            GL_FLOAT,
+            GL_FALSE,
+            sizeof(Vertex),
+            reinterpret_cast<void*>(offsetof(Vertex, BoneWeights))
+        );
+
         glBindVertexArray(0);
     }
 

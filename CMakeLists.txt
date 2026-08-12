@@ -117,6 +117,7 @@ set(SOURCES
     src/rendering/Mesh.cpp
     src/rendering/Model.cpp
     src/rendering/ShadowMap.cpp
+    src/rendering/PostProcessPipeline.cpp
     src/rendering/MeshPrimitives.cpp
     src/rendering/Texture.cpp
     src/renderer/FrustumCuller.cpp
@@ -134,6 +135,7 @@ set(SOURCES
     src/systems/CameraSystem.cpp
     src/systems/PhysicsSystem.cpp
     src/systems/AudioSystem.cpp
+    src/systems/AnimationSystem.cpp
     src/serialization/SceneSerializer.cpp
 )
 

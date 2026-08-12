@@ -13,12 +13,29 @@ namespace MyEngine
 	class Shader;
 	class Texture;
 	class AudioClip;
+	class Skeleton;
+	class AnimationClip;
+
+	// Result of loading a rigged/animated model: meshes plus the shared
+	// skeleton and animation clips extracted from the same source file.
+	// `skeleton` is null and `clips` is empty for models with no bone data.
+	struct SkinnedModelData
+	{
+		std::vector<std::shared_ptr<Mesh>> meshes;
+		std::shared_ptr<Skeleton> skeleton;
+		std::shared_ptr<std::vector<AnimationClip>> clips;
+	};
 
 	class AssetManager
 	{
 	public:
 		// Load model and return its meshes (cached)
 		static std::vector<std::shared_ptr<Mesh>> LoadModel(const std::string& path);
+
+		// Load a rigged/animated model, returning meshes + skeleton + animation
+		// clips together (cached). Use this instead of LoadModel when the file
+		// may contain bone weights/animations you want to preserve.
+		static SkinnedModelData LoadSkinnedModel(const std::string& path);
 
 		// Load texture (cached)
 		static std::shared_ptr<Texture> LoadTexture(const std::string& path, bool generateMipmaps = true);
@@ -36,8 +53,22 @@ namespace MyEngine
 										const std::string& assetPath = "",
 										const std::shared_ptr<Shader>& shader = nullptr);
 
+		// Attach the first mesh of a skinned model to an entity along with
+		// MeshComponent/MeshRendererComponent/BoundingSphereComponent (like
+		// AttachMeshToEntity), plus SkeletonComponent and AnimationComponent
+		// wired to the model's skeleton/clips. If `data.skeleton` is null this
+		// behaves like a plain AttachMeshToEntity (no animation components added).
+		// `assetPath` is stored on MeshComponent so scenes can be serialized/
+		// reloaded (see SceneSerializer) - pass the same path used to load
+		// `data` via LoadSkinnedModel.
+		static void AttachSkinnedModelToEntity(const std::shared_ptr<::Entity>& entity,
+										const SkinnedModelData& data,
+										const std::shared_ptr<Shader>& shader = nullptr,
+										const std::string& assetPath = "");
+
 	private:
 		static std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> s_ModelCache;
+		static std::unordered_map<std::string, SkinnedModelData> s_SkinnedModelCache;
 		static std::unordered_map<std::string, std::shared_ptr<Texture>> s_TextureCache;
 		static std::unordered_map<std::string, std::shared_ptr<Shader>> s_ShaderCache;
 		static std::unordered_map<std::string, std::shared_ptr<AudioClip>> s_AudioClipCache;

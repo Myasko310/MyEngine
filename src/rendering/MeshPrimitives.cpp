@@ -124,4 +124,20 @@ namespace MyEngine
 
         return std::make_shared<Mesh>(vertices, indices);
     }
+
+    std::shared_ptr<Mesh> MeshPrimitives::CreatePlane(float halfExtent)
+    {
+        std::vector<Vertex> vertices =
+        {
+            {{-halfExtent, 0.0f, -halfExtent}, {0.6f, 0.6f, 0.6f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+            {{ halfExtent, 0.0f, -halfExtent}, {0.6f, 0.6f, 0.6f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+            {{ halfExtent, 0.0f,  halfExtent}, {0.6f, 0.6f, 0.6f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+            {{-halfExtent, 0.0f,  halfExtent}, {0.6f, 0.6f, 0.6f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}}
+        };
+
+        // Ensure triangle winding produces an upwards-facing normal (CCW)
+        std::vector<unsigned int> indices = { 0,2,1, 0,3,2 };
+
+        return std::make_shared<Mesh>(vertices, indices);
+    }
 }

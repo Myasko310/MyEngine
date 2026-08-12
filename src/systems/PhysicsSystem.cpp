@@ -1,14 +1,23 @@
 #include "PhysicsSystem.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
+#include "ecs/TransformHierarchy.h"
 #include "components/TransformComponent.h"
 #include "components/RigidbodyComponent.h"
 #include "components/BoundingSphereComponent.h"
 #include "components/PlaneColliderComponent.h"
 #include "components/BoxColliderComponent.h"
+#include "components/CapsuleColliderComponent.h"
+#include "components/CollisionEventsComponent.h"
+#include "components/JointComponent.h"
 
 #include <iostream>
 #include <algorithm>
+#include <limits>
+#include <cstdint>
+#include <cmath>
+#include <unordered_set>
+#include <glm/gtx/component_wise.hpp>
 
 namespace MyEngine
 {
@@ -44,6 +53,7 @@ namespace MyEngine
 		// Physics pipeline
 		ApplyForces(scene, dt);
 		IntegrateVelocity(scene, dt);
+		SolveJoints(scene, dt);
 
 		if (enableCollisions)
 		{
@@ -111,6 +121,149 @@ namespace MyEngine
 		}
 	}
 
+	void PhysicsSystem::SolveJoints(Scene& scene, float dt)
+	{
+		for (const auto& entity : scene.GetEntities())
+		{
+			if (!entity || !entity->HasComponent<JointComponent>() || !entity->HasComponent<TransformComponent>())
+				continue;
+
+			auto& joint = entity->GetComponent<JointComponent>();
+			if (!joint.enabled)
+				continue;
+
+			auto& transformA = entity->GetComponent<TransformComponent>();
+
+			// Resolve the connected side: either another entity's rigidbody/transform
+			// or a fixed point in world space (connectedEntityID == 0).
+			std::shared_ptr<Entity> connected;
+			if (joint.connectedEntityID != 0)
+			{
+				connected = TransformHierarchy::FindEntityByID(scene, joint.connectedEntityID);
+				if (!connected || !connected->HasComponent<TransformComponent>())
+					continue;
+			}
+
+			glm::vec3 anchorA = transformA.position + joint.anchor;
+			glm::vec3 anchorB = connected
+				? connected->GetComponent<TransformComponent>().position + joint.connectedAnchor
+				: joint.connectedAnchor;
+
+			glm::vec3 delta = anchorB - anchorA;
+			float distance = glm::length(delta);
+			if (distance < 1e-6f)
+				continue;
+			glm::vec3 dir = delta / distance;
+
+			// Determine mobility of each side (kinematic/static bodies don't move).
+			bool hasRbA = entity->HasComponent<RigidbodyComponent>();
+			bool hasRbB = connected && connected->HasComponent<RigidbodyComponent>();
+
+			bool movableA = hasRbA && !entity->GetComponent<RigidbodyComponent>().isKinematic;
+			bool movableB = hasRbB && !connected->GetComponent<RigidbodyComponent>().isKinematic;
+
+			// If neither side can move there's nothing to solve.
+			if (!movableA && !movableB)
+				continue;
+
+			float invMassA = movableA ? 1.0f / std::max(entity->GetComponent<RigidbodyComponent>().mass, 0.0001f) : 0.0f;
+			float invMassB = movableB ? 1.0f / std::max(connected->GetComponent<RigidbodyComponent>().mass, 0.0001f) : 0.0f;
+			float invMassSum = invMassA + invMassB;
+			if (invMassSum <= 0.0f)
+				continue;
+
+			switch (joint.type)
+			{
+				case JointType::Fixed:
+				{
+					// Pull both anchor points fully together (weighted by inverse mass).
+					glm::vec3 correction = delta;
+					if (movableA)
+					{
+						transformA.position += correction * (invMassA / invMassSum);
+						if (hasRbA)
+						{
+							auto& rbA = entity->GetComponent<RigidbodyComponent>();
+							rbA.velocity -= glm::dot(rbA.velocity, dir) * dir;
+						}
+					}
+					if (movableB)
+					{
+						auto& transformB = connected->GetComponent<TransformComponent>();
+						transformB.position -= correction * (invMassB / invMassSum);
+						if (hasRbB)
+						{
+							auto& rbB = connected->GetComponent<RigidbodyComponent>();
+							rbB.velocity -= glm::dot(rbB.velocity, dir) * dir;
+						}
+					}
+					break;
+				}
+
+				case JointType::Spring:
+				{
+					// Hooke's law: F = -k * (distance - restLength) * dir, plus damping
+					// along the spring axis to avoid perpetual oscillation.
+					float stretch = distance - joint.restLength;
+					glm::vec3 force = dir * (joint.stiffness * stretch);
+
+					glm::vec3 velA = (hasRbA) ? entity->GetComponent<RigidbodyComponent>().velocity : glm::vec3(0.0f);
+					glm::vec3 velB = (hasRbB) ? connected->GetComponent<RigidbodyComponent>().velocity : glm::vec3(0.0f);
+					glm::vec3 relativeVel = velB - velA;
+					force += dir * (joint.damping * glm::dot(relativeVel, dir));
+
+					if (movableA)
+					{
+						auto& rbA = entity->GetComponent<RigidbodyComponent>();
+						rbA.velocity += (force / std::max(rbA.mass, 0.0001f)) * dt;
+					}
+					if (movableB)
+					{
+						auto& rbB = connected->GetComponent<RigidbodyComponent>();
+						rbB.velocity -= (force / std::max(rbB.mass, 0.0001f)) * dt;
+					}
+					break;
+				}
+
+				case JointType::Hinge:
+				{
+					// Ball-and-socket pivot: only correct once the body strays beyond
+					// hingeDistance from the anchor, otherwise allow free swing.
+					if (distance <= joint.hingeDistance)
+						break;
+
+					float excess = distance - joint.hingeDistance;
+					glm::vec3 correction = dir * excess;
+
+					if (movableA)
+					{
+						transformA.position += correction * (invMassA / invMassSum);
+						if (hasRbA)
+						{
+							auto& rbA = entity->GetComponent<RigidbodyComponent>();
+							float radialSpeed = glm::dot(rbA.velocity, dir);
+							if (radialSpeed < 0.0f)
+								rbA.velocity -= radialSpeed * dir;
+						}
+					}
+					if (movableB)
+					{
+						auto& transformB = connected->GetComponent<TransformComponent>();
+						transformB.position -= correction * (invMassB / invMassSum);
+						if (hasRbB)
+						{
+							auto& rbB = connected->GetComponent<RigidbodyComponent>();
+							float radialSpeed = glm::dot(rbB.velocity, -dir);
+							if (radialSpeed < 0.0f)
+								rbB.velocity -= radialSpeed * (-dir);
+						}
+					}
+					break;
+				}
+			}
+		}
+	}
+
 	// Shared response logic for a dynamic body resting/colliding against a static plane.
 	static void ResolvePlaneContact(RigidbodyComponent& rb, glm::vec3& position, const glm::vec3& normal, float penetration)
 	{
@@ -145,6 +298,12 @@ namespace MyEngine
 
 	void PhysicsSystem::DetectAndResolveCollisions(Scene& scene)
 	{
+		// Pair keys (packed entity IDs) seen this frame, used to diff against
+		// last frame's active sets so Enter/Exit events fire exactly once.
+		std::unordered_set<uint64_t> newCollisionPairs;
+		std::unordered_set<uint64_t> newTriggerPairs;
+		std::unordered_map<uint64_t, std::pair<std::shared_ptr<Entity>, std::shared_ptr<Entity>>> pairEntities;
+
 		// --- Dynamic bodies vs plane colliders (spheres and boxes) ---
 		for (const auto& dynamicEntity : scene.GetEntities())
 		{
@@ -161,8 +320,9 @@ namespace MyEngine
 
 			bool hasSphere = dynamicEntity->HasComponent<BoundingSphereComponent>();
 			bool hasBox = dynamicEntity->HasComponent<BoxColliderComponent>();
+			bool hasCapsule = dynamicEntity->HasComponent<CapsuleColliderComponent>();
 
-			if (!hasSphere && !hasBox)
+			if (!hasSphere && !hasBox && !hasCapsule)
 				continue;
 
 			// Check against all plane colliders
@@ -178,23 +338,47 @@ namespace MyEngine
 
 				glm::vec3 normal;
 				float penetration;
+				bool hit = false;
+				bool isTriggerPair = plane.isTrigger;
 
-				// Prefer box collider over sphere when both are present
+				// Prefer box collider, then capsule, then sphere when multiple are present
 				if (hasBox)
 				{
 					auto& box = dynamicEntity->GetComponent<BoxColliderComponent>();
-					glm::vec3 boxCenter = transform.position + box.center;
-					if (CheckBoxPlaneCollision(boxCenter, box.halfExtents, plane.normal, plane.distance, normal, penetration))
-					{
-						collisionsDetected++;
-						ResolvePlaneContact(rb, transform.position, normal, penetration);
-					}
+					glm::vec3 boxCenter = transform.position + box.center * transform.scale;
+					glm::vec3 boxHalfExtents = box.halfExtents * transform.scale;
+					isTriggerPair = isTriggerPair || box.isTrigger;
+					hit = CheckBoxPlaneCollision(boxCenter, boxHalfExtents, plane.normal, plane.distance, normal, penetration);
+				}
+				else if (hasCapsule)
+				{
+					auto& capsule = dynamicEntity->GetComponent<CapsuleColliderComponent>();
+					glm::vec3 segA = transform.position + capsule.pointA * transform.scale;
+					glm::vec3 segB = transform.position + capsule.pointB * transform.scale;
+					float capsuleRadius = capsule.radius * glm::compMax(glm::vec2(transform.scale.x, transform.scale.z));
+					isTriggerPair = isTriggerPair || capsule.isTrigger;
+					hit = CheckCapsulePlaneCollision(segA, segB, capsuleRadius, plane.normal, plane.distance, normal, penetration);
 				}
 				else if (hasSphere)
 				{
 					auto& bs = dynamicEntity->GetComponent<BoundingSphereComponent>();
-					if (CheckSpherePlaneCollision(transform.position, bs.radius, plane.normal, plane.distance, normal, penetration))
+					float sphereRadius = bs.radius * glm::compMax(transform.scale);
+					isTriggerPair = isTriggerPair || bs.isTrigger;
+					hit = CheckSpherePlaneCollision(transform.position + bs.center * transform.scale, sphereRadius, plane.normal, plane.distance, normal, penetration);
+				}
+
+				if (hit)
+				{
+					uint64_t key = MakePairKey(dynamicEntity->GetID(), planeEntity->GetID());
+					pairEntities[key] = { dynamicEntity, planeEntity };
+
+					if (isTriggerPair)
 					{
+						newTriggerPairs.insert(key);
+					}
+					else
+					{
+						newCollisionPairs.insert(key);
 						collisionsDetected++;
 						ResolvePlaneContact(rb, transform.position, normal, penetration);
 					}
@@ -202,50 +386,170 @@ namespace MyEngine
 			}
 		}
 
-		// --- Collect all dynamic-collider entities (sphere or box) for pairwise checks ---
-		std::vector<std::shared_ptr<Entity>> sphereEntities;
-		std::vector<std::shared_ptr<Entity>> boxEntities;
+		// --- Collect all dynamic-collider entities (sphere, box, or capsule) for pairwise checks ---
+		// Priority when an entity has multiple collider components: box > capsule > sphere,
+		// matching the priority used for the vs-plane pass above.
+		std::vector<std::shared_ptr<Entity>> pairwiseEntities;
 		for (const auto& entity : scene.GetEntities())
 		{
 			if (!entity || !entity->HasComponent<RigidbodyComponent>() || !entity->HasComponent<TransformComponent>())
 				continue;
 
-			if (entity->HasComponent<BoxColliderComponent>())
-				boxEntities.push_back(entity);
-			else if (entity->HasComponent<BoundingSphereComponent>())
-				sphereEntities.push_back(entity);
+			if (entity->HasComponent<BoxColliderComponent>() ||
+				entity->HasComponent<CapsuleColliderComponent>() ||
+				entity->HasComponent<BoundingSphereComponent>())
+			{
+				pairwiseEntities.push_back(entity);
+			}
 		}
 
-		// --- Sphere vs sphere ---
-		for (size_t i = 0; i < sphereEntities.size(); ++i)
+		// --- Broad-phase: bucket entities into a uniform spatial hash grid using
+		// their world-space AABB, then only run narrow-phase checks on entities
+		// that share (or neighbor) a grid cell. This avoids O(n^2) checks when
+		// entities are spread out across the scene. ---
+		broadphaseGrid.cellSize = broadphaseCellSize;
+		broadphaseGrid.Clear();
+		for (const auto& entity : pairwiseEntities)
 		{
-			auto& entityA = sphereEntities[i];
+			glm::vec3 aabbMin, aabbMax;
+			if (ComputeColliderAABB(entity, aabbMin, aabbMax))
+				broadphaseGrid.InsertAABB(entity, aabbMin, aabbMax);
+		}
+
+		auto dispatchNarrowPhase = [this, &newCollisionPairs, &newTriggerPairs, &pairEntities](const std::shared_ptr<Entity>& entityA, const std::shared_ptr<Entity>& entityB)
+		{
 			auto& rbA = entityA->GetComponent<RigidbodyComponent>();
+			auto& rbB = entityB->GetComponent<RigidbodyComponent>();
+
+			collisionChecks++;
+
+			// Skip if both are kinematic
+			if (rbA.isKinematic && rbB.isKinematic)
+				return;
+
 			auto& transformA = entityA->GetComponent<TransformComponent>();
-			auto& bsA = entityA->GetComponent<BoundingSphereComponent>();
+			auto& transformB = entityB->GetComponent<TransformComponent>();
 
-			for (size_t j = i + 1; j < sphereEntities.size(); ++j)
+			bool boxA = entityA->HasComponent<BoxColliderComponent>();
+			bool capsuleA = !boxA && entityA->HasComponent<CapsuleColliderComponent>();
+			bool sphereA = !boxA && !capsuleA && entityA->HasComponent<BoundingSphereComponent>();
+
+			bool boxB = entityB->HasComponent<BoxColliderComponent>();
+			bool capsuleB = !boxB && entityB->HasComponent<CapsuleColliderComponent>();
+			bool sphereB = !boxB && !capsuleB && entityB->HasComponent<BoundingSphereComponent>();
+
+			bool triggerA = (boxA && entityA->GetComponent<BoxColliderComponent>().isTrigger) ||
+				(capsuleA && entityA->GetComponent<CapsuleColliderComponent>().isTrigger) ||
+				(sphereA && entityA->GetComponent<BoundingSphereComponent>().isTrigger);
+			bool triggerB = (boxB && entityB->GetComponent<BoxColliderComponent>().isTrigger) ||
+				(capsuleB && entityB->GetComponent<CapsuleColliderComponent>().isTrigger) ||
+				(sphereB && entityB->GetComponent<BoundingSphereComponent>().isTrigger);
+			bool isTriggerPair = triggerA || triggerB;
+
+			glm::vec3 normal;
+			float penetration;
+			bool hit = false;
+
+			if (boxA && boxB)
 			{
-				auto& entityB = sphereEntities[j];
-				auto& rbB = entityB->GetComponent<RigidbodyComponent>();
-				auto& transformB = entityB->GetComponent<TransformComponent>();
-				auto& bsB = entityB->GetComponent<BoundingSphereComponent>();
+				auto& a = entityA->GetComponent<BoxColliderComponent>();
+				auto& b = entityB->GetComponent<BoxColliderComponent>();
+				hit = CheckBoxBoxCollision(
+					transformA.position + a.center * transformA.scale, a.halfExtents * transformA.scale,
+					transformB.position + b.center * transformB.scale, b.halfExtents * transformB.scale,
+					normal, penetration);
+			}
+			else if (boxA && sphereB)
+			{
+				auto& a = entityA->GetComponent<BoxColliderComponent>();
+				auto& b = entityB->GetComponent<BoundingSphereComponent>();
+				hit = CheckBoxSphereCollision(
+					transformA.position + a.center * transformA.scale, a.halfExtents * transformA.scale,
+					transformB.position + b.center * transformB.scale, b.radius * glm::compMax(transformB.scale),
+					normal, penetration);
+			}
+			else if (sphereA && boxB)
+			{
+				auto& a = entityA->GetComponent<BoundingSphereComponent>();
+				auto& b = entityB->GetComponent<BoxColliderComponent>();
+				// Normal must point from A to B; box-sphere returns normal from box toward sphere,
+				// so swap operands (box = A-role) then flip the resulting normal.
+				hit = CheckBoxSphereCollision(
+					transformB.position + b.center * transformB.scale, b.halfExtents * transformB.scale,
+					transformA.position + a.center * transformA.scale, a.radius * glm::compMax(transformA.scale),
+					normal, penetration);
+				if (hit) normal = -normal;
+			}
+			else if (sphereA && sphereB)
+			{
+				auto& a = entityA->GetComponent<BoundingSphereComponent>();
+				auto& b = entityB->GetComponent<BoundingSphereComponent>();
+				hit = CheckSphereSphereCollision(
+					transformA.position + a.center * transformA.scale, a.radius * glm::compMax(transformA.scale),
+					transformB.position + b.center * transformB.scale, b.radius * glm::compMax(transformB.scale),
+					normal, penetration);
+			}
+			else if (capsuleA && capsuleB)
+			{
+				auto& a = entityA->GetComponent<CapsuleColliderComponent>();
+				auto& b = entityB->GetComponent<CapsuleColliderComponent>();
+				hit = CheckCapsuleCapsuleCollision(
+					transformA.position + a.pointA * transformA.scale, transformA.position + a.pointB * transformA.scale, a.radius * glm::compMax(glm::vec2(transformA.scale.x, transformA.scale.z)),
+					transformB.position + b.pointA * transformB.scale, transformB.position + b.pointB * transformB.scale, b.radius * glm::compMax(glm::vec2(transformB.scale.x, transformB.scale.z)),
+					normal, penetration);
+			}
+			else if (capsuleA && sphereB)
+			{
+				auto& a = entityA->GetComponent<CapsuleColliderComponent>();
+				auto& b = entityB->GetComponent<BoundingSphereComponent>();
+				hit = CheckCapsuleSphereCollision(
+					transformA.position + a.pointA * transformA.scale, transformA.position + a.pointB * transformA.scale, a.radius * glm::compMax(glm::vec2(transformA.scale.x, transformA.scale.z)),
+					transformB.position + b.center * transformB.scale, b.radius * glm::compMax(transformB.scale),
+					normal, penetration);
+			}
+			else if (sphereA && capsuleB)
+			{
+				auto& a = entityA->GetComponent<BoundingSphereComponent>();
+				auto& b = entityB->GetComponent<CapsuleColliderComponent>();
+				hit = CheckCapsuleSphereCollision(
+					transformB.position + b.pointA * transformB.scale, transformB.position + b.pointB * transformB.scale, b.radius * glm::compMax(glm::vec2(transformB.scale.x, transformB.scale.z)),
+					transformA.position + a.center * transformA.scale, a.radius * glm::compMax(transformA.scale),
+					normal, penetration);
+				if (hit) normal = -normal;
+			}
+			else if (capsuleA && boxB)
+			{
+				auto& a = entityA->GetComponent<CapsuleColliderComponent>();
+				auto& b = entityB->GetComponent<BoxColliderComponent>();
+				hit = CheckCapsuleBoxCollision(
+					transformA.position + a.pointA * transformA.scale, transformA.position + a.pointB * transformA.scale, a.radius * glm::compMax(glm::vec2(transformA.scale.x, transformA.scale.z)),
+					transformB.position + b.center * transformB.scale, b.halfExtents * transformB.scale,
+					normal, penetration);
+			}
+			else if (boxA && capsuleB)
+			{
+				auto& a = entityA->GetComponent<BoxColliderComponent>();
+				auto& b = entityB->GetComponent<CapsuleColliderComponent>();
+				hit = CheckCapsuleBoxCollision(
+					transformB.position + b.pointA * transformB.scale, transformB.position + b.pointB * transformB.scale, b.radius * glm::compMax(glm::vec2(transformB.scale.x, transformB.scale.z)),
+					transformA.position + a.center * transformA.scale, a.halfExtents * transformA.scale,
+					normal, penetration);
+				if (hit) normal = -normal;
+			}
 
-				collisionChecks++;
+			if (hit)
+			{
+				uint64_t key = MakePairKey(entityA->GetID(), entityB->GetID());
+				pairEntities[key] = { entityA, entityB };
 
-				// Skip if both are kinematic
-				if (rbA.isKinematic && rbB.isKinematic)
-					continue;
-
-				glm::vec3 normal;
-				float penetration;
-				if (CheckSphereSphereCollision(
-					transformA.position, bsA.radius,
-					transformB.position, bsB.radius,
-					normal, penetration))
+				if (isTriggerPair)
 				{
+					newTriggerPairs.insert(key);
+				}
+				else
+				{
+					newCollisionPairs.insert(key);
 					collisionsDetected++;
-
 					ResolveSphereCollision(
 						transformA.position, rbA.velocity, rbA.mass, rbA.bounciness, rbA.isKinematic,
 						transformB.position, rbB.velocity, rbB.mass, rbB.bounciness, rbB.isKinematic,
@@ -253,82 +557,112 @@ namespace MyEngine
 					);
 				}
 			}
-		}
+		};
 
-		// --- Box vs box ---
-		for (size_t i = 0; i < boxEntities.size(); ++i)
+		if (enableBroadphase)
 		{
-			auto& entityA = boxEntities[i];
-			auto& rbA = entityA->GetComponent<RigidbodyComponent>();
-			auto& transformA = entityA->GetComponent<TransformComponent>();
-			auto& boxA = entityA->GetComponent<BoxColliderComponent>();
-
-			for (size_t j = i + 1; j < boxEntities.size(); ++j)
+			broadphaseGrid.ForEachCandidatePair(dispatchNarrowPhase);
+		}
+		else
+		{
+			// Fallback: brute-force all pairs (useful for debugging/correctness comparisons)
+			for (size_t i = 0; i < pairwiseEntities.size(); ++i)
 			{
-				auto& entityB = boxEntities[j];
-				auto& rbB = entityB->GetComponent<RigidbodyComponent>();
-				auto& transformB = entityB->GetComponent<TransformComponent>();
-				auto& boxB = entityB->GetComponent<BoxColliderComponent>();
-
-				collisionChecks++;
-
-				if (rbA.isKinematic && rbB.isKinematic)
-					continue;
-
-				glm::vec3 normal;
-				float penetration;
-				if (CheckBoxBoxCollision(
-					transformA.position + boxA.center, boxA.halfExtents,
-					transformB.position + boxB.center, boxB.halfExtents,
-					normal, penetration))
+				for (size_t j = i + 1; j < pairwiseEntities.size(); ++j)
 				{
-					collisionsDetected++;
-
-					ResolveSphereCollision(
-						transformA.position, rbA.velocity, rbA.mass, rbA.bounciness, rbA.isKinematic,
-						transformB.position, rbB.velocity, rbB.mass, rbB.bounciness, rbB.isKinematic,
-						normal, penetration
-					);
+					dispatchNarrowPhase(pairwiseEntities[i], pairwiseEntities[j]);
 				}
 			}
 		}
 
-		// --- Box vs sphere (mixed shapes) ---
-		for (const auto& boxEntity : boxEntities)
+		// --- Diff this frame's pairs against last frame's to fire Enter/Exit events ---
+		for (const auto& key : newCollisionPairs)
 		{
-			auto& rbBox = boxEntity->GetComponent<RigidbodyComponent>();
-			auto& transformBox = boxEntity->GetComponent<TransformComponent>();
-			auto& box = boxEntity->GetComponent<BoxColliderComponent>();
-
-			for (const auto& sphereEntity : sphereEntities)
+			if (activeCollisionPairs.find(key) == activeCollisionPairs.end())
 			{
-				auto& rbSphere = sphereEntity->GetComponent<RigidbodyComponent>();
-				auto& transformSphere = sphereEntity->GetComponent<TransformComponent>();
-				auto& bs = sphereEntity->GetComponent<BoundingSphereComponent>();
-
-				collisionChecks++;
-
-				if (rbBox.isKinematic && rbSphere.isKinematic)
-					continue;
-
-				glm::vec3 normal;
-				float penetration;
-				if (CheckBoxSphereCollision(
-					transformBox.position + box.center, box.halfExtents,
-					transformSphere.position, bs.radius,
-					normal, penetration))
-				{
-					collisionsDetected++;
-
-					// Normal points from box surface toward sphere; ResolveSphereCollision expects
-					// normal pointing from A to B, so box = A, sphere = B.
-					ResolveSphereCollision(
-						transformBox.position, rbBox.velocity, rbBox.mass, rbBox.bounciness, rbBox.isKinematic,
-						transformSphere.position, rbSphere.velocity, rbSphere.mass, rbSphere.bounciness, rbSphere.isKinematic,
-						normal, penetration
-					);
-				}
+				auto& pair = pairEntities[key];
+				FireEnterEvent(pair.first, pair.second, false);
 			}
+		}
+		for (const auto& key : activeCollisionPairs)
+		{
+			if (newCollisionPairs.find(key) == newCollisionPairs.end())
+			{
+				auto it = pairEntities.find(key);
+				if (it != pairEntities.end())
+					FireExitEvent(it->second.first, it->second.second, false);
+			}
+		}
+
+		for (const auto& key : newTriggerPairs)
+		{
+			if (activeTriggerPairs.find(key) == activeTriggerPairs.end())
+			{
+				auto& pair = pairEntities[key];
+				FireEnterEvent(pair.first, pair.second, true);
+			}
+		}
+		for (const auto& key : activeTriggerPairs)
+		{
+			if (newTriggerPairs.find(key) == newTriggerPairs.end())
+			{
+				auto it = pairEntities.find(key);
+				if (it != pairEntities.end())
+					FireExitEvent(it->second.first, it->second.second, true);
+			}
+		}
+
+		activeCollisionPairs = std::move(newCollisionPairs);
+		activeTriggerPairs = std::move(newTriggerPairs);
+	}
+
+	uint64_t PhysicsSystem::MakePairKey(uint32_t idA, uint32_t idB)
+	{
+		// Order-independent key: pack the smaller ID into the high bits.
+		if (idA > idB)
+			std::swap(idA, idB);
+		return (static_cast<uint64_t>(idA) << 32) | static_cast<uint64_t>(idB);
+	}
+
+	void PhysicsSystem::FireEnterEvent(const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b, bool isTrigger)
+	{
+		if (!a || !b)
+			return;
+
+		if (a->HasComponent<CollisionEventsComponent>())
+		{
+			auto& events = a->GetComponent<CollisionEventsComponent>();
+			auto& callback = isTrigger ? events.onTriggerEnter : events.onCollisionEnter;
+			if (callback)
+				callback(b);
+		}
+		if (b->HasComponent<CollisionEventsComponent>())
+		{
+			auto& events = b->GetComponent<CollisionEventsComponent>();
+			auto& callback = isTrigger ? events.onTriggerEnter : events.onCollisionEnter;
+			if (callback)
+				callback(a);
+		}
+	}
+
+	void PhysicsSystem::FireExitEvent(const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b, bool isTrigger)
+	{
+		if (!a || !b)
+			return;
+
+		if (a->HasComponent<CollisionEventsComponent>())
+		{
+			auto& events = a->GetComponent<CollisionEventsComponent>();
+			auto& callback = isTrigger ? events.onTriggerExit : events.onCollisionExit;
+			if (callback)
+				callback(b);
+		}
+		if (b->HasComponent<CollisionEventsComponent>())
+		{
+			auto& events = b->GetComponent<CollisionEventsComponent>();
+			auto& callback = isTrigger ? events.onTriggerExit : events.onCollisionExit;
+			if (callback)
+				callback(a);
 		}
 	}
 
@@ -556,13 +890,335 @@ namespace MyEngine
 				// If low relative velocity and low bounciness, clamp to zero
 				glm::vec3 newRelativeVel = velB - velA;
 				float newVelAlongNormal = glm::dot(newRelativeVel, normal);
-				if (std::abs(newVelAlongNormal) < 0.5f && restitution < 0.01f)
+						if (std::abs(newVelAlongNormal) < 0.5f && restitution < 0.01f)
+						{
+							// Remove velocity component along collision normal for both objects
+							if (!isKinematicA)
+								velA += normal * (glm::dot(velA, normal));
+							if (!isKinematicB)
+								velB -= normal * (glm::dot(velB, normal));
+						}
+				}
+
+				// ------------------------------------------------------------
+				// Capsule collision detection
+				// ------------------------------------------------------------
+
+				glm::vec3 PhysicsSystem::ClosestPointOnSegment(const glm::vec3& point, const glm::vec3& segA, const glm::vec3& segB)
 				{
-					// Remove velocity component along collision normal for both objects
-					if (!isKinematicA)
-						velA += normal * (glm::dot(velA, normal));
-					if (!isKinematicB)
-						velB -= normal * (glm::dot(velB, normal));
+		glm::vec3 ab = segB - segA;
+		float abLenSq = glm::dot(ab, ab);
+		if (abLenSq < 0.0000001f)
+			return segA;
+
+		float t = glm::dot(point - segA, ab) / abLenSq;
+		t = glm::clamp(t, 0.0f, 1.0f);
+		return segA + ab * t;
+	}
+
+	void PhysicsSystem::ClosestPointsBetweenSegments(
+		const glm::vec3& p1, const glm::vec3& q1,
+		const glm::vec3& p2, const glm::vec3& q2,
+		glm::vec3& outC1, glm::vec3& outC2)
+	{
+		glm::vec3 d1 = q1 - p1;
+		glm::vec3 d2 = q2 - p2;
+		glm::vec3 r = p1 - p2;
+
+		float a = glm::dot(d1, d1);
+		float e = glm::dot(d2, d2);
+		float f = glm::dot(d2, r);
+
+		float s, t;
+
+		const float epsilon = 0.0000001f;
+		if (a <= epsilon && e <= epsilon)
+		{
+			// Both segments degenerate to points
+			outC1 = p1;
+			outC2 = p2;
+			return;
+		}
+
+		if (a <= epsilon)
+		{
+			// First segment is a point
+			s = 0.0f;
+			t = glm::clamp(f / e, 0.0f, 1.0f);
+		}
+		else
+		{
+			float c = glm::dot(d1, r);
+			if (e <= epsilon)
+			{
+				// Second segment is a point
+				t = 0.0f;
+				s = glm::clamp(-c / a, 0.0f, 1.0f);
+			}
+			else
+			{
+				float b = glm::dot(d1, d2);
+				float denom = a * e - b * b;
+
+				if (denom != 0.0f)
+					s = glm::clamp((b * f - c * e) / denom, 0.0f, 1.0f);
+				else
+					s = 0.0f;
+
+				t = (b * s + f) / e;
+
+				if (t < 0.0f)
+				{
+					t = 0.0f;
+					s = glm::clamp(-c / a, 0.0f, 1.0f);
+				}
+				else if (t > 1.0f)
+				{
+					t = 1.0f;
+					s = glm::clamp((b - c) / a, 0.0f, 1.0f);
 				}
 			}
+		}
+
+		outC1 = p1 + d1 * s;
+		outC2 = p2 + d2 * t;
+	}
+
+	bool PhysicsSystem::CheckCapsulePlaneCollision(
+		const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
+		const glm::vec3& planeNormal, float planeDistance,
+		glm::vec3& outNormal, float& outPenetration)
+	{
+		// Find whichever end of the capsule segment is deepest into the plane
+		float distA = glm::dot(segA, planeNormal) - planeDistance;
+		float distB = glm::dot(segB, planeNormal) - planeDistance;
+		float minDist = std::min(distA, distB);
+
+		if (minDist < capsuleRadius)
+		{
+			outNormal = planeNormal;
+			outPenetration = capsuleRadius - minDist;
+			return true;
+		}
+
+		return false;
+	}
+
+	bool PhysicsSystem::CheckCapsuleSphereCollision(
+		const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
+		const glm::vec3& spherePos, float sphereRadius,
+		glm::vec3& outNormal, float& outPenetration)
+	{
+		glm::vec3 closest = ClosestPointOnSegment(spherePos, segA, segB);
+		glm::vec3 delta = spherePos - closest;
+		float distSq = glm::dot(delta, delta);
+		float radiusSum = capsuleRadius + sphereRadius;
+
+		if (distSq < radiusSum * radiusSum)
+		{
+			float dist = std::sqrt(distSq);
+			if (dist < 0.0001f)
+			{
+				outNormal = glm::vec3(0.0f, 1.0f, 0.0f);
+				outPenetration = radiusSum;
+			}
+			else
+			{
+				outNormal = delta / dist;
+				outPenetration = radiusSum - dist;
+			}
+			return true;
+		}
+
+		return false;
+	}
+
+	bool PhysicsSystem::CheckCapsuleBoxCollision(
+		const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
+		const glm::vec3& boxCenter, const glm::vec3& boxHalfExtents,
+		glm::vec3& outNormal, float& outPenetration)
+	{
+		// Approximate by finding the closest point on the capsule segment to the box,
+		// then treating that point as a sphere center for a box-sphere test.
+		glm::vec3 boxMin = boxCenter - boxHalfExtents;
+		glm::vec3 boxMax = boxCenter + boxHalfExtents;
+
+		// Clamp several samples along the segment to the box and pick the closest,
+		// which is a good approximation of the true closest point on the segment to the AABB.
+		glm::vec3 bestPoint = segA;
+		float bestDistSq = std::numeric_limits<float>::max();
+		const int sampleCount = 8;
+		for (int i = 0; i <= sampleCount; ++i)
+		{
+			float t = static_cast<float>(i) / static_cast<float>(sampleCount);
+			glm::vec3 samplePoint = segA + (segB - segA) * t;
+			glm::vec3 clamped = glm::clamp(samplePoint, boxMin, boxMax);
+			glm::vec3 diff = samplePoint - clamped;
+			float distSq = glm::dot(diff, diff);
+			if (distSq < bestDistSq)
+			{
+				bestDistSq = distSq;
+				bestPoint = samplePoint;
+			}
+		}
+
+		return CheckBoxSphereCollision(boxCenter, boxHalfExtents, bestPoint, capsuleRadius, outNormal, outPenetration);
+	}
+
+	bool PhysicsSystem::CheckCapsuleCapsuleCollision(
+		const glm::vec3& segA0, const glm::vec3& segA1, float radiusA,
+		const glm::vec3& segB0, const glm::vec3& segB1, float radiusB,
+		glm::vec3& outNormal, float& outPenetration)
+	{
+		glm::vec3 closestA, closestB;
+		ClosestPointsBetweenSegments(segA0, segA1, segB0, segB1, closestA, closestB);
+
+		glm::vec3 delta = closestB - closestA;
+		float distSq = glm::dot(delta, delta);
+		float radiusSum = radiusA + radiusB;
+
+		if (distSq < radiusSum * radiusSum)
+		{
+			float dist = std::sqrt(distSq);
+			if (dist < 0.0001f)
+			{
+				outNormal = glm::vec3(0.0f, 1.0f, 0.0f);
+				outPenetration = radiusSum;
+			}
+			else
+			{
+				outNormal = delta / dist;
+				outPenetration = radiusSum - dist;
+			}
+			return true;
+		}
+
+		return false;
+	}
+
+	// ------------------------------------------------------------
+	// Broad-phase: uniform spatial hash grid
+	// ------------------------------------------------------------
+
+	long long PhysicsSystem::BroadphaseGrid::HashCell(int x, int y, int z)
+	{
+		// Combine three 21-bit-ish signed coordinates into a single 64-bit key.
+		// Offset by a large constant so negative coordinates stay positive.
+		const long long offset = 1 << 20;
+		long long xi = static_cast<long long>(x) + offset;
+		long long yi = static_cast<long long>(y) + offset;
+		long long zi = static_cast<long long>(z) + offset;
+		return (xi & 0x1FFFFF) | ((yi & 0x1FFFFF) << 21) | ((zi & 0x1FFFFF) << 42);
+	}
+
+	void PhysicsSystem::BroadphaseGrid::Clear()
+	{
+		cells.clear();
+	}
+
+	void PhysicsSystem::BroadphaseGrid::InsertAABB(const std::shared_ptr<Entity>& entity, const glm::vec3& aabbMin, const glm::vec3& aabbMax)
+	{
+		float inv = 1.0f / cellSize;
+		int minX = static_cast<int>(std::floor(aabbMin.x * inv));
+		int minY = static_cast<int>(std::floor(aabbMin.y * inv));
+		int minZ = static_cast<int>(std::floor(aabbMin.z * inv));
+		int maxX = static_cast<int>(std::floor(aabbMax.x * inv));
+		int maxY = static_cast<int>(std::floor(aabbMax.y * inv));
+		int maxZ = static_cast<int>(std::floor(aabbMax.z * inv));
+
+		for (int x = minX; x <= maxX; ++x)
+		{
+			for (int y = minY; y <= maxY; ++y)
+			{
+				for (int z = minZ; z <= maxZ; ++z)
+				{
+					cells[HashCell(x, y, z)].push_back(entity);
+				}
+			}
+		}
+	}
+
+	void PhysicsSystem::BroadphaseGrid::ForEachCandidatePair(const std::function<void(const std::shared_ptr<Entity>&, const std::shared_ptr<Entity>&)>& callback) const
+	{
+		// De-duplicate pairs since an entity spanning multiple cells can be
+		// re-encountered against the same neighbor from different cells.
+		std::unordered_map<long long, bool> seenPairs;
+		seenPairs.reserve(64);
+
+		for (const auto& cellEntry : cells)
+		{
+			const auto& entities = cellEntry.second;
+			for (size_t i = 0; i < entities.size(); ++i)
+			{
+				for (size_t j = i + 1; j < entities.size(); ++j)
+				{
+					const auto& a = entities[i];
+					const auto& b = entities[j];
+
+					// Build a stable pair key from the entities' addresses.
+					auto pa = reinterpret_cast<std::uintptr_t>(a.get());
+					auto pb = reinterpret_cast<std::uintptr_t>(b.get());
+					if (pa == pb)
+						continue;
+
+					std::uintptr_t lo = std::min(pa, pb);
+					std::uintptr_t hi = std::max(pa, pb);
+					// Simple mixing hash of the two pointers to form a dedup key.
+					long long key = static_cast<long long>((lo * 2654435761u) ^ (hi * 2246822519u));
+
+					if (seenPairs.find(key) != seenPairs.end())
+						continue;
+					seenPairs[key] = true;
+
+					if (lo == pa)
+						callback(a, b);
+					else
+						callback(b, a);
+				}
+			}
+		}
+	}
+
+	bool PhysicsSystem::ComputeColliderAABB(const std::shared_ptr<Entity>& entity, glm::vec3& outMin, glm::vec3& outMax) const
+	{
+		if (!entity || !entity->HasComponent<TransformComponent>())
+			return false;
+
+		auto& transform = entity->GetComponent<TransformComponent>();
+
+		if (entity->HasComponent<BoxColliderComponent>())
+		{
+			auto& box = entity->GetComponent<BoxColliderComponent>();
+			glm::vec3 center = transform.position + box.center * transform.scale;
+			glm::vec3 halfExtents = box.halfExtents * transform.scale;
+			outMin = center - halfExtents;
+			outMax = center + halfExtents;
+			return true;
+		}
+
+		if (entity->HasComponent<CapsuleColliderComponent>())
+		{
+			auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
+			glm::vec3 a = transform.position + capsule.pointA * transform.scale;
+			glm::vec3 b = transform.position + capsule.pointB * transform.scale;
+			float scaledRadius = capsule.radius * glm::compMax(glm::vec2(transform.scale.x, transform.scale.z));
+			glm::vec3 r(scaledRadius);
+			outMin = glm::min(a, b) - r;
+			outMax = glm::max(a, b) + r;
+			return true;
+		}
+
+		if (entity->HasComponent<BoundingSphereComponent>())
+		{
+			auto& sphere = entity->GetComponent<BoundingSphereComponent>();
+			glm::vec3 center = transform.position + sphere.center * transform.scale;
+			float scaledRadius = sphere.radius * glm::compMax(transform.scale);
+			glm::vec3 r(scaledRadius);
+			outMin = center - r;
+			outMax = center + r;
+			return true;
+		}
+
+		return false;
+	}
 }

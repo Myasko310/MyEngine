@@ -11,9 +11,13 @@
 #include "components/BoundingSphereComponent.h"
 #include "components/RigidbodyComponent.h"
 #include "components/BoxColliderComponent.h"
+#include "components/CapsuleColliderComponent.h"
 #include "components/PlaneColliderComponent.h"
 #include "components/AudioSourceComponent.h"
 #include "components/AudioListenerComponent.h"
+#include "components/JointComponent.h"
+#include "components/SkeletonComponent.h"
+#include "components/AnimationComponent.h"
 #include "rendering/MeshPrimitives.h"
 #include "rendering/Texture.h"
 #include "audio/AudioClip.h"
@@ -121,6 +125,30 @@ namespace MyEngine
 					writer.Key("MeshComponent");
 					writer.StartObject();
 					writer.Key("assetPath"); writer.String(mc.assetPath.c_str());
+					// Entities with a SkeletonComponent were loaded as skinned
+					// models (see AssetManager::LoadSkinnedModel); flag this so
+					// the loader reconstructs the mesh via the skinned path
+					// instead of the plain static LoadModel path, which would
+					// silently drop the skeleton/animation clips.
+					writer.Key("isSkinned"); writer.Bool(e->HasComponent<SkeletonComponent>());
+					writer.EndObject();
+				}
+
+				// AnimationComponent: playback state only. The clips/skeleton
+				// themselves come back from re-loading the skinned model via
+				// MeshComponent.assetPath (see above/below), since they're
+				// shared_ptrs to potentially large shared data that shouldn't
+				// be duplicated into every scene file.
+				if (e->HasComponent<AnimationComponent>())
+				{
+					auto& ac = e->GetComponent<AnimationComponent>();
+					writer.Key("AnimationComponent");
+					writer.StartObject();
+					writer.Key("activeClipIndex"); writer.Int(ac.activeClipIndex);
+					writer.Key("time"); writer.Double(ac.time);
+					writer.Key("playbackSpeed"); writer.Double(ac.playbackSpeed);
+					writer.Key("playing"); writer.Bool(ac.playing);
+					writer.Key("looping"); writer.Bool(ac.looping);
 					writer.EndObject();
 				}
 
@@ -174,6 +202,20 @@ namespace MyEngine
 					writer.StartObject();
 					writer.Key("center"); SerializeVec3(writer, box.center);
 					writer.Key("halfExtents"); SerializeVec3(writer, box.halfExtents);
+					writer.Key("isTrigger"); writer.Bool(box.isTrigger);
+					writer.EndObject();
+				}
+
+				// Capsule Collider
+				if (e->HasComponent<CapsuleColliderComponent>())
+				{
+					auto& capsule = e->GetComponent<CapsuleColliderComponent>();
+					writer.Key("CapsuleCollider");
+					writer.StartObject();
+					writer.Key("pointA"); SerializeVec3(writer, capsule.pointA);
+					writer.Key("pointB"); SerializeVec3(writer, capsule.pointB);
+					writer.Key("radius"); writer.Double(capsule.radius);
+					writer.Key("isTrigger"); writer.Bool(capsule.isTrigger);
 					writer.EndObject();
 				}
 
@@ -185,6 +227,7 @@ namespace MyEngine
 					writer.StartObject();
 					writer.Key("normal"); SerializeVec3(writer, plane.normal);
 					writer.Key("distance"); writer.Double(plane.distance);
+					writer.Key("isTrigger"); writer.Bool(plane.isTrigger);
 					writer.EndObject();
 				}
 
@@ -196,6 +239,7 @@ namespace MyEngine
 					writer.StartObject();
 					writer.Key("center"); SerializeVec3(writer, sphere.center);
 					writer.Key("radius"); writer.Double(sphere.radius);
+					writer.Key("isTrigger"); writer.Bool(sphere.isTrigger);
 					writer.EndObject();
 				}
 
@@ -224,6 +268,24 @@ namespace MyEngine
 					writer.StartObject();
 					writer.Key("isPrimary"); writer.Bool(al.isPrimary);
 					writer.Key("gain"); writer.Double(al.gain);
+					writer.EndObject();
+				}
+
+				// Joint
+				if (e->HasComponent<JointComponent>())
+				{
+					auto& joint = e->GetComponent<JointComponent>();
+					writer.Key("Joint");
+					writer.StartObject();
+					writer.Key("type"); writer.Int(static_cast<int>(joint.type));
+					writer.Key("connectedEntityID"); writer.Uint(joint.connectedEntityID);
+					writer.Key("anchor"); SerializeVec3(writer, joint.anchor);
+					writer.Key("connectedAnchor"); SerializeVec3(writer, joint.connectedAnchor);
+					writer.Key("restLength"); writer.Double(joint.restLength);
+					writer.Key("stiffness"); writer.Double(joint.stiffness);
+					writer.Key("damping"); writer.Double(joint.damping);
+					writer.Key("hingeDistance"); writer.Double(joint.hingeDistance);
+					writer.Key("enabled"); writer.Bool(joint.enabled);
 					writer.EndObject();
 				}
 
@@ -272,6 +334,7 @@ namespace MyEngine
 			// loaded entity so parent references can be remapped afterwards.
 			std::unordered_map<uint32_t, uint32_t> savedToNewID;
 			std::vector<std::pair<std::shared_ptr<::Entity>, uint32_t>> pendingParents;
+			std::vector<std::pair<std::shared_ptr<::Entity>, uint32_t>> pendingJoints;
 
 			for (const auto& v : doc["entities"].GetArray())
 			{
@@ -321,35 +384,64 @@ namespace MyEngine
 					if (mco.HasMember("assetPath") && mco["assetPath"].IsString())
 					{
 						std::string path = mco["assetPath"].GetString();
+						bool isSkinned = mco.HasMember("isSkinned") && mco["isSkinned"].GetBool();
 
-						// Primitive meshes (created via the editor's Create menu) are not
-						// real files on disk - they use sentinel asset paths and must be
-						// reconstructed procedurally instead of loaded via AssetManager.
-						std::shared_ptr<MyEngine::Mesh> mesh;
-						if (path == "primitive_cube")
+						if (isSkinned && !path.empty())
 						{
-							mesh = MyEngine::MeshPrimitives::CreateCube();
-						}
-						else if (path == "primitive_sphere")
-						{
-							mesh = MyEngine::MeshPrimitives::CreateSphere();
+							// Skinned models must be reloaded via LoadSkinnedModel
+							// (not LoadModel) so the skeleton/animation clips come
+							// back along with the mesh - otherwise the entity would
+							// silently lose its bones/animation on every reload
+							// (e.g. when pausing/stopping play mode).
+							MyEngine::SkinnedModelData skinnedData = MyEngine::AssetManager::LoadSkinnedModel(path);
+							if (!skinnedData.meshes.empty())
+							{
+								MyEngine::AssetManager::AttachSkinnedModelToEntity(ent, skinnedData, defaultShader, path);
+							}
 						}
 						else
 						{
-							auto meshes = MyEngine::AssetManager::LoadModel(path);
-							if (!meshes.empty())
-								mesh = meshes[0];
-						}
+							// Primitive meshes (created via the editor's Create menu) are not
+							// real files on disk - they use sentinel asset paths and must be
+							// reconstructed procedurally instead of loaded via AssetManager.
+							std::shared_ptr<MyEngine::Mesh> mesh;
+							if (path == "primitive_cube")
+							{
+								mesh = MyEngine::MeshPrimitives::CreateCube();
+							}
+							else if (path == "primitive_sphere")
+							{
+								mesh = MyEngine::MeshPrimitives::CreateSphere();
+							}
+							else if (path == "primitive_plane")
+							{
+								mesh = MyEngine::MeshPrimitives::CreatePlane();
+							}
+							else if (!path.empty())
+							{
+								auto meshes = MyEngine::AssetManager::LoadModel(path);
+								if (!meshes.empty())
+									mesh = meshes[0];
+							}
 
-						if (mesh)
-						{
-							auto& mc = ent->AddComponent<MeshComponent>();
-							mc.mesh = mesh;
-							mc.assetPath = path;
+							if (mesh)
+							{
+								auto& mc = ent->AddComponent<MeshComponent>();
+								mc.mesh = mesh;
+								mc.assetPath = path;
 
-							auto& bs = ent->AddComponent<BoundingSphereComponent>();
-							bs.center = mc.mesh->GetBoundingCenter();
-							bs.radius = mc.mesh->GetBoundingRadius();
+								// Entities using a plane collider (e.g. the ground) intentionally
+								// have no bounding sphere - a large auto-generated sphere here
+								// would otherwise reintroduce an invisible collider that blocks
+								// movement across the plane. The explicit "BoundingSphere" block
+								// below still restores one if it was actually saved.
+								if (!(v.HasMember("PlaneCollider") && v["PlaneCollider"].IsObject()))
+								{
+									auto& bs = ent->AddComponent<BoundingSphereComponent>();
+									bs.center = mc.mesh->GetBoundingCenter();
+									bs.radius = mc.mesh->GetBoundingRadius();
+								}
+							}
 						}
 					}
 				}
@@ -379,6 +471,22 @@ namespace MyEngine
 					if (mo.HasMember("useTexture")) mr.useTexture = mo["useTexture"].GetBool();
 				}
 
+				// AnimationComponent playback state: only meaningful if the
+				// skinned-model reload above (MeshComponent.isSkinned) already
+				// attached a SkeletonComponent/AnimationComponent with the
+				// clips/skeleton restored; this just overlays saved playback
+				// state (current clip/time/speed/flags) onto it.
+				if (v.HasMember("AnimationComponent") && v["AnimationComponent"].IsObject() && ent->HasComponent<AnimationComponent>())
+				{
+					auto& ac = ent->GetComponent<AnimationComponent>();
+					const auto& aco = v["AnimationComponent"];
+					if (aco.HasMember("activeClipIndex")) ac.activeClipIndex = aco["activeClipIndex"].GetInt();
+					if (aco.HasMember("time")) ac.time = static_cast<float>(aco["time"].GetDouble());
+					if (aco.HasMember("playbackSpeed")) ac.playbackSpeed = static_cast<float>(aco["playbackSpeed"].GetDouble());
+					if (aco.HasMember("playing")) ac.playing = aco["playing"].GetBool();
+					if (aco.HasMember("looping")) ac.looping = aco["looping"].GetBool();
+				}
+
 				// Rigidbody (must exist as a Component-derived type; add then populate fields)
 				if (v.HasMember("Rigidbody") && v["Rigidbody"].IsObject())
 				{
@@ -404,6 +512,18 @@ namespace MyEngine
 					const auto& bo = v["BoxCollider"];
 					if (bo.HasMember("center")) box.center = DeserializeVec3(bo["center"]);
 					if (bo.HasMember("halfExtents")) box.halfExtents = DeserializeVec3(bo["halfExtents"]);
+					if (bo.HasMember("isTrigger")) box.isTrigger = bo["isTrigger"].GetBool();
+				}
+
+				// Capsule Collider
+				if (v.HasMember("CapsuleCollider") && v["CapsuleCollider"].IsObject())
+				{
+					auto& capsule = ent->AddComponent<CapsuleColliderComponent>();
+					const auto& co = v["CapsuleCollider"];
+					if (co.HasMember("pointA")) capsule.pointA = DeserializeVec3(co["pointA"]);
+					if (co.HasMember("pointB")) capsule.pointB = DeserializeVec3(co["pointB"]);
+					if (co.HasMember("radius")) capsule.radius = static_cast<float>(co["radius"].GetDouble());
+					if (co.HasMember("isTrigger")) capsule.isTrigger = co["isTrigger"].GetBool();
 				}
 
 				// Plane Collider
@@ -413,6 +533,7 @@ namespace MyEngine
 					const auto& po = v["PlaneCollider"];
 					if (po.HasMember("normal")) plane.normal = DeserializeVec3(po["normal"]);
 					if (po.HasMember("distance")) plane.distance = static_cast<float>(po["distance"].GetDouble());
+					if (po.HasMember("isTrigger")) plane.isTrigger = po["isTrigger"].GetBool();
 				}
 
 				// Bounding Sphere - restored after MeshComponent (which may already have
@@ -423,6 +544,7 @@ namespace MyEngine
 					const auto& so = v["BoundingSphere"];
 					if (so.HasMember("center")) sphere.center = DeserializeVec3(so["center"]);
 					if (so.HasMember("radius")) sphere.radius = static_cast<float>(so["radius"].GetDouble());
+					if (so.HasMember("isTrigger")) sphere.isTrigger = so["isTrigger"].GetBool();
 				}
 
 				// Audio Source
@@ -453,6 +575,25 @@ namespace MyEngine
 					if (alo.HasMember("isPrimary")) al.isPrimary = alo["isPrimary"].GetBool();
 					if (alo.HasMember("gain")) al.gain = static_cast<float>(alo["gain"].GetDouble());
 				}
+
+				// Joint - connectedEntityID stores the *saved* ID here; it is remapped to
+				// the newly assigned entity ID once all entities have been created (see
+				// pendingJoints below).
+				if (v.HasMember("Joint") && v["Joint"].IsObject())
+				{
+					auto& joint = ent->AddComponent<JointComponent>();
+					const auto& jo = v["Joint"];
+					if (jo.HasMember("type")) joint.type = static_cast<JointType>(jo["type"].GetInt());
+					if (jo.HasMember("anchor")) joint.anchor = DeserializeVec3(jo["anchor"]);
+					if (jo.HasMember("connectedAnchor")) joint.connectedAnchor = DeserializeVec3(jo["connectedAnchor"]);
+					if (jo.HasMember("restLength")) joint.restLength = static_cast<float>(jo["restLength"].GetDouble());
+					if (jo.HasMember("stiffness")) joint.stiffness = static_cast<float>(jo["stiffness"].GetDouble());
+					if (jo.HasMember("damping")) joint.damping = static_cast<float>(jo["damping"].GetDouble());
+					if (jo.HasMember("hingeDistance")) joint.hingeDistance = static_cast<float>(jo["hingeDistance"].GetDouble());
+					if (jo.HasMember("enabled")) joint.enabled = jo["enabled"].GetBool();
+					if (jo.HasMember("connectedEntityID") && jo["connectedEntityID"].IsUint())
+						pendingJoints.emplace_back(ent, jo["connectedEntityID"].GetUint());
+				}
 			}
 
 			// Remap parent references from saved IDs to newly assigned IDs.
@@ -461,6 +602,14 @@ namespace MyEngine
 				auto it = savedToNewID.find(savedParentID);
 				if (it != savedToNewID.end() && ent->HasComponent<TransformComponent>())
 					ent->GetComponent<TransformComponent>().parentID = it->second;
+			}
+
+			// Remap joint connectedEntityID from saved IDs to newly assigned IDs.
+			for (auto& [ent, savedConnectedID] : pendingJoints)
+			{
+				auto it = savedToNewID.find(savedConnectedID);
+				if (it != savedToNewID.end() && ent->HasComponent<JointComponent>())
+					ent->GetComponent<JointComponent>().connectedEntityID = it->second;
 			}
 
 			return true;

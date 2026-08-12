@@ -6,12 +6,15 @@
 #include "components/MeshComponent.h"
 #include "components/MeshRendererComponent.h"
 #include "components/BoundingSphereComponent.h"
+#include "components/SkeletonComponent.h"
+#include "components/AnimationComponent.h"
 #include "rendering/Shader.h"
 #include "audio/AudioClip.h"
 
 namespace MyEngine
 {
 	std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> AssetManager::s_ModelCache;
+	std::unordered_map<std::string, SkinnedModelData> AssetManager::s_SkinnedModelCache;
 	std::unordered_map<std::string, std::shared_ptr<Texture>> AssetManager::s_TextureCache;
 	std::unordered_map<std::string, std::shared_ptr<Shader>> AssetManager::s_ShaderCache;
 	std::unordered_map<std::string, std::shared_ptr<AudioClip>> AssetManager::s_AudioClipCache;
@@ -32,6 +35,26 @@ namespace MyEngine
 		}
 
 		return meshes;
+	}
+
+	SkinnedModelData AssetManager::LoadSkinnedModel(const std::string& path)
+	{
+		auto it = s_SkinnedModelCache.find(path);
+		if (it != s_SkinnedModelCache.end())
+			return it->second;
+
+		Model model;
+		SkinnedModelData data;
+
+		if (model.LoadFromFile(path))
+		{
+			data.meshes = model.GetMeshes();
+			data.skeleton = model.GetSkeleton();
+			data.clips = std::make_shared<std::vector<AnimationClip>>(model.GetAnimationClips());
+			s_SkinnedModelCache[path] = data;
+		}
+
+		return data;
 	}
 
 	std::shared_ptr<Texture> AssetManager::LoadTexture(const std::string& path, bool generateMipmaps)
@@ -93,5 +116,33 @@ namespace MyEngine
 		auto& bs = entity->AddComponent<BoundingSphereComponent>();
 		bs.center = mesh->GetBoundingCenter();
 		bs.radius = mesh->GetBoundingRadius();
+	}
+
+	void AssetManager::AttachSkinnedModelToEntity(const std::shared_ptr<::Entity>& entity,
+								const SkinnedModelData& data,
+								const std::shared_ptr<Shader>& shader,
+								const std::string& assetPath)
+	{
+		if (!entity || data.meshes.empty())
+			return;
+
+		// Only the first mesh is attached: MeshComponent holds a single mesh,
+		// matching the existing static-model attachment behavior. assetPath
+		// is recorded (rather than left empty) so the scene serializer can
+		// reload this as a skinned model instead of silently dropping it.
+		AttachMeshToEntity(entity, data.meshes[0], assetPath, shader);
+
+		if (data.skeleton && data.skeleton->GetBoneCount() > 0)
+		{
+			auto& sc = entity->AddComponent<SkeletonComponent>();
+			sc.skeleton = data.skeleton;
+
+			auto& ac = entity->AddComponent<AnimationComponent>();
+			ac.clips = data.clips;
+			ac.activeClipIndex = 0;
+			ac.time = 0.0f;
+			ac.playing = true;
+			ac.looping = true;
+		}
 	}
 }

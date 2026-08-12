@@ -32,8 +32,12 @@
 #include "components/RigidbodyComponent.h"
 #include "components/PlaneColliderComponent.h"
 #include "components/BoxColliderComponent.h"
+#include "components/CapsuleColliderComponent.h"
 #include "components/AudioSourceComponent.h"
 #include "components/AudioListenerComponent.h"
+#include "components/CollisionEventsComponent.h"
+#include "components/JointComponent.h"
+#include "components/AnimationComponent.h"
 
 // Audio
 #include "audio/AudioEngine.h"
@@ -64,8 +68,10 @@
 // Systems
 #include "systems/CameraSystem.h"
 #include "systems/MeshRendererSystem.h"
+#include "rendering/PostProcessPipeline.h"
 #include "systems/PhysicsSystem.h"
 #include "systems/AudioSystem.h"
+#include "systems/AnimationSystem.h"
 
 // Core (picking)
 #include "core/Raycast.h"
@@ -318,12 +324,25 @@ int main()
     camera.enableMouseLook = true;
     camera.flyMode = true;
 
+    // Third-person follow mode is off by default; toggled at runtime with F
+    // during play (see main loop below). followTargetID is set to the
+    // player entity once it exists.
+    camera.thirdPerson = false;
+    camera.followDistance = 5.0f;
+    camera.followHeight = 2.0f;
+
     // ------------------------------------------------------------
     // Systems
     // ------------------------------------------------------------
     CameraSystem cameraSystem;
 
     MeshRendererSystem renderSystem;
+
+    MyEngine::PostProcessPipeline postProcess;
+    postProcess.Init(static_cast<unsigned int>(g_WindowWidth), static_cast<unsigned int>(g_WindowHeight));
+    bool postProcessEnabled = true;
+
+    AnimationSystem animationSystem;
 
     PhysicsSystem physicsSystem;
 
@@ -340,6 +359,8 @@ int main()
               << "  SPACE: play/pause physics simulation\n"
               << "  F1: toggle UI visibility\n"
               << "  F: toggle wireframe\n"
+              << "  V: toggle third-person follow camera\n"
+              << "  B: cross-fade to next animation clip (skinned entities)\n"
               << "  TAB: cycle selected cube\n"
               << "  DELETE: delete selected entity\n"
               << "  Arrow keys: rotate directional light\n"
@@ -357,6 +378,51 @@ int main()
         "shaders/lit.vert",
         "shaders/lit.frag"
     );
+
+    // Skinned variant of the lit shader for rigged/animated models (see
+    // shaders/lit_skinned.vert). Reuses the same fragment shader since the
+    // varyings it consumes are identical between the two vertex shaders.
+    auto litSkinnedShader = std::make_shared<MyEngine::Shader>(
+        "shaders/lit_skinned.vert",
+        "shaders/lit.frag"
+    );
+
+    // PBR (physically based) shader for materials that want metallic/
+    // roughness workflow, tangent-space normal mapping, etc. See
+    // MeshRendererComponent::usePBR and shaders/pbr.vert / pbr.frag.
+    auto pbrShader = std::make_shared<MyEngine::Shader>(
+        "shaders/pbr.vert",
+        "shaders/pbr.frag"
+    );
+
+    // Optional animated character demo: if a rigged model is present at this
+    // path, load it with its skeleton/animation clips and spawn it into the
+    // scene using the skinned shader. If the file is missing, the animation
+    // pipeline stays idle (no entity is created) - drop a rigged .fbx/.gltf
+    // file at this path to see it in action.
+    {
+        const std::string animatedModelPath = "assets/models/character_animated.gltf";
+        MyEngine::SkinnedModelData skinnedData = MyEngine::AssetManager::LoadSkinnedModel(animatedModelPath);
+
+        if (!skinnedData.meshes.empty() && skinnedData.skeleton && skinnedData.skeleton->GetBoneCount() > 0)
+        {
+            auto animatedEntity = scene.CreateEntity("AnimatedCharacter");
+            auto& animTransform = animatedEntity->AddComponent<TransformComponent>();
+            animTransform.position = glm::vec3(3.0f, 0.0f, 0.0f);
+
+            MyEngine::AssetManager::AttachSkinnedModelToEntity(animatedEntity, skinnedData, litSkinnedShader, animatedModelPath);
+
+            std::cout << "[main] Loaded animated character from " << animatedModelPath
+                      << " with " << skinnedData.skeleton->GetBoneCount() << " bones and "
+                      << (skinnedData.clips ? skinnedData.clips->size() : 0) << " animation clip(s)." << std::endl;
+        }
+        else
+        {
+            std::cout << "[main] No animated model found at " << animatedModelPath
+                      << " - skeletal animation pipeline is idle. Drop a rigged .fbx/.gltf there to see it in action."
+                      << std::endl;
+        }
+    }
 
 #ifdef USE_IMGUI
     // Setup ImGui context (after GL is initialized)
@@ -441,19 +507,8 @@ int main()
     };
 
     auto cubeMesh = std::make_shared<MyEngine::Mesh>(cubeVertices, cubeIndices);
-
-    // Plane geometry
-    std::vector<MyEngine::Vertex> planeVertices = {
-        {{-5.0f, 0.0f, -5.0f}, {0.6f, 0.6f, 0.6f}, {0.0f, 1.0f, 0.0f}},
-        {{ 5.0f, 0.0f, -5.0f}, {0.6f, 0.6f, 0.6f}, {0.0f, 1.0f, 0.0f}},
-        {{ 5.0f, 0.0f,  5.0f}, {0.6f, 0.6f, 0.6f}, {0.0f, 1.0f, 0.0f}},
-        {{-5.0f, 0.0f,  5.0f}, {0.6f, 0.6f, 0.6f}, {0.0f, 1.0f, 0.0f}}
-    };
-
-    // Ensure triangle winding produces an upwards-facing normal (CCW)
-    std::vector<unsigned int> planeIndices = { 0,2,1, 0,3,2 };
-
-    auto planeMesh = std::make_shared<MyEngine::Mesh>(planeVertices, planeIndices);
+    auto sphereMesh = MyEngine::MeshPrimitives::CreateSphere();
+    auto planeMesh = MyEngine::MeshPrimitives::CreatePlane();
 
     // Create plane entity
     {
@@ -463,7 +518,7 @@ int main()
         t.scale = glm::vec3(1.0f);
 
         // Auto-attach mesh, renderer and bounding sphere
-        MyEngine::AssetManager::AttachMeshToEntity(planeEntity, planeMesh, "", litShader);
+        MyEngine::AssetManager::AttachMeshToEntity(planeEntity, planeMesh, "primitive_plane", litShader);
 
         // Remove the bounding sphere - we'll use a plane collider instead
         if (planeEntity->HasComponent<BoundingSphereComponent>())
@@ -492,12 +547,151 @@ int main()
         t.scale = glm::vec3(1.0f);
 
         // Auto-attach mesh, renderer and bounding sphere
-        MyEngine::AssetManager::AttachMeshToEntity(cubeEntity, cubeMesh, "", litShader);
+        MyEngine::AssetManager::AttachMeshToEntity(cubeEntity, cubeMesh, "primitive_cube", litShader);
         // Set per-cube material color
         auto& mr = cubeEntity->GetComponent<MeshRendererComponent>();
         mr.albedo = glm::vec3(0.6f + 0.1f * i, 0.3f + 0.1f * i, 0.4f);
 
         cubes.push_back(cubeEntity);
+    }
+
+    // ------------------------------------------------------------
+    // Player character: a capsule-collider controlled entity that
+    // showcases scale-aware colliders, collision events, and joints.
+    // Movement/jump input is handled later in the main loop.
+    // ------------------------------------------------------------
+    std::shared_ptr<Entity> playerEntity;
+    {
+        playerEntity = scene.CreateEntity("Player");
+        auto& t = playerEntity->AddComponent<TransformComponent>();
+        t.position = glm::vec3(0.0f, 2.0f, 2.0f);
+        // Elongate the sphere mesh vertically so it visually approximates a capsule
+        // (the engine has no capsule mesh primitive yet; the actual collider below
+        // is a proper capsule for physics purposes).
+        t.scale = glm::vec3(0.5f, 0.9f, 0.5f);
+
+        MyEngine::AssetManager::AttachMeshToEntity(playerEntity, sphereMesh, "primitive_sphere", litShader);
+        auto& mr = playerEntity->GetComponent<MeshRendererComponent>();
+        mr.albedo = glm::vec3(0.2f, 0.6f, 1.0f);
+
+        // Replace the auto-added bounding sphere with a capsule collider sized to
+        // roughly match the elongated mesh (in local/unscaled units; PhysicsSystem
+        // scales these by TransformComponent::scale at runtime).
+        if (playerEntity->HasComponent<BoundingSphereComponent>())
+        {
+            playerEntity->RemoveComponent<BoundingSphereComponent>();
+        }
+        auto& capsule = playerEntity->AddComponent<CapsuleColliderComponent>();
+        capsule.pointA = glm::vec3(0.0f, -0.4f, 0.0f);
+        capsule.pointB = glm::vec3(0.0f, 0.4f, 0.0f);
+        capsule.radius = 0.5f;
+
+        auto& rb = playerEntity->AddComponent<RigidbodyComponent>();
+        rb.mass = 1.0f;
+        rb.useGravity = true;
+        rb.bounciness = 0.0f;
+        rb.freezePositionX = false;
+        rb.freezePositionZ = false;
+
+        // Log collisions/triggers so walking into the ground, cubes, or the
+        // trigger zone below is visible in the console.
+        auto& events = playerEntity->AddComponent<CollisionEventsComponent>();
+        events.onCollisionEnter = [](const std::shared_ptr<Entity>& other)
+        {
+            std::cout << "[Player] collided with " << (other ? other->GetName() : "unknown") << std::endl;
+        };
+        events.onTriggerEnter = [](const std::shared_ptr<Entity>& other)
+        {
+            std::cout << "[Player] entered trigger: " << (other ? other->GetName() : "unknown") << std::endl;
+        };
+        events.onTriggerExit = [](const std::shared_ptr<Entity>& other)
+        {
+            std::cout << "[Player] exited trigger: " << (other ? other->GetName() : "unknown") << std::endl;
+        };
+    }
+
+    // Point the primary camera's follow target at the player so the
+    // third-person mode (toggled with F during play) has something to orbit.
+    camera.followTargetID = playerEntity->GetID();
+
+    // A trigger volume the player can walk through to demonstrate
+    // CollisionEventsComponent's OnTriggerEnter/Exit callbacks.
+    {
+        auto triggerEntity = scene.CreateEntity("TriggerZone");
+        auto& t = triggerEntity->AddComponent<TransformComponent>();
+        t.position = glm::vec3(0.0f, 1.0f, -1.0f);
+        t.scale = glm::vec3(1.0f);
+
+        MyEngine::AssetManager::AttachMeshToEntity(triggerEntity, cubeMesh, "primitive_cube", litShader);
+        auto& mr = triggerEntity->GetComponent<MeshRendererComponent>();
+        mr.albedo = glm::vec3(1.0f, 0.85f, 0.2f);
+
+        if (triggerEntity->HasComponent<BoundingSphereComponent>())
+        {
+            triggerEntity->RemoveComponent<BoundingSphereComponent>();
+        }
+        auto& box = triggerEntity->AddComponent<BoxColliderComponent>();
+        box.halfExtents = glm::vec3(1.0f, 1.0f, 1.0f);
+        box.isTrigger = true;
+
+        auto& events = triggerEntity->AddComponent<CollisionEventsComponent>();
+        events.onTriggerEnter = [](const std::shared_ptr<Entity>& other)
+        {
+            std::cout << "[TriggerZone] enter: " << (other ? other->GetName() : "unknown") << std::endl;
+        };
+        events.onTriggerExit = [](const std::shared_ptr<Entity>& other)
+        {
+            std::cout << "[TriggerZone] exit: " << (other ? other->GetName() : "unknown") << std::endl;
+        };
+    }
+
+    // A ball hanging from a fixed world anchor via a Hinge joint, so it swings
+    // freely and can be bumped by the player - demonstrates JointComponent.
+    {
+        auto swingEntity = scene.CreateEntity("SwingingBall");
+        auto& t = swingEntity->AddComponent<TransformComponent>();
+        // Offset horizontally from the anchor point below so gravity creates a
+        // torque and the ball swings like a pendulum on its own. A ball starting
+        // perfectly beneath its anchor has zero tangential velocity and gravity
+        // acts purely along the constraint axis, so the hinge would cancel all
+        // motion and it would just hang frozen until externally bumped.
+        t.position = glm::vec3(3.3f, 3.0f, 2.0f);
+        t.scale = glm::vec3(0.4f);
+
+        MyEngine::AssetManager::AttachMeshToEntity(swingEntity, sphereMesh, "primitive_sphere", litShader);
+        auto& mr = swingEntity->GetComponent<MeshRendererComponent>();
+        mr.albedo = glm::vec3(0.9f, 0.3f, 0.3f);
+
+        auto& rb = swingEntity->AddComponent<RigidbodyComponent>();
+        rb.mass = 0.5f;
+        rb.useGravity = true;
+        rb.drag = 0.1f;
+
+        auto& joint = swingEntity->AddComponent<JointComponent>();
+        joint.type = JointType::Hinge;
+        joint.connectedEntityID = 0; // Anchor to a fixed world-space point
+        joint.connectedAnchor = glm::vec3(2.5f, 4.0f, 2.0f);
+        joint.hingeDistance = 1.0f;
+    }
+
+    // PBR material demo: a sphere using the metallic/roughness workflow so
+    // the PBR pipeline (see shaders/pbr.vert / pbr.frag) is actually
+    // exercised. Half-rough copper-ish metal, no texture maps assigned (the
+    // scalar factors alone are enough to see the Cook-Torrance highlight).
+    {
+        auto pbrEntity = scene.CreateEntity("PbrDemoSphere");
+        auto& t = pbrEntity->AddComponent<TransformComponent>();
+        t.position = glm::vec3(-3.0f, 1.0f, 0.0f);
+
+        auto sphereMesh = MyEngine::MeshPrimitives::CreateSphere();
+        MyEngine::AssetManager::AttachMeshToEntity(pbrEntity, sphereMesh, "primitive_sphere", pbrShader);
+
+        auto& mr = pbrEntity->GetComponent<MeshRendererComponent>();
+        mr.usePBR = true;
+        mr.albedo = glm::vec3(0.8f, 0.5f, 0.2f);
+        mr.metallic = 0.8f;
+        mr.roughness = 0.35f;
+        mr.aoStrength = 1.0f;
     }
 
     // Create a directional light in the scene
@@ -537,6 +731,7 @@ int main()
     bool showSceneHierarchy = true;
     bool showInspector = true;
     bool showLightingPanel = true;
+    bool showPostProcessPanel = true;
     bool showPerformancePanel = true;
     bool showPhysicsPanel = true;
     bool showAssetBrowser = true;
@@ -582,6 +777,36 @@ int main()
                     scene.DestroyEntity(id);
                 MyEngine::Serialization::LoadScene(scene, playSnapshotPath, litShader);
                 hasPlaySnapshot = false;
+
+                // The player entity was destroyed above along with the rest of the
+                // scene; re-resolve it from the freshly loaded entities so gameplay
+                // controls keep operating on a valid, live entity instead of a
+                // dangling pointer to the destroyed one.
+                playerEntity.reset();
+                for (auto& e : scene.GetEntities())
+                {
+                    if (e && e->GetName() == "Player")
+                    {
+                        playerEntity = e;
+                        break;
+                    }
+                }
+
+                // The camera entity was likewise destroyed and recreated by the
+                // reload above, so re-point the fresh camera's follow target at
+                // the re-resolved player (the original `camera`/`cameraEntity`
+                // references from setup now refer to destroyed objects).
+                if (playerEntity)
+                {
+                    for (auto& e : scene.GetEntities())
+                    {
+                        if (e && e->HasComponent<CameraComponent>())
+                        {
+                            e->GetComponent<CameraComponent>().followTargetID = playerEntity->GetID();
+                            break;
+                        }
+                    }
+                }
             }
         }
     };
@@ -773,15 +998,17 @@ int main()
             }
         }
 
-        // Adjust light direction using arrow keys (yaw/pitch)
+        // Adjust light direction using arrow keys (yaw/pitch).
+        // Disabled while playing so arrow keys exclusively control the
+        // player character instead of fighting with light adjustment.
         float lightAdjustSpeed = 60.0f; // degrees per second
-        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_LEFT))
+        if (allowGlobalHotkeys && !isPlaying && Input::IsKeyDown(GLFW_KEY_LEFT))
             lightYaw -= lightAdjustSpeed * deltaTime;
-        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_RIGHT))
+        if (allowGlobalHotkeys && !isPlaying && Input::IsKeyDown(GLFW_KEY_RIGHT))
             lightYaw += lightAdjustSpeed * deltaTime;
-        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_UP))
+        if (allowGlobalHotkeys && !isPlaying && Input::IsKeyDown(GLFW_KEY_UP))
             lightPitch += lightAdjustSpeed * deltaTime;
-        if (allowGlobalHotkeys && Input::IsKeyDown(GLFW_KEY_DOWN))
+        if (allowGlobalHotkeys && !isPlaying && Input::IsKeyDown(GLFW_KEY_DOWN))
             lightPitch -= lightAdjustSpeed * deltaTime;
 
         // Light intensity
@@ -837,6 +1064,20 @@ int main()
                 }
             }
 
+        // Keep point/spot light world position in sync with their entity's
+        // transform so moving the light via the gizmo or parenting hierarchy
+        // is reflected in the renderer, which reads LightComponent::position.
+        for (auto& e : scene.GetEntities())
+            if (e && e->HasComponent<LightComponent>() && e->HasComponent<TransformComponent>())
+            {
+                auto& L = e->GetComponent<LightComponent>();
+                if (L.type == LightComponent::Type::Point || L.type == LightComponent::Type::Spot)
+                {
+                    glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *e);
+                    L.position = glm::vec3(worldMatrix[3]);
+                }
+            }
+
         float aspectRatio = 1.0f;
         if (g_WindowHeight > 0)
         {
@@ -847,7 +1088,80 @@ int main()
         // Update physics before camera (so camera can follow physics objects)
         if (isPlaying)
         {
+            // Simple player character controller: arrow keys move on the XZ plane,
+            // Right Control jumps. Restricted to play mode so it never fights with
+            // editor hotkeys (arrow keys otherwise adjust the light in edit mode).
+            if (playerEntity && playerEntity->HasComponent<RigidbodyComponent>())
+            {
+                auto& rb = playerEntity->GetComponent<RigidbodyComponent>();
+
+                const float playerSpeed = 4.0f;
+                glm::vec3 moveDir(0.0f);
+
+                if (Input::IsKeyDown(GLFW_KEY_UP))    moveDir.z -= 1.0f;
+                if (Input::IsKeyDown(GLFW_KEY_DOWN))  moveDir.z += 1.0f;
+                if (Input::IsKeyDown(GLFW_KEY_LEFT))  moveDir.x -= 1.0f;
+                if (Input::IsKeyDown(GLFW_KEY_RIGHT)) moveDir.x += 1.0f;
+
+                if (glm::length(moveDir) > 0.0f)
+                    moveDir = glm::normalize(moveDir);
+
+                rb.velocity.x = moveDir.x * playerSpeed;
+                rb.velocity.z = moveDir.z * playerSpeed;
+
+                // Jump: simple heuristic since PhysicsSystem has no dedicated
+                // ground-contact flag - only allow jumping when vertical velocity
+                // is near zero (i.e. standing on something, not already falling/rising).
+                if (Input::IsKeyPressed(GLFW_KEY_RIGHT_CONTROL) && std::abs(rb.velocity.y) < 0.1f)
+                {
+                    rb.velocity.y = 6.0f;
+                }
+            }
+
+            // Toggle third-person follow camera with V (F is already bound to
+            // wireframe toggle above). Resolved against the live primary
+            // camera entity each press (rather than the original `camera`
+            // reference) since play/stop reload destroys and recreates
+            // entities, leaving the setup-time reference stale.
+            if (Input::IsKeyPressed(GLFW_KEY_V))
+            {
+                for (auto& e : scene.GetEntities())
+                {
+                    if (e && e->HasComponent<CameraComponent>())
+                    {
+                        auto& cam = e->GetComponent<CameraComponent>();
+                        cam.thirdPerson = !cam.thirdPerson;
+                        break;
+                    }
+                }
+            }
+
+            // Cycle through animation clips with a cross-fade blend on any
+            // skinned entity (e.g. AnimatedCharacter) using B, demonstrating
+            // AnimationComponent::TransitionTo(). No-ops for entities with
+            // only one clip (there's nothing to transition to).
+            if (Input::IsKeyPressed(GLFW_KEY_B))
+            {
+                for (auto& e : scene.GetEntities())
+                {
+                    if (!e || !e->HasComponent<AnimationComponent>())
+                        continue;
+
+                    auto& anim = e->GetComponent<AnimationComponent>();
+                    if (!anim.clips || anim.clips->size() < 2)
+                        continue;
+
+                    int nextClip = (anim.activeClipIndex + 1) % static_cast<int>(anim.clips->size());
+                    anim.TransitionTo(nextClip, 0.4f);
+                }
+            }
+
             physicsSystem.OnUpdate(scene, deltaTime);
+
+            // Advance animation playback (bone matrix palettes) for any
+            // skinned entities. Gated by isPlaying like physics so animations
+            // don't advance while paused in the editor.
+            animationSystem.Update(scene, deltaTime);
         }
 
         cameraSystem.Update(scene, window, deltaTime, aspectRatio);
@@ -860,6 +1174,11 @@ int main()
         // --------------------------------------------------------
         // Render
         // --------------------------------------------------------
+        if (postProcessEnabled)
+        {
+            postProcess.Resize(static_cast<unsigned int>(g_WindowWidth), static_cast<unsigned int>(g_WindowHeight));
+            postProcess.BindForWriting();
+        }
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 #ifdef USE_IMGUI
@@ -957,6 +1276,7 @@ int main()
                     ImGui::MenuItem("Scene Hierarchy", nullptr, &showSceneHierarchy);
                     ImGui::MenuItem("Inspector", nullptr, &showInspector);
                     ImGui::MenuItem("Lighting", nullptr, &showLightingPanel);
+                    ImGui::MenuItem("Post-Processing", nullptr, &showPostProcessPanel);
                     ImGui::MenuItem("Performance", nullptr, &showPerformancePanel);
                     ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
                     ImGui::Separator();
@@ -1024,6 +1344,36 @@ int main()
                             MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], path, litShader);
                             selectedEntity = ent.get();
                         }
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Point Light"))
+                    {
+                        auto ent = scene.CreateEntity("Point Light");
+                        auto& t = ent->AddComponent<TransformComponent>();
+                        t.position = glm::vec3(0.0f, 2.0f, 0.0f);
+                        auto& light = ent->AddComponent<LightComponent>();
+                        light.type = LightComponent::Type::Point;
+                        light.position = t.position;
+                        light.color = glm::vec3(1.0f);
+                        light.intensity = 1.0f;
+                        light.range = 10.0f;
+                        selectedEntity = ent.get();
+                    }
+                    if (ImGui::MenuItem("Spot Light"))
+                    {
+                        auto ent = scene.CreateEntity("Spot Light");
+                        auto& t = ent->AddComponent<TransformComponent>();
+                        t.position = glm::vec3(0.0f, 2.0f, 0.0f);
+                        auto& light = ent->AddComponent<LightComponent>();
+                        light.type = LightComponent::Type::Spot;
+                        light.position = t.position;
+                        light.direction = glm::vec3(0.0f, -1.0f, 0.0f);
+                        light.color = glm::vec3(1.0f);
+                        light.intensity = 1.0f;
+                        light.range = 10.0f;
+                        light.innerCone = 12.5f;
+                        light.outerCone = 17.5f;
+                        selectedEntity = ent.get();
                     }
                     ImGui::EndMenu();
                 }
@@ -1470,6 +1820,63 @@ int main()
                                     std::cerr << "Failed to load texture: " << e.what() << std::endl;
                                 }
                             }
+
+                            ImGui::Separator();
+                            ImGui::Text("PBR Material");
+                            ImGui::Checkbox("Use PBR##usePbr", &renderer.usePBR);
+
+                            if (renderer.usePBR)
+                            {
+                                if (!renderer.shader)
+                                {
+                                    renderer.shader = MyEngine::AssetManager::LoadShader("shaders/pbr.vert", "shaders/pbr.frag");
+                                }
+
+                                ImGui::SliderFloat("Metallic", &renderer.metallic, 0.0f, 1.0f);
+                                ImGui::SliderFloat("Roughness", &renderer.roughness, 0.04f, 1.0f);
+                                ImGui::SliderFloat("AO Strength", &renderer.aoStrength, 0.0f, 1.0f);
+                                ImGui::ColorEdit3("Emissive", &renderer.emissive.x);
+
+                                // Reuses the same availableTextures scan as the classic texture
+                                // picker above so PBR maps can be assigned from assets/textures.
+                                auto pbrMapPicker = [&](const char* label, std::shared_ptr<MyEngine::Texture>& map)
+                                {
+                                    std::string currentName = map ? map->GetPath() : "None";
+                                    if (ImGui::BeginCombo(label, currentName.c_str()))
+                                    {
+                                        bool noneSelected = !map;
+                                        if (ImGui::Selectable("None", noneSelected))
+                                        {
+                                            map = nullptr;
+                                        }
+
+                                        for (const auto& texPath : availableTextures)
+                                        {
+                                            bool isSelected = map && map->GetPath() == texPath;
+                                            if (ImGui::Selectable(texPath.c_str(), isSelected))
+                                            {
+                                                try
+                                                {
+                                                    map = MyEngine::AssetManager::LoadTexture(texPath);
+                                                }
+                                                catch (const std::exception& e)
+                                                {
+                                                    std::cerr << "Failed to load PBR map: " << e.what() << std::endl;
+                                                }
+                                            }
+                                            if (isSelected)
+                                                ImGui::SetItemDefaultFocus();
+                                        }
+                                        ImGui::EndCombo();
+                                    }
+                                };
+
+                                pbrMapPicker("Albedo Map", renderer.albedoMap);
+                                pbrMapPicker("Normal Map", renderer.normalMap);
+                                pbrMapPicker("Metallic/Roughness Map", renderer.metallicRoughnessMap);
+                                pbrMapPicker("AO Map", renderer.aoMap);
+                                pbrMapPicker("Emissive Map", renderer.emissiveMap);
+                            }
                         }
                     }
 
@@ -1551,6 +1958,7 @@ int main()
                             auto& box = selectedEntity->GetComponent<BoxColliderComponent>();
                             ImGui::DragFloat3("Center Offset", &box.center.x, 0.05f);
                             ImGui::DragFloat3("Half Extents", &box.halfExtents.x, 0.05f, 0.01f, 100.0f);
+                            ImGui::Checkbox("Is Trigger", &box.isTrigger);
 
                             if (ImGui::Button("Remove Box Collider"))
                             {
@@ -1569,6 +1977,120 @@ int main()
                             {
                                 selectedEntity->RemoveComponent<BoundingSphereComponent>();
                             }
+                        }
+                    }
+
+                    // Collision Events Component (trigger/collision callbacks for gameplay testing)
+                    if (selectedEntity->HasComponent<CollisionEventsComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Collision Events", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            ImGui::TextWrapped("Logs Enter/Exit events for collisions and triggers to the console.");
+
+                            if (ImGui::Button("Remove Collision Events"))
+                            {
+                                selectedEntity->RemoveComponent<CollisionEventsComponent>();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Collision Events"))
+                        {
+                            auto& events = selectedEntity->AddComponent<CollisionEventsComponent>();
+                            uint32_t selfID = selectedEntity->GetID();
+                            std::string selfName = selectedEntity->GetName();
+                            events.onCollisionEnter = [selfID, selfName](const std::shared_ptr<Entity>& other)
+                            {
+                                std::cout << "[Collision] " << selfName << " (id " << selfID << ") entered collision with "
+                                    << (other ? other->GetName() : "unknown") << std::endl;
+                            };
+                            events.onCollisionExit = [selfID, selfName](const std::shared_ptr<Entity>& other)
+                            {
+                                std::cout << "[Collision] " << selfName << " (id " << selfID << ") exited collision with "
+                                    << (other ? other->GetName() : "unknown") << std::endl;
+                            };
+                            events.onTriggerEnter = [selfID, selfName](const std::shared_ptr<Entity>& other)
+                            {
+                                std::cout << "[Trigger] " << selfName << " (id " << selfID << ") entered trigger with "
+                                    << (other ? other->GetName() : "unknown") << std::endl;
+                            };
+                            events.onTriggerExit = [selfID, selfName](const std::shared_ptr<Entity>& other)
+                            {
+                                std::cout << "[Trigger] " << selfName << " (id " << selfID << ") exited trigger with "
+                                    << (other ? other->GetName() : "unknown") << std::endl;
+                            };
+                        }
+                    }
+
+                    // Joint Component (Fixed/Spring/Hinge constraints between entities)
+                    if (selectedEntity->HasComponent<JointComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Joint", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            auto& joint = selectedEntity->GetComponent<JointComponent>();
+
+                            ImGui::Checkbox("Enabled", &joint.enabled);
+
+                            const char* jointTypeNames[] = { "Fixed", "Spring", "Hinge" };
+                            int jointTypeIndex = static_cast<int>(joint.type);
+                            if (ImGui::Combo("Type", &jointTypeIndex, jointTypeNames, IM_ARRAYSIZE(jointTypeNames)))
+                            {
+                                joint.type = static_cast<JointType>(jointTypeIndex);
+                            }
+
+                            // Connected entity selection (0 = world-space anchor point)
+                            std::string connectedLabel = "<World Anchor>";
+                            if (joint.connectedEntityID != 0)
+                            {
+                                auto connected = TransformHierarchy::FindEntityByID(scene, joint.connectedEntityID);
+                                connectedLabel = connected ? connected->GetName() : "<Missing Entity>";
+                            }
+                            if (ImGui::BeginCombo("Connected To", connectedLabel.c_str()))
+                            {
+                                bool isWorldSelected = (joint.connectedEntityID == 0);
+                                if (ImGui::Selectable("<World Anchor>", isWorldSelected))
+                                {
+                                    joint.connectedEntityID = 0;
+                                }
+                                for (const auto& other : scene.GetEntities())
+                                {
+                                    if (!other || other->GetID() == selectedEntity->GetID())
+                                        continue;
+                                    bool isSelected = (other->GetID() == joint.connectedEntityID);
+                                    if (ImGui::Selectable(other->GetName().c_str(), isSelected))
+                                    {
+                                        joint.connectedEntityID = other->GetID();
+                                    }
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            ImGui::DragFloat3("Anchor Offset", &joint.anchor.x, 0.05f);
+                            ImGui::DragFloat3("Connected Anchor", &joint.connectedAnchor.x, 0.05f);
+
+                            if (joint.type == JointType::Spring)
+                            {
+                                ImGui::DragFloat("Rest Length", &joint.restLength, 0.05f, 0.0f, 100.0f);
+                                ImGui::DragFloat("Stiffness", &joint.stiffness, 0.5f, 0.0f, 1000.0f);
+                                ImGui::DragFloat("Damping", &joint.damping, 0.1f, 0.0f, 100.0f);
+                            }
+                            else if (joint.type == JointType::Hinge)
+                            {
+                                ImGui::DragFloat("Hinge Distance", &joint.hingeDistance, 0.05f, 0.0f, 100.0f);
+                            }
+
+                            if (ImGui::Button("Remove Joint"))
+                            {
+                                selectedEntity->RemoveComponent<JointComponent>();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Joint"))
+                        {
+                            selectedEntity->AddComponent<JointComponent>();
                         }
                     }
 
@@ -1776,6 +2298,36 @@ int main()
                         ImGui::PopID();
                     }
                 }
+
+                ImGui::End();
+            }
+
+            // ============================================================
+            // Post-Processing Panel
+            // ============================================================
+            if (showPostProcessPanel)
+            {
+                ImGui::SetNextWindowPos(ImVec2(10, 800), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(320, 200), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Post-Processing", &showPostProcessPanel);
+
+                ImGui::Checkbox("Enabled", &postProcessEnabled);
+
+                bool bloom = postProcess.GetBloomEnabled();
+                if (ImGui::Checkbox("Bloom", &bloom))
+                    postProcess.SetBloomEnabled(bloom);
+
+                float exposure = postProcess.GetExposure();
+                if (ImGui::SliderFloat("Exposure", &exposure, 0.1f, 5.0f))
+                    postProcess.SetExposure(exposure);
+
+                float threshold = postProcess.GetBloomThreshold();
+                if (ImGui::SliderFloat("Bloom Threshold", &threshold, 0.0f, 5.0f))
+                    postProcess.SetBloomThreshold(threshold);
+
+                float bloomIntensity = postProcess.GetBloomIntensity();
+                if (ImGui::SliderFloat("Bloom Intensity", &bloomIntensity, 0.0f, 3.0f))
+                    postProcess.SetBloomIntensity(bloomIntensity);
 
                 ImGui::End();
             }
@@ -2040,6 +2592,13 @@ int main()
         }
 
         renderSystem.Render(scene, view, projection);
+
+        if (postProcessEnabled)
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, g_WindowWidth, g_WindowHeight);
+            postProcess.Composite();
+        }
 
 #ifdef USE_IMGUI
         // Rendering ImGui

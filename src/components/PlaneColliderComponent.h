@@ -7,4 +7,8 @@ struct PlaneColliderComponent
 {
 	glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);  // Plane normal (default: up)
 	float distance = 0.0f;  // Distance from origin along normal
+
+	// If true, this collider only reports overlap (OnTriggerEnter/Exit) and does
+	// not participate in physical collision response.
+	bool isTrigger = false;
 };

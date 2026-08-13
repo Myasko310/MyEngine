@@ -57,12 +57,18 @@ namespace MyEngine
 		unsigned int m_Width = 0;
 		unsigned int m_Height = 0;
 
+		// Bloom/blur is done at a reduced resolution to avoid the heavy cost
+		// of running many full-resolution ping-pong blur passes every frame.
+		unsigned int m_BlurWidth = 0;
+		unsigned int m_BlurHeight = 0;
+
 		// Main HDR scene target
 		unsigned int m_HDRFBO = 0;
 		unsigned int m_SceneColorTexture = 0;
 		unsigned int m_DepthRBO = 0;
 
 		// Ping-pong framebuffers used for Gaussian blur of bright regions
+		// (sized at m_BlurWidth x m_BlurHeight, not the full window resolution).
 		unsigned int m_PingPongFBO[2] = { 0, 0 };
 		unsigned int m_PingPongTextures[2] = { 0, 0 };
 

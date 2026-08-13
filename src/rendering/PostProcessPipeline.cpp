@@ -2,6 +2,7 @@
 
 #include "rendering/Shader.h"
 
+#include <algorithm>
 #include <iostream>
 
 namespace MyEngine
@@ -120,15 +121,22 @@ namespace MyEngine
 		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
 			std::cerr << "PostProcessPipeline: HDR framebuffer not complete" << std::endl;
 
-		// Ping-pong framebuffers for blur (half-res would be an option, but
-		// keep same resolution for simplicity/quality).
+		// Ping-pong framebuffers for blur, rendered at a reduced resolution.
+		// Running 10 full-resolution ping-pong blur passes every frame (e.g. at
+		// 3200x1800) is extremely GPU-heavy; bloom is a low-frequency effect so
+		// blurring at a fraction of the resolution looks essentially identical
+		// while being dramatically cheaper.
+		constexpr unsigned int kBlurDownscale = 4;
+		m_BlurWidth = std::max(1u, width / kBlurDownscale);
+		m_BlurHeight = std::max(1u, height / kBlurDownscale);
+
 		glGenFramebuffers(2, m_PingPongFBO);
 		glGenTextures(2, m_PingPongTextures);
 		for (int i = 0; i < 2; ++i)
 		{
 			glBindFramebuffer(GL_FRAMEBUFFER, m_PingPongFBO[i]);
 			glBindTexture(GL_TEXTURE_2D, m_PingPongTextures[i]);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA, GL_FLOAT, nullptr);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, static_cast<GLsizei>(m_BlurWidth), static_cast<GLsizei>(m_BlurHeight), 0, GL_RGBA, GL_FLOAT, nullptr);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -163,7 +171,11 @@ namespace MyEngine
 
 		if (m_BloomEnabled)
 		{
-			// 1) Bright-pass extraction into ping-pong texture 0
+			// Blur passes run at a reduced resolution (m_BlurWidth x m_BlurHeight)
+			// to keep the cost of the many ping-pong iterations low.
+			glViewport(0, 0, static_cast<GLsizei>(m_BlurWidth), static_cast<GLsizei>(m_BlurHeight));
+
+			// 1) Bright-pass extraction (downsampled) into ping-pong texture 0
 			glBindFramebuffer(GL_FRAMEBUFFER, m_PingPongFBO[0]);
 			m_BrightPassShader->Use();
 			glActiveTexture(GL_TEXTURE0);
@@ -172,9 +184,9 @@ namespace MyEngine
 			m_BrightPassShader->SetFloat("u_Threshold", m_BloomThreshold);
 			RenderFullscreenQuad();
 
-			// 2) Ping-pong Gaussian blur (separable, N iterations)
+			// 2) Ping-pong Gaussian blur (separable, N iterations) at low-res
 			bool horizontal = true;
-			const int blurIterations = 10;
+			const int blurIterations = 6;
 			m_BlurShader->Use();
 			for (int i = 0; i < blurIterations; ++i)
 			{
@@ -189,6 +201,9 @@ namespace MyEngine
 
 			// Last written target holds the final blurred bloom result.
 			bloomResultTexture = m_PingPongTextures[horizontal ? 0 : 1];
+
+			// Restore full-resolution viewport for the final composite pass.
+			glViewport(0, 0, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
 		}
 
 		// 3) Final composite: tone mapping + gamma correction (+ bloom add)

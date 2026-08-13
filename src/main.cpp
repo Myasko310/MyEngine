@@ -324,7 +324,7 @@ int main()
     camera.enableMouseLook = true;
     camera.flyMode = true;
 
-    // Third-person follow mode is off by default; toggled at runtime with F
+    // Third-person follow mode is off by default; toggled at runtime with V
     // during play (see main loop below). followTargetID is set to the
     // player entity once it exists.
     camera.thirdPerson = false;
@@ -430,6 +430,81 @@ int main()
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     ImGui::StyleColorsDark();
+
+    // Custom editor theme: softer dark blue-gray palette, rounded corners,
+    // and tighter spacing so panels feel more like a modern editor (e.g.
+    // Unity/Unreal/Blender) rather than the default ImGui demo look.
+    {
+        ImGuiStyle& style = ImGui::GetStyle();
+
+        style.WindowRounding = 6.0f;
+        style.ChildRounding = 6.0f;
+        style.FrameRounding = 4.0f;
+        style.PopupRounding = 4.0f;
+        style.ScrollbarRounding = 6.0f;
+        style.GrabRounding = 4.0f;
+        style.TabRounding = 4.0f;
+
+        style.WindowPadding = ImVec2(10.0f, 10.0f);
+        style.FramePadding = ImVec2(8.0f, 4.0f);
+        style.CellPadding = ImVec2(6.0f, 4.0f);
+        style.ItemSpacing = ImVec2(8.0f, 6.0f);
+        style.ItemInnerSpacing = ImVec2(6.0f, 6.0f);
+        style.IndentSpacing = 18.0f;
+        style.ScrollbarSize = 14.0f;
+        style.GrabMinSize = 10.0f;
+
+        style.WindowBorderSize = 1.0f;
+        style.FrameBorderSize = 0.0f;
+        style.PopupBorderSize = 1.0f;
+
+        ImVec4* colors = style.Colors;
+        colors[ImGuiCol_Text]                  = ImVec4(0.92f, 0.93f, 0.94f, 1.00f);
+        colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.52f, 0.55f, 1.00f);
+        colors[ImGuiCol_WindowBg]               = ImVec4(0.11f, 0.12f, 0.14f, 1.00f);
+        colors[ImGuiCol_ChildBg]                = ImVec4(0.13f, 0.14f, 0.16f, 1.00f);
+        colors[ImGuiCol_PopupBg]                = ImVec4(0.10f, 0.11f, 0.13f, 0.98f);
+        colors[ImGuiCol_Border]                 = ImVec4(0.06f, 0.06f, 0.07f, 1.00f);
+        colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        colors[ImGuiCol_FrameBg]                = ImVec4(0.17f, 0.18f, 0.21f, 1.00f);
+        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.23f, 0.24f, 0.28f, 1.00f);
+        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.26f, 0.48f, 0.80f, 0.55f);
+        colors[ImGuiCol_TitleBg]                = ImVec4(0.09f, 0.10f, 0.12f, 1.00f);
+        colors[ImGuiCol_TitleBgActive]          = ImVec4(0.13f, 0.15f, 0.18f, 1.00f);
+        colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.09f, 0.10f, 0.12f, 0.75f);
+        colors[ImGuiCol_MenuBarBg]              = ImVec4(0.10f, 0.11f, 0.13f, 1.00f);
+        colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.09f, 0.10f, 0.12f, 1.00f);
+        colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.27f, 0.29f, 0.33f, 1.00f);
+        colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.34f, 0.37f, 0.42f, 1.00f);
+        colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.26f, 0.48f, 0.80f, 1.00f);
+        colors[ImGuiCol_CheckMark]              = ImVec4(0.30f, 0.62f, 1.00f, 1.00f);
+        colors[ImGuiCol_SliderGrab]             = ImVec4(0.30f, 0.62f, 1.00f, 0.85f);
+        colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.36f, 0.68f, 1.00f, 1.00f);
+        colors[ImGuiCol_Button]                 = ImVec4(0.20f, 0.22f, 0.26f, 1.00f);
+        colors[ImGuiCol_ButtonHovered]          = ImVec4(0.26f, 0.48f, 0.80f, 0.60f);
+        colors[ImGuiCol_ButtonActive]           = ImVec4(0.26f, 0.48f, 0.80f, 0.90f);
+        colors[ImGuiCol_Header]                 = ImVec4(0.20f, 0.22f, 0.26f, 1.00f);
+        colors[ImGuiCol_HeaderHovered]          = ImVec4(0.26f, 0.48f, 0.80f, 0.55f);
+        colors[ImGuiCol_HeaderActive]           = ImVec4(0.26f, 0.48f, 0.80f, 0.80f);
+        colors[ImGuiCol_Separator]              = ImVec4(0.06f, 0.06f, 0.07f, 1.00f);
+        colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.30f, 0.62f, 1.00f, 0.60f);
+        colors[ImGuiCol_SeparatorActive]        = ImVec4(0.30f, 0.62f, 1.00f, 0.90f);
+        colors[ImGuiCol_ResizeGrip]             = ImVec4(0.30f, 0.62f, 1.00f, 0.25f);
+        colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.30f, 0.62f, 1.00f, 0.55f);
+        colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.30f, 0.62f, 1.00f, 0.85f);
+        colors[ImGuiCol_Tab]                    = ImVec4(0.14f, 0.16f, 0.19f, 1.00f);
+        colors[ImGuiCol_TabHovered]             = ImVec4(0.26f, 0.48f, 0.80f, 0.60f);
+        colors[ImGuiCol_TabActive]              = ImVec4(0.20f, 0.36f, 0.60f, 1.00f);
+        colors[ImGuiCol_TabUnfocused]           = ImVec4(0.10f, 0.11f, 0.13f, 1.00f);
+        colors[ImGuiCol_TabUnfocusedActive]     = ImVec4(0.14f, 0.16f, 0.19f, 1.00f);
+        colors[ImGuiCol_PlotLines]              = ImVec4(0.61f, 0.61f, 0.61f, 1.00f);
+        colors[ImGuiCol_PlotLinesHovered]       = ImVec4(0.30f, 0.62f, 1.00f, 1.00f);
+        colors[ImGuiCol_PlotHistogram]          = ImVec4(0.86f, 0.60f, 0.20f, 1.00f);
+        colors[ImGuiCol_PlotHistogramHovered]   = ImVec4(0.95f, 0.68f, 0.24f, 1.00f);
+        colors[ImGuiCol_TextSelectedBg]         = ImVec4(0.26f, 0.48f, 0.80f, 0.35f);
+        colors[ImGuiCol_DragDropTarget]         = ImVec4(0.95f, 0.75f, 0.20f, 0.90f);
+        colors[ImGuiCol_NavHighlight]           = ImVec4(0.30f, 0.62f, 1.00f, 0.80f);
+    }
 
     // Try to make the process per-monitor DPI aware on Windows so framebuffer
     // sizes reported by GLFW reflect the actual DPI scaling.
@@ -768,6 +843,26 @@ int main()
             isPlaying = false;
             if (hasPlaySnapshot)
             {
+                // Capture the live camera's transform/look state before the scene
+                // is torn down so play-mode camera movement (fly/orbit, mouse
+                // look, third-person toggle) isn't lost when stopping - only the
+                // simulated gameplay entities should revert to their edit-time
+                // state, not the editor/gameplay camera the user was just using.
+                bool hadCamera = false;
+                TransformComponent savedCameraTransform;
+                CameraComponent savedCamera;
+                for (auto& e : scene.GetEntities())
+                {
+                    if (e && e->HasComponent<CameraComponent>() && e->GetComponent<CameraComponent>().isPrimary)
+                    {
+                        if (e->HasComponent<TransformComponent>())
+                            savedCameraTransform = e->GetComponent<TransformComponent>();
+                        savedCamera = e->GetComponent<CameraComponent>();
+                        hadCamera = true;
+                        break;
+                    }
+                }
+
                 selectedEntity = nullptr;
                 undoStack.Clear();
                 std::vector<uint32_t> ids;
@@ -795,16 +890,30 @@ int main()
                 // The camera entity was likewise destroyed and recreated by the
                 // reload above, so re-point the fresh camera's follow target at
                 // the re-resolved player (the original `camera`/`cameraEntity`
-                // references from setup now refer to destroyed objects).
-                if (playerEntity)
+                // references from setup now refer to destroyed objects), then
+                // restore the transform/look state captured above so the camera
+                // doesn't visually snap back to its edit-time pose on Stop.
+                for (auto& e : scene.GetEntities())
                 {
-                    for (auto& e : scene.GetEntities())
+                    if (e && e->HasComponent<CameraComponent>())
                     {
-                        if (e && e->HasComponent<CameraComponent>())
+                        auto& freshCamera = e->GetComponent<CameraComponent>();
+                        if (playerEntity)
+                            freshCamera.followTargetID = playerEntity->GetID();
+
+                        if (hadCamera)
                         {
-                            e->GetComponent<CameraComponent>().followTargetID = playerEntity->GetID();
-                            break;
+                            if (e->HasComponent<TransformComponent>())
+                                e->GetComponent<TransformComponent>() = savedCameraTransform;
+
+                            freshCamera.yaw = savedCamera.yaw;
+                            freshCamera.pitch = savedCamera.pitch;
+                            freshCamera.thirdPerson = savedCamera.thirdPerson;
+                            freshCamera.followDistance = savedCamera.followDistance;
+                            freshCamera.followHeight = savedCamera.followHeight;
+                            freshCamera.smoothedMouseDelta = savedCamera.smoothedMouseDelta;
                         }
+                        break;
                     }
                 }
             }
@@ -878,7 +987,7 @@ int main()
         if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F))
         {
             wireframe = !wireframe;
-            glPolygonMode(GL_FRONT_AND_BACK, wireframe ? GL_LINE : GL_FILL);
+            renderSystem.SetWireframe(wireframe);
         }
 
         // Toggle UI visibility (press F1) - always allowed, even while typing
@@ -1157,12 +1266,16 @@ int main()
             }
 
             physicsSystem.OnUpdate(scene, deltaTime);
-
-            // Advance animation playback (bone matrix palettes) for any
-            // skinned entities. Gated by isPlaying like physics so animations
-            // don't advance while paused in the editor.
-            animationSystem.Update(scene, deltaTime);
         }
+
+        // Compute bone matrix palettes for any skinned entities every frame,
+        // even while paused/in edit mode. Passing deltaTime of 0 when not
+        // playing keeps the pose frozen (no playback advance) while still
+        // populating AnimationComponent::boneMatrices; otherwise the palette
+        // stays empty until Play is pressed and every skinned vertex gets
+        // multiplied by a zero bone matrix, collapsing the mesh to the
+        // origin (invisible) before Play is hit.
+        animationSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
 
         cameraSystem.Update(scene, window, deltaTime, aspectRatio);
 
@@ -1179,6 +1292,19 @@ int main()
             postProcess.Resize(static_cast<unsigned int>(g_WindowWidth), static_cast<unsigned int>(g_WindowHeight));
             postProcess.BindForWriting();
         }
+        else
+        {
+            // Explicitly bind the default framebuffer when post-processing is
+            // disabled. Without this, toggling post-processing off while the
+            // offscreen HDR framebuffer is still bound from a previous frame
+            // (via BindForWriting()) leaves rendering targeting that
+            // invisible offscreen target forever, since nothing else in the
+            // non-post-process path rebinds framebuffer 0 - the window
+            // appears frozen because the visible framebuffer is never
+            // updated again.
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, g_WindowWidth, g_WindowHeight);
+        }
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 #ifdef USE_IMGUI
@@ -1189,18 +1315,11 @@ int main()
 
         if (showUI)
         {
-            // Menu Bar (standalone)
+            // Menu Bar (standalone). The Play/Stop control now lives in the
+            // toolbar strip directly below the menu bar (see "Toolbar"
+            // block after EndMainMenuBar) so it isn't duplicated here.
             if (ImGui::BeginMainMenuBar())
             {
-            // Play/Stop button with icon
-            ImGui::PushStyleColor(ImGuiCol_Button, isPlaying ? ImVec4(0.8f, 0.3f, 0.3f, 1.0f) : ImVec4(0.3f, 0.8f, 0.3f, 1.0f));
-            if (ImGui::Button(isPlaying ? " [] Stop (Space)" : " > Play (Space)"))
-            {
-                setPlaying(!isPlaying);
-            }
-            ImGui::PopStyleColor();
-            ImGui::Separator();
-
             if (ImGui::BeginMenu("File"))
             {
                 if (ImGui::MenuItem("New Scene"))
@@ -1283,7 +1402,7 @@ int main()
                     if (ImGui::MenuItem("Toggle Wireframe", "F"))
                     {
                         wireframe = !wireframe;
-                        glPolygonMode(GL_FRONT_AND_BACK, wireframe ? GL_LINE : GL_FILL);
+                        renderSystem.SetWireframe(wireframe);
                     }
 #ifdef USE_IMGUIZMO
                     ImGui::Separator();
@@ -1379,6 +1498,110 @@ int main()
                 }
 
                 ImGui::EndMainMenuBar();
+            }
+
+            // ============================================================
+            // Toolbar: a slim, always-visible strip docked directly under
+            // the main menu bar exposing the most frequently used editor
+            // controls (play/stop, gizmo mode, gizmo space, wireframe)
+            // without needing to open a menu.
+            // ============================================================
+            {
+                float menuBarHeight = ImGui::GetFrameHeight();
+                float toolbarHeight = ImGui::GetFrameHeight() + 12.0f;
+
+                ImGui::SetNextWindowPos(ImVec2(0.0f, menuBarHeight));
+                ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, toolbarHeight));
+                ImGuiWindowFlags toolbarFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                                ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings |
+                                                ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 4.0f));
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.10f, 0.12f, 1.00f));
+                ImGui::Begin("##Toolbar", nullptr, toolbarFlags);
+
+                // Helper for a "toggle" style button that stays highlighted
+                // while active, matching the accent color used elsewhere.
+                auto toolbarToggleButton = [](const char* label, bool active, float width = 0.0f) -> bool
+                {
+                    bool pressed = false;
+                    if (active)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.48f, 0.80f, 0.90f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.55f, 0.88f, 0.95f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.55f, 0.88f, 1.00f));
+                    }
+                    pressed = ImGui::Button(label, ImVec2(width, 0.0f));
+                    if (active)
+                        ImGui::PopStyleColor(3);
+                    return pressed;
+                };
+
+                // --- Play / Stop -------------------------------------------------
+                ImGui::PushStyleColor(ImGuiCol_Button, isPlaying ? ImVec4(0.80f, 0.30f, 0.30f, 1.00f) : ImVec4(0.30f, 0.75f, 0.35f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isPlaying ? ImVec4(0.88f, 0.36f, 0.36f, 1.00f) : ImVec4(0.36f, 0.82f, 0.42f, 1.00f));
+                if (ImGui::Button(isPlaying ? "  [] Stop  " : "  > Play  "))
+                {
+                    setPlaying(!isPlaying);
+                }
+                ImGui::PopStyleColor(2);
+
+                ImGui::SameLine();
+                ImGui::Dummy(ImVec2(8.0f, 0.0f));
+                ImGui::SameLine();
+                ImGui::TextDisabled("|");
+                ImGui::SameLine();
+                ImGui::Dummy(ImVec2(8.0f, 0.0f));
+                ImGui::SameLine();
+
+#ifdef USE_IMGUIZMO
+                // --- Gizmo mode: Translate / Rotate / Scale -----------------------
+                if (toolbarToggleButton("Move (W)", gizmoOperation == ImGuizmo::TRANSLATE, 84.0f))
+                    gizmoOperation = ImGuizmo::TRANSLATE;
+                ImGui::SameLine();
+                if (toolbarToggleButton("Rotate (E)", gizmoOperation == ImGuizmo::ROTATE, 84.0f))
+                    gizmoOperation = ImGuizmo::ROTATE;
+                ImGui::SameLine();
+                if (toolbarToggleButton("Scale (R)", gizmoOperation == ImGuizmo::SCALE, 84.0f))
+                    gizmoOperation = ImGuizmo::SCALE;
+
+                ImGui::SameLine();
+                ImGui::Dummy(ImVec2(8.0f, 0.0f));
+                ImGui::SameLine();
+                ImGui::TextDisabled("|");
+                ImGui::SameLine();
+                ImGui::Dummy(ImVec2(8.0f, 0.0f));
+                ImGui::SameLine();
+
+                // --- Gizmo space: World / Local ------------------------------------
+                bool isWorldSpaceToolbar = (gizmoMode == ImGuizmo::WORLD);
+                if (toolbarToggleButton("World", isWorldSpaceToolbar, 64.0f))
+                    gizmoMode = ImGuizmo::WORLD;
+                ImGui::SameLine();
+                if (toolbarToggleButton("Local", !isWorldSpaceToolbar, 64.0f))
+                    gizmoMode = ImGuizmo::LOCAL;
+
+                ImGui::SameLine();
+                ImGui::Dummy(ImVec2(8.0f, 0.0f));
+                ImGui::SameLine();
+                ImGui::TextDisabled("|");
+                ImGui::SameLine();
+                ImGui::Dummy(ImVec2(8.0f, 0.0f));
+                ImGui::SameLine();
+#endif
+
+                // --- Wireframe toggle ----------------------------------------------
+                if (toolbarToggleButton("Wireframe (F)", wireframe, 108.0f))
+                {
+                    wireframe = !wireframe;
+                    renderSystem.SetWireframe(wireframe);
+                }
+
+                ImGui::End();
+                ImGui::PopStyleColor();
+                ImGui::PopStyleVar(3);
             }
 
             // ============================================================
@@ -1680,6 +1903,44 @@ int main()
                             ImGui::DragFloat("Mouse Sensitivity", &cam.mouseSensitivity, 0.01f, 0.01f, 1.0f);
                             ImGui::Checkbox("Enable Input", &cam.enableInput);
                             ImGui::Checkbox("Fly Mode", &cam.flyMode);
+
+                            ImGui::Separator();
+                            ImGui::Text("Third-Person Follow");
+                            ImGui::Checkbox("Enable Third-Person", &cam.thirdPerson);
+                            if (cam.thirdPerson)
+                            {
+                                ImGui::DragFloat("Follow Distance", &cam.followDistance, 0.1f, 0.5f, 50.0f);
+                                ImGui::DragFloat("Follow Height", &cam.followHeight, 0.1f, -10.0f, 20.0f);
+
+                                // Pick the follow target from any entity that has a
+                                // TransformComponent (the camera itself is excluded
+                                // since following itself would be meaningless).
+                                std::string currentLabel = "(none)";
+                                if (cam.followTargetID != 0)
+                                {
+                                    auto target = TransformHierarchy::FindEntityByID(scene, cam.followTargetID);
+                                    if (target)
+                                        currentLabel = target->GetName();
+                                    else
+                                        currentLabel = "(missing entity)";
+                                }
+
+                                if (ImGui::BeginCombo("Follow Target", currentLabel.c_str()))
+                                {
+                                    for (auto& e : scene.GetEntities())
+                                    {
+                                        if (!e || e.get() == selectedEntity || !e->HasComponent<TransformComponent>())
+                                            continue;
+
+                                        bool isSelected = (e->GetID() == cam.followTargetID);
+                                        if (ImGui::Selectable(e->GetName().c_str(), isSelected))
+                                            cam.followTargetID = e->GetID();
+                                        if (isSelected)
+                                            ImGui::SetItemDefaultFocus();
+                                    }
+                                    ImGui::EndCombo();
+                                }
+                            }
                         }
                     }
 
@@ -2382,14 +2643,7 @@ int main()
                 ImGui::Separator();
                 ImGui::Text("Viewport: %dx%d", g_WindowWidth, g_WindowHeight);
                 ImGui::Checkbox("Wireframe", &wireframe);
-                if (wireframe)
-                {
-                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-                }
-                else
-                {
-                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                }
+                renderSystem.SetWireframe(wireframe);
 
                 ImGui::End();
             }

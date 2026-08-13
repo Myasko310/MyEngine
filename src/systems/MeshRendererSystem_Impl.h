@@ -15,4 +15,5 @@ struct MeshRendererSystem::Impl
 	unsigned int shadowSize = 2048;
 	float shadowBias = 0.005f;
 	bool shadowsEnabled = true;
+	bool wireframe = false;
 };

@@ -110,15 +110,18 @@ namespace MyEngine
                 unsigned int current = ring * (segments + 1) + seg;
                 unsigned int next = current + segments + 1;
 
-                // First triangle
+                // First triangle (wound CCW as viewed from outside the
+                // sphere, matching glFrontFace(GL_CCW) so back-face culling
+                // removes the correct interior faces instead of the visible
+                // exterior ones).
                 indices.push_back(current);
-                indices.push_back(next);
                 indices.push_back(current + 1);
+                indices.push_back(next);
 
                 // Second triangle
                 indices.push_back(current + 1);
-                indices.push_back(next);
                 indices.push_back(next + 1);
+                indices.push_back(next);
             }
         }
 

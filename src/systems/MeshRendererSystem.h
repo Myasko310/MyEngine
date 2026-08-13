@@ -23,6 +23,12 @@ public:
     void SetShadowBias(float bias);
     float GetShadowBias() const;
 
+    // Wireframe rendering: scoped to only the main color pass (not the
+    // shadow depth pass, post-processing, or ImGui) so toggling it doesn't
+    // affect unrelated rendering or performance elsewhere.
+    void SetWireframe(bool enabled);
+    bool GetWireframe() const;
+
     // Expose the GL texture for UI preview
     unsigned int GetShadowTexture() const;
 

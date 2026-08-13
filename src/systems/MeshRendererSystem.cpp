@@ -65,6 +65,17 @@ float MeshRendererSystem::GetShadowBias() const
     return m_Impl ? m_Impl->shadowBias : 0.0f;
 }
 
+void MeshRendererSystem::SetWireframe(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->wireframe = enabled;
+}
+
+bool MeshRendererSystem::GetWireframe() const
+{
+    return m_Impl ? m_Impl->wireframe : false;
+}
+
 unsigned int MeshRendererSystem::GetShadowTexture() const
 {
     return m_Impl ? m_Impl->shadowMap.GetDepthTexture() : 0;
@@ -78,11 +89,13 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
     // Static resources: depth shader and shadow map
     static std::shared_ptr<MyEngine::Shader> depthShader = nullptr;
+    static std::shared_ptr<MyEngine::Shader> depthSkinnedShader = nullptr;
     static bool initialized = false;
 
     if (!initialized)
     {
         depthShader = std::make_shared<MyEngine::Shader>("shaders/depth.vert", "shaders/depth.frag");
+        depthSkinnedShader = std::make_shared<MyEngine::Shader>("shaders/depth_skinned.vert", "shaders/depth.frag");
         // Initialize impl shadow map
         if (!m_Impl)
             m_Impl = std::make_unique<Impl>();
@@ -197,6 +210,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(2.0f, 4.0f);
     depthShader->Use();
+    MyEngine::Shader* activeDepthShader = depthShader.get();
     for (const auto& entity : scene.GetEntities())
     {
         if (!entity)
@@ -231,8 +245,30 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         if (!meshComponent.mesh)
             continue;
 
-        depthShader->SetMat4("u_LightSpace", lightSpaceMatrix);
-        depthShader->SetMat4("u_Model", worldMatrix);
+        // Skinned meshes need their current animated pose baked into the
+        // shadow depth map too, otherwise the shadow is cast from the
+        // static bind pose and appears detached from the visible mesh.
+        bool isAnimated = entity->HasComponent<AnimationComponent>();
+        MyEngine::Shader* shaderToUse = isAnimated ? depthSkinnedShader.get() : depthShader.get();
+        if (shaderToUse != activeDepthShader)
+        {
+            shaderToUse->Use();
+            activeDepthShader = shaderToUse;
+        }
+
+        shaderToUse->SetMat4("u_LightSpace", lightSpaceMatrix);
+        shaderToUse->SetMat4("u_Model", worldMatrix);
+
+        if (isAnimated)
+        {
+            auto& anim = entity->GetComponent<AnimationComponent>();
+            int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
+            for (int b = 0; b < boneCount; ++b)
+            {
+                shaderToUse->SetMat4("u_BoneMatrices[" + std::to_string(b) + "]", anim.boneMatrices[b]);
+            }
+        }
+
         meshComponent.mesh->Draw();
     }
 
@@ -249,8 +285,24 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     // Restore polygon offset and face culling (enable back-face culling for
     // the main pass)
     glDisable(GL_POLYGON_OFFSET_FILL);
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
+
+    // Wireframe is scoped to only this main color pass so it never affects
+    // the shadow depth pass above (already finished) or post-processing/
+    // ImGui rendering that happens after Render() returns. Face culling is
+    // disabled while in wireframe so back-facing edges are also visible
+    // instead of being culled away, which otherwise made meshes look like
+    // only their near-side wireframe was drawn.
+    bool wireframe = m_Impl && m_Impl->wireframe;
+    if (wireframe)
+    {
+        glDisable(GL_CULL_FACE);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    }
+    else
+    {
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+    }
 
 
 
@@ -406,5 +458,15 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         }
 
         meshComponent.mesh->Draw();
+    }
+
+    // Restore fill mode and back-face culling so wireframe never leaks into
+    // post-processing's fullscreen quad passes or ImGui rendering, both of
+    // which run after this function returns.
+    if (wireframe)
+    {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
     }
 }

@@ -18,6 +18,7 @@
 #include "components/JointComponent.h"
 #include "components/SkeletonComponent.h"
 #include "components/AnimationComponent.h"
+#include "components/ScriptComponent.h"
 #include "rendering/MeshPrimitives.h"
 #include "rendering/Texture.h"
 #include "audio/AudioClip.h"
@@ -286,6 +287,17 @@ namespace MyEngine
 					writer.Key("damping"); writer.Double(joint.damping);
 					writer.Key("hingeDistance"); writer.Double(joint.hingeDistance);
 					writer.Key("enabled"); writer.Bool(joint.enabled);
+					writer.EndObject();
+				}
+
+				if (e->HasComponent<ScriptComponent>())
+				{
+					auto& sc = e->GetComponent<ScriptComponent>();
+					writer.Key("Script");
+					writer.StartObject();
+					writer.Key("scriptPath"); writer.String(sc.scriptPath.c_str());
+					writer.Key("enabled"); writer.Bool(sc.enabled);
+					writer.Key("autoStart"); writer.Bool(sc.autoStart);
 					writer.EndObject();
 				}
 
@@ -593,6 +605,15 @@ namespace MyEngine
 					if (jo.HasMember("enabled")) joint.enabled = jo["enabled"].GetBool();
 					if (jo.HasMember("connectedEntityID") && jo["connectedEntityID"].IsUint())
 						pendingJoints.emplace_back(ent, jo["connectedEntityID"].GetUint());
+				}
+
+				if (v.HasMember("Script") && v["Script"].IsObject())
+				{
+					auto& sc = ent->AddComponent<ScriptComponent>();
+					const auto& so = v["Script"];
+					if (so.HasMember("scriptPath") && so["scriptPath"].IsString()) sc.scriptPath = so["scriptPath"].GetString();
+					if (so.HasMember("enabled")) sc.enabled = so["enabled"].GetBool();
+					if (so.HasMember("autoStart")) sc.autoStart = so["autoStart"].GetBool();
 				}
 			}
 

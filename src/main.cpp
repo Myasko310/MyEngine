@@ -10,6 +10,7 @@
 #include <vector>
 #include <filesystem>
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <fstream>
 
@@ -38,6 +39,7 @@
 #include "components/CollisionEventsComponent.h"
 #include "components/JointComponent.h"
 #include "components/AnimationComponent.h"
+#include "components/ScriptComponent.h"
 
 // Audio
 #include "audio/AudioEngine.h"
@@ -69,9 +71,11 @@
 #include "systems/CameraSystem.h"
 #include "systems/MeshRendererSystem.h"
 #include "rendering/PostProcessPipeline.h"
+#include "rendering/Skybox.h"
 #include "systems/PhysicsSystem.h"
 #include "systems/AudioSystem.h"
 #include "systems/AnimationSystem.h"
+#include "systems/ScriptSystem.h"
 
 // Core (picking)
 #include "core/Raycast.h"
@@ -342,11 +346,22 @@ int main()
     postProcess.Init(static_cast<unsigned int>(g_WindowWidth), static_cast<unsigned int>(g_WindowHeight));
     bool postProcessEnabled = true;
 
+    // Skybox: rendered after opaque geometry so it only fills background
+    // pixels that remain at far depth. Faces are assigned via the Skybox
+    // editor panel (right/left/top/bottom/front/back image paths); until
+    // then Skybox::IsLoaded() is false and Render() is a no-op, leaving the
+    // plain clear color visible as before.
+    MyEngine::Skybox skybox;
+    bool skyboxEnabled = true;
+    std::string skyboxFacePaths[6]; // +X,-X,+Y,-Y,+Z,-Z
+
     AnimationSystem animationSystem;
 
     PhysicsSystem physicsSystem;
 
     AudioSystem audioSystem;
+
+    ScriptSystem scriptSystem;
 
     if (!AudioEngine::Init())
     {
@@ -560,28 +575,9 @@ int main()
     std::cout << "ImGui: not available (build without ImGui)\n";
 #endif
 
-    // Cube geometry (8 unique vertices, 36 indices)
-    std::vector<MyEngine::Vertex> cubeVertices = {
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, glm::normalize(glm::vec3(-0.5f, -0.5f, -0.5f))},
-        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, glm::normalize(glm::vec3( 0.5f, -0.5f, -0.5f))},
-        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, glm::normalize(glm::vec3( 0.5f,  0.5f, -0.5f))},
-        {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}, glm::normalize(glm::vec3(-0.5f,  0.5f, -0.5f))},
-        {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 1.0f}, glm::normalize(glm::vec3(-0.5f, -0.5f,  0.5f))},
-        {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f, 1.0f}, glm::normalize(glm::vec3( 0.5f, -0.5f,  0.5f))},
-        {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, glm::normalize(glm::vec3( 0.5f,  0.5f,  0.5f))},
-        {{-0.5f,  0.5f,  0.5f}, {0.2f, 0.6f, 0.8f}, glm::normalize(glm::vec3(-0.5f,  0.5f,  0.5f))}
-    };
-
-    std::vector<unsigned int> cubeIndices = {
-        0,1,2, 2,3,0,
-        4,5,6, 6,7,4,
-        4,0,3, 3,7,4,
-        1,5,6, 6,2,1,
-        4,5,1, 1,0,4,
-        3,2,6, 6,7,3
-    };
-
-    auto cubeMesh = std::make_shared<MyEngine::Mesh>(cubeVertices, cubeIndices);
+    // Use shared primitive mesh data for cubes so face normals/winding
+    // remain consistent with back-face culling.
+    auto cubeMesh = MyEngine::MeshPrimitives::CreateCube();
     auto sphereMesh = MyEngine::MeshPrimitives::CreateSphere();
     auto planeMesh = MyEngine::MeshPrimitives::CreatePlane();
 
@@ -626,6 +622,13 @@ int main()
         // Set per-cube material color
         auto& mr = cubeEntity->GetComponent<MeshRendererComponent>();
         mr.albedo = glm::vec3(0.6f + 0.1f * i, 0.3f + 0.1f * i, 0.4f);
+
+        // Attach a sample Lua script to the first cube as a scripting demo.
+        if (i == 0)
+        {
+            auto& script = cubeEntity->AddComponent<ScriptComponent>();
+            script.scriptPath = "assets/scripts/spin_and_bob.lua";
+        }
 
         cubes.push_back(cubeEntity);
     }
@@ -807,10 +810,13 @@ int main()
     bool showInspector = true;
     bool showLightingPanel = true;
     bool showPostProcessPanel = true;
+    bool showSkyboxPanel = true;
+    bool showScriptingPanel = true;
     bool showPerformancePanel = true;
     bool showPhysicsPanel = true;
     bool showAssetBrowser = true;
     std::string assetBrowserPath = "assets";
+    std::vector<MyEngine::ScriptSystem::GlobalScriptConfig> globalScripts = { MyEngine::ScriptSystem::GlobalScriptConfig{} };
 
 #ifdef USE_IMGUIZMO
     // Gizmo editor state (Translate/Rotate/Scale)
@@ -1280,6 +1286,8 @@ int main()
         cameraSystem.Update(scene, window, deltaTime, aspectRatio);
 
         audioSystem.Update(scene, deltaTime);
+        scriptSystem.SetGlobalScripts(globalScripts);
+        scriptSystem.OnUpdate(scene, deltaTime);
 
         glm::mat4 view = cameraSystem.GetViewMatrix();
         glm::mat4 projection = cameraSystem.GetProjectionMatrix();
@@ -1396,6 +1404,8 @@ int main()
                     ImGui::MenuItem("Inspector", nullptr, &showInspector);
                     ImGui::MenuItem("Lighting", nullptr, &showLightingPanel);
                     ImGui::MenuItem("Post-Processing", nullptr, &showPostProcessPanel);
+                    ImGui::MenuItem("Skybox", nullptr, &showSkyboxPanel);
+                    ImGui::MenuItem("Scripting", nullptr, &showScriptingPanel);
                     ImGui::MenuItem("Performance", nullptr, &showPerformancePanel);
                     ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
                     ImGui::Separator();
@@ -1476,6 +1486,7 @@ int main()
                         light.color = glm::vec3(1.0f);
                         light.intensity = 1.0f;
                         light.range = 10.0f;
+                        light.castShadows = false;
                         selectedEntity = ent.get();
                     }
                     if (ImGui::MenuItem("Spot Light"))
@@ -1492,6 +1503,7 @@ int main()
                         light.range = 10.0f;
                         light.innerCone = 12.5f;
                         light.outerCone = 17.5f;
+                        light.castShadows = false;
                         selectedEntity = ent.get();
                     }
                     ImGui::EndMenu();
@@ -1964,11 +1976,13 @@ int main()
                             if (light.type == LightComponent::Type::Directional)
                             {
                                 ImGui::DragFloat3("Direction", &light.direction.x, 0.1f);
+                                ImGui::Checkbox("Cast Shadows", &light.castShadows);
                             }
                             else if (light.type == LightComponent::Type::Point || light.type == LightComponent::Type::Spot)
                             {
                                 ImGui::DragFloat3("Position", &light.position.x, 0.1f);
                                 ImGui::DragFloat("Range", &light.range, 0.1f, 0.1f, 1000.0f);
+                                ImGui::Checkbox("Cast Shadows", &light.castShadows);
 
                                 if (light.type == LightComponent::Type::Spot)
                                 {
@@ -2468,6 +2482,54 @@ int main()
                         }
                     }
 
+                    // Script Component
+                    if (selectedEntity->HasComponent<ScriptComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Script", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            auto& script = selectedEntity->GetComponent<ScriptComponent>();
+
+                            ImGui::Checkbox("Enabled##script", &script.enabled);
+                            ImGui::Checkbox("Auto Start##script", &script.autoStart);
+
+                            std::string scriptDisplay = script.scriptPath.empty() ? "(none)" : script.scriptPath;
+                            ImGui::TextWrapped("Path: %s", scriptDisplay.c_str());
+
+                            if (ImGui::Button("Browse Script..."))
+                            {
+                                std::string path = MyEngine::FileDialog::OpenScriptFile();
+                                if (!path.empty())
+                                {
+                                    script.scriptPath = path;
+                                    script.requestReload = true;
+                                }
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Reload Script"))
+                            {
+                                script.requestReload = true;
+                            }
+
+                            if (ImGui::Button("Clear Script Path"))
+                            {
+                                script.scriptPath.clear();
+                                script.requestReload = true;
+                            }
+
+                            if (ImGui::Button("Remove Script Component"))
+                            {
+                                selectedEntity->RemoveComponent<ScriptComponent>();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Script Component"))
+                        {
+                            selectedEntity->AddComponent<ScriptComponent>();
+                        }
+                    }
+
                     // Audio Listener Component
                     if (selectedEntity->HasComponent<AudioListenerComponent>())
                     {
@@ -2539,6 +2601,32 @@ int main()
                 }
 
                 ImGui::Separator();
+                ImGui::Text("Shadow Settings");
+                bool dirShadowsEnabled = renderSystem.GetShadowsEnabled();
+                if (ImGui::Checkbox("Directional Shadows", &dirShadowsEnabled))
+                    renderSystem.SetShadowsEnabled(dirShadowsEnabled);
+
+                bool pointShadowsEnabled = renderSystem.GetPointShadowsEnabled();
+                if (ImGui::Checkbox("Point Light Shadows", &pointShadowsEnabled))
+                    renderSystem.SetPointShadowsEnabled(pointShadowsEnabled);
+
+                unsigned int pointShadowSize = renderSystem.GetPointShadowSize();
+                int pointShadowSizeInt = static_cast<int>(pointShadowSize);
+                if (ImGui::SliderInt("Point Shadow Size", &pointShadowSizeInt, 256, 2048))
+                {
+                    unsigned int snapped = static_cast<unsigned int>(pointShadowSizeInt);
+                    if (snapped <= 384) snapped = 256;
+                    else if (snapped <= 768) snapped = 512;
+                    else if (snapped <= 1536) snapped = 1024;
+                    else snapped = 2048;
+                    renderSystem.SetPointShadowSize(snapped);
+                }
+
+                float pointShadowBias = renderSystem.GetPointShadowBias();
+                if (ImGui::SliderFloat("Point Shadow Bias", &pointShadowBias, 0.001f, 0.1f, "%.4f"))
+                    renderSystem.SetPointShadowBias(pointShadowBias);
+
+                ImGui::Separator();
                 ImGui::Text("Scene Lights:");
 
                 int lightIndex = 0;
@@ -2589,6 +2677,149 @@ int main()
                 float bloomIntensity = postProcess.GetBloomIntensity();
                 if (ImGui::SliderFloat("Bloom Intensity", &bloomIntensity, 0.0f, 3.0f))
                     postProcess.SetBloomIntensity(bloomIntensity);
+
+                ImGui::End();
+            }
+
+            // ============================================================
+            // Skybox Panel
+            // ============================================================
+            if (showSkyboxPanel)
+            {
+                ImGui::SetNextWindowPos(ImVec2(340, 800), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(360, 260), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Skybox", &showSkyboxPanel);
+
+                ImGui::Checkbox("Enabled", &skyboxEnabled);
+                ImGui::TextWrapped(skybox.IsLoaded()
+                    ? "Cubemap loaded."
+                    : "No cubemap loaded - assign all 6 face images below.");
+
+                if (ImGui::Button("Use assets/skybox defaults"))
+                {
+                    skyboxFacePaths[0] = "assets/skybox/right.png";
+                    skyboxFacePaths[1] = "assets/skybox/left.png";
+                    skyboxFacePaths[2] = "assets/skybox/top.png";
+                    skyboxFacePaths[3] = "assets/skybox/bottom.png";
+                    skyboxFacePaths[4] = "assets/skybox/front.png";
+                    skyboxFacePaths[5] = "assets/skybox/back.png";
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Clear Faces"))
+                {
+                    for (auto& p : skyboxFacePaths)
+                        p.clear();
+                }
+
+                static const char* faceLabels[6] = { "Right (+X)", "Left (-X)", "Top (+Y)", "Bottom (-Y)", "Front (+Z)", "Back (-Z)" };
+                bool anyChanged = false;
+                for (int i = 0; i < 6; ++i)
+                {
+                    ImGui::PushID(i);
+                    ImGui::Text("%s", faceLabels[i]);
+                    ImGui::SameLine(140);
+                    std::string displayPath = skyboxFacePaths[i].empty() ? "(none)" : skyboxFacePaths[i];
+                    ImGui::TextWrapped("%s", displayPath.c_str());
+                    if (ImGui::Button("Browse..."))
+                    {
+                        std::string path = MyEngine::FileDialog::OpenImageFile();
+                        if (!path.empty())
+                        {
+                            skyboxFacePaths[i] = path;
+                            anyChanged = true;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+
+                bool allAssigned = std::all_of(std::begin(skyboxFacePaths), std::end(skyboxFacePaths),
+                    [](const std::string& p) { return !p.empty(); });
+
+                if (!allAssigned)
+                    ImGui::TextDisabled("Assign all 6 faces to enable loading.");
+
+                ImGui::BeginDisabled(!allAssigned);
+                if (ImGui::Button("Load Skybox") || (anyChanged && allAssigned))
+                {
+                    std::array<std::string, 6> faces = {
+                        skyboxFacePaths[0], skyboxFacePaths[1], skyboxFacePaths[2],
+                        skyboxFacePaths[3], skyboxFacePaths[4], skyboxFacePaths[5]
+                    };
+                    if (!skybox.Load(faces))
+                    {
+                        std::cerr << "[Skybox] Load failed - verify all face paths exist and are valid images." << std::endl;
+                    }
+                }
+                ImGui::EndDisabled();
+
+                ImGui::End();
+            }
+
+            // ============================================================
+            // Scripting Panel
+            // ============================================================
+            if (showScriptingPanel)
+            {
+                ImGui::SetNextWindowPos(ImVec2(710, 800), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(420, 260), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Scripting", &showScriptingPanel);
+
+                ImGui::TextWrapped("Global scripts run once per frame (OnGlobalStart / OnGlobalUpdate). Entity scripts still run from ScriptComponent.");
+                ImGui::Separator();
+
+                for (size_t i = 0; i < globalScripts.size(); ++i)
+                {
+                    ImGui::PushID(static_cast<int>(i));
+                    auto& gs = globalScripts[i];
+
+                    ImGui::Text("Global Script %zu", i + 1);
+                    ImGui::Checkbox("Enabled", &gs.enabled);
+                    ImGui::SameLine();
+                    ImGui::Checkbox("Auto Start", &gs.autoStart);
+
+                    std::string displayPath = gs.scriptPath.empty() ? "(none)" : gs.scriptPath;
+                    ImGui::TextWrapped("Path: %s", displayPath.c_str());
+
+                    if (ImGui::Button("Browse Lua..."))
+                    {
+                        std::string path = MyEngine::FileDialog::OpenScriptFile();
+                        if (!path.empty())
+                        {
+                            gs.scriptPath = path;
+                            gs.requestReload = true;
+                        }
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reload"))
+                    {
+                        gs.requestReload = true;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear"))
+                    {
+                        gs.scriptPath.clear();
+                        gs.requestReload = true;
+                    }
+
+                    if (globalScripts.size() > 1)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::Button("Remove"))
+                        {
+                            globalScripts.erase(globalScripts.begin() + static_cast<std::ptrdiff_t>(i));
+                            ImGui::PopID();
+                            break;
+                        }
+                    }
+
+                    ImGui::Separator();
+                    ImGui::PopID();
+                }
+
+                if (ImGui::Button("Add Global Script"))
+                {
+                    globalScripts.emplace_back();
+                }
 
                 ImGui::End();
             }
@@ -2846,6 +3077,15 @@ int main()
         }
 
         renderSystem.Render(scene, view, projection);
+
+        // Skybox is drawn after opaque geometry (into whichever framebuffer
+        // is currently bound - the HDR post-process target or the default
+        // framebuffer) so only far-depth pixels are filled, minimizing the
+        // chance of pass state impacting scene object rendering.
+        if (skyboxEnabled && skybox.IsLoaded())
+        {
+            skybox.Render(view, projection);
+        }
 
         if (postProcessEnabled)
         {

@@ -18,6 +18,7 @@ uniform float u_MaterialShininess;
 uniform bool u_UseTexture;
 uniform sampler2D u_Texture;
 uniform sampler2D u_ShadowMap;
+uniform bool u_DirectionalShadowsEnabled;
 
 #define MAX_POINT_LIGHTS 4
 #define MAX_SPOT_LIGHTS 4
@@ -26,6 +27,10 @@ uniform int u_NumPointLights;
 uniform vec3 u_PointLightPos[MAX_POINT_LIGHTS];
 uniform vec3 u_PointLightColor[MAX_POINT_LIGHTS];
 uniform float u_PointLightRange[MAX_POINT_LIGHTS];
+uniform bool u_PointLightCastShadows[MAX_POINT_LIGHTS];
+uniform samplerCube u_PointShadowMap[MAX_POINT_LIGHTS];
+uniform float u_PointShadowFarPlane[MAX_POINT_LIGHTS];
+uniform float u_PointShadowBias;
 
 uniform int u_NumSpotLights;
 uniform vec3 u_SpotLightPos[MAX_SPOT_LIGHTS];
@@ -45,6 +50,9 @@ float AttenuationFromRange(float dist, float range)
 
 float ShadowCalculation(vec4 fragPosLightSpace)
 {
+	if (!u_DirectionalShadowsEnabled)
+		return 0.0;
+
 	// perform perspective divide
 	vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
 	// transform to [0,1]
@@ -61,6 +69,20 @@ float ShadowCalculation(vec4 fragPosLightSpace)
 	if (projCoords.z > 1.0)
 		shadow = 0.0;
 	return shadow;
+}
+
+float PointShadowCalculation(int lightIndex, vec3 lightPos)
+{
+	if (!u_PointLightCastShadows[lightIndex])
+		return 0.0;
+
+	vec3 fragToLight = v_Position - lightPos;
+	float currentDepth = length(fragToLight);
+	float farPlane = max(u_PointShadowFarPlane[lightIndex], 0.001);
+	float closestDepth = texture(u_PointShadowMap[lightIndex], fragToLight).r * farPlane;
+
+	float bias = max(u_PointShadowBias, 0.0001);
+	return (currentDepth - bias > closestDepth) ? 1.0 : 0.0;
 }
 
 void main()
@@ -100,7 +122,8 @@ void main()
 		float specP = pow(max(dot(N, Hp), 0.0), u_MaterialShininess);
 		vec3 specularP = specP * u_PointLightColor[i];
 
-		lighting += (diffuseP + specularP) * atten;
+		float pointShadow = PointShadowCalculation(i, u_PointLightPos[i]);
+		lighting += (1.0 - pointShadow) * (diffuseP + specularP) * atten;
 	}
 
 	// Spot lights

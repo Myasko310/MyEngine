@@ -7,7 +7,8 @@
     "glad",
     "stb",
     "imguizmo",
-    "openal-soft"
+    "openal-soft",
+    "lua"
   ],
   "builtin-baseline": "c93f37f1b1d20963ceab60bcd78b946af902ffe9"
 }

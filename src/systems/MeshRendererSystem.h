@@ -23,6 +23,16 @@ public:
     void SetShadowBias(float bias);
     float GetShadowBias() const;
 
+    // Point light shadow (depth cubemap) controls
+    void SetPointShadowsEnabled(bool enabled);
+    bool GetPointShadowsEnabled() const;
+
+    void SetPointShadowSize(unsigned int size);
+    unsigned int GetPointShadowSize() const;
+
+    void SetPointShadowBias(float bias);
+    float GetPointShadowBias() const;
+
     // Wireframe rendering: scoped to only the main color pass (not the
     // shadow depth pass, post-processing, or ImGui) so toggling it doesn't
     // affect unrelated rendering or performance elsewhere.

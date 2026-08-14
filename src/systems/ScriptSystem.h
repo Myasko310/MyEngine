@@ -1,0 +1,99 @@
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+extern "C"
+{
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+}
+
+class Scene;
+class Entity;
+struct ScriptComponent;
+
+namespace MyEngine
+{
+	class ScriptSystem
+	{
+	public:
+		struct GlobalScriptConfig
+		{
+			std::string scriptPath;
+			bool enabled = true;
+			bool autoStart = true;
+			bool requestReload = false;
+		};
+
+		ScriptSystem() = default;
+		~ScriptSystem();
+
+		ScriptSystem(const ScriptSystem&) = delete;
+		ScriptSystem& operator=(const ScriptSystem&) = delete;
+
+		void OnUpdate(Scene& scene, float deltaTime);
+		void SetGlobalScripts(const std::vector<GlobalScriptConfig>& scripts);
+
+	private:
+		struct ScriptState
+		{
+			lua_State* luaState = nullptr;
+			std::string scriptPath;
+			bool started = false;
+			bool wasEnabled = false;
+			bool disablePending = false;
+		};
+
+	private:
+		void SyncEntity(Scene& scene, Entity& entity, float deltaTime);
+		void SyncGlobalScripts(Scene& scene, float deltaTime);
+		void UnloadScript(uint32_t entityID);
+		bool LoadScript(Scene& scene, Entity& entity, ScriptState& state, const ::ScriptComponent& scriptComponent);
+		bool LoadGlobalScript(Scene& scene, ScriptState& state, const GlobalScriptConfig& config);
+		void RegisterBindings(lua_State* L, uint32_t entityID);
+		void RegisterGlobalBindings(lua_State* L);
+		void CallScriptFunction(lua_State* L, const char* functionName, int argCount, int resultCount);
+		void CallEntityLifecycle(lua_State* L, const char* functionName, uint32_t entityID);
+		void CallGlobalLifecycle(lua_State* L, const char* functionName);
+
+		static ScriptSystem* GetSystem(lua_State* L);
+		static uint32_t GetBoundEntityID(lua_State* L);
+		static Entity* FindEntity(Scene& scene, uint32_t entityID);
+
+		static int LuaLog(lua_State* L);
+		static int LuaGetPosition(lua_State* L);
+		static int LuaSetPosition(lua_State* L);
+		static int LuaTranslate(lua_State* L);
+		static int LuaGetRotation(lua_State* L);
+		static int LuaSetRotation(lua_State* L);
+		static int LuaGetScale(lua_State* L);
+		static int LuaSetScale(lua_State* L);
+		static int LuaFindEntityByName(lua_State* L);
+		static int LuaEntityExists(lua_State* L);
+		static int LuaGetEntityName(lua_State* L);
+		static int LuaGetPositionOf(lua_State* L);
+		static int LuaSetPositionOf(lua_State* L);
+		static int LuaTranslateOf(lua_State* L);
+		static int LuaIsKeyDown(lua_State* L);
+		static int LuaIsKeyPressed(lua_State* L);
+		static int LuaIsKeyReleased(lua_State* L);
+		static int LuaIsMouseButtonDown(lua_State* L);
+		static int LuaIsMouseButtonPressed(lua_State* L);
+		static int LuaIsMouseButtonReleased(lua_State* L);
+		static int LuaGetMouseDelta(lua_State* L);
+		static int LuaGetMouseWheel(lua_State* L);
+		static int LuaGetMousePosition(lua_State* L);
+		static int LuaIsMouseCaptured(lua_State* L);
+
+	private:
+		std::unordered_map<uint32_t, ScriptState> m_States;
+		std::vector<GlobalScriptConfig> m_GlobalScripts;
+		std::vector<ScriptState> m_GlobalStates;
+		Scene* m_CurrentScene = nullptr;
+	};
+}

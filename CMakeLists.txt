@@ -69,6 +69,7 @@ endif()
 # Try find_package again for glm
 find_package(glm CONFIG QUIET)
 find_package(imgui CONFIG QUIET)
+find_package(Lua REQUIRED)
 if(NOT DEFINED assimp_DIR)
     if(EXISTS "C:/vcpkg/installed/x64-windows/share/assimp")
         set(assimp_DIR "C:/vcpkg/installed/x64-windows/share/assimp")
@@ -120,6 +121,8 @@ set(SOURCES
     src/rendering/PostProcessPipeline.cpp
     src/rendering/MeshPrimitives.cpp
     src/rendering/Texture.cpp
+    src/rendering/Skybox.cpp
+    src/rendering/PointShadowMap.cpp
     src/renderer/FrustumCuller.cpp
     src/core/Input.cpp
     src/core/AssetManager.cpp
@@ -131,13 +134,14 @@ set(SOURCES
 
     src/ecs/Scene.cpp
 
-    src/systems/MeshRendererSystem.cpp
-    src/systems/CameraSystem.cpp
-    src/systems/PhysicsSystem.cpp
-    src/systems/AudioSystem.cpp
-    src/systems/AnimationSystem.cpp
-    src/serialization/SceneSerializer.cpp
-)
+        src/systems/MeshRendererSystem.cpp
+        src/systems/CameraSystem.cpp
+        src/systems/PhysicsSystem.cpp
+        src/systems/AudioSystem.cpp
+        src/systems/AnimationSystem.cpp
+        src/systems/ScriptSystem.cpp
+        src/serialization/SceneSerializer.cpp
+    )
 
 # Add bundled ImGui backend implementations (glfw + opengl3) so builds
 # using vcpkg's imgui (which may not install backends) can compile the
@@ -224,6 +228,10 @@ target_include_directories(MyEngine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+if(LUA_FOUND)
+    target_include_directories(MyEngine PRIVATE ${LUA_INCLUDE_DIR})
+endif()
+
 # Ensure the bundled imgui backend headers are available on the include path
 target_include_directories(MyEngine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vendor/imgui
@@ -238,6 +246,7 @@ target_link_libraries(MyEngine PRIVATE
     glad::glad
     glfw
     glm::glm
+    ${LUA_LIBRARIES}
 )
 
 if(TARGET OpenAL::OpenAL)
@@ -254,6 +263,10 @@ endif()
 
 if(WIN32)
     target_link_libraries(MyEngine PRIVATE comdlg32)
+endif()
+
+if(NOT LUA_FOUND)
+    message(FATAL_ERROR "Lua was requested but not found")
 endif()
 
 if(TARGET imguizmo::imguizmo)

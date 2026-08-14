@@ -47,6 +47,42 @@ namespace MyEngine
 
 			return std::string();
 		}
+
+		std::string OpenImageFile()
+		{
+			char fileName[MAX_PATH] = "";
+
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "Image Files (*.png;*.jpg;*.jpeg;*.bmp;*.tga)\0*.png;*.jpg;*.jpeg;*.bmp;*.tga\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+			if (GetOpenFileNameA(&ofn))
+				return std::string(fileName);
+
+			return std::string();
+		}
+
+		std::string OpenScriptFile()
+		{
+			char fileName[MAX_PATH] = "";
+
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "Lua Scripts (*.lua)\0*.lua\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+			if (GetOpenFileNameA(&ofn))
+				return std::string(fileName);
+
+			return std::string();
+		}
 #else
 		std::string OpenSceneFile()
 		{
@@ -54,6 +90,16 @@ namespace MyEngine
 		}
 
 		std::string SaveSceneFile()
+		{
+			return std::string();
+		}
+
+		std::string OpenImageFile()
+		{
+			return std::string();
+		}
+
+		std::string OpenScriptFile()
 		{
 			return std::string();
 		}

@@ -52,17 +52,17 @@ namespace MyEngine
 
         std::vector<unsigned int> indices =
         {
-            // Front
+            // Front (+Z)
             0, 1, 2, 2, 3, 0,
-            // Back
-            4, 5, 6, 6, 7, 4,
-            // Right
+            // Back (-Z) - wound CCW as viewed from outside the cube
+            4, 7, 6, 6, 5, 4,
+            // Right (+X)
             8, 9, 10, 10, 11, 8,
-            // Left
+            // Left (-X)
             12, 13, 14, 14, 15, 12,
-            // Top
+            // Top (+Y)
             16, 17, 18, 18, 19, 16,
-            // Bottom
+            // Bottom (-Y)
             20, 21, 22, 22, 23, 20
         };
 

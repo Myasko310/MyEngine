@@ -42,6 +42,38 @@ namespace MyEngine
         glDeleteShader(frag);
     }
 
+    Shader::Shader(const std::string& vertexPath, const std::string& geometryPath, const std::string& fragmentPath)
+        : m_VertexPath(vertexPath), m_GeometryPath(geometryPath), m_FragmentPath(fragmentPath)
+    {
+        std::string vertSrc = LoadFile(vertexPath);
+        std::string geomSrc = LoadFile(geometryPath);
+        std::string fragSrc = LoadFile(fragmentPath);
+
+        if (vertSrc.empty())
+            std::cerr << "[Shader] Vertex shader source is empty: " << vertexPath << std::endl;
+        if (geomSrc.empty())
+            std::cerr << "[Shader] Geometry shader source is empty: " << geometryPath << std::endl;
+        if (fragSrc.empty())
+            std::cerr << "[Shader] Fragment shader source is empty: " << fragmentPath << std::endl;
+
+        unsigned int vert = CompileShader(GL_VERTEX_SHADER, vertSrc);
+        unsigned int geom = CompileShader(GL_GEOMETRY_SHADER, geomSrc);
+        unsigned int frag = CompileShader(GL_FRAGMENT_SHADER, fragSrc);
+
+        m_ID = glCreateProgram();
+
+        glAttachShader(m_ID, vert);
+        glAttachShader(m_ID, geom);
+        glAttachShader(m_ID, frag);
+        glLinkProgram(m_ID);
+
+        CheckProgramLink(m_ID);
+
+        glDeleteShader(vert);
+        glDeleteShader(geom);
+        glDeleteShader(frag);
+    }
+
     Shader::~Shader()
     {
         if (m_ID != 0)
@@ -56,6 +88,7 @@ namespace MyEngine
         m_ID = other.m_ID;
         other.m_ID = 0;
         m_VertexPath = std::move(other.m_VertexPath);
+        m_GeometryPath = std::move(other.m_GeometryPath);
         m_FragmentPath = std::move(other.m_FragmentPath);
     }
 
@@ -71,6 +104,7 @@ namespace MyEngine
             m_ID = other.m_ID;
             other.m_ID = 0;
             m_VertexPath = std::move(other.m_VertexPath);
+            m_GeometryPath = std::move(other.m_GeometryPath);
             m_FragmentPath = std::move(other.m_FragmentPath);
         }
 

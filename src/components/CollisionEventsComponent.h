@@ -19,4 +19,11 @@ struct CollisionEventsComponent
 	std::function<void(const std::shared_ptr<Entity>&)> onCollisionExit;
 	std::function<void(const std::shared_ptr<Entity>&)> onTriggerEnter;
 	std::function<void(const std::shared_ptr<Entity>&)> onTriggerExit;
+
+	// ScriptSystem can attach its own handlers here without overwriting any
+	// existing editor/gameplay C++ callbacks above.
+	std::function<void(const std::shared_ptr<Entity>&)> onScriptCollisionEnter;
+	std::function<void(const std::shared_ptr<Entity>&)> onScriptCollisionExit;
+	std::function<void(const std::shared_ptr<Entity>&)> onScriptTriggerEnter;
+	std::function<void(const std::shared_ptr<Entity>&)> onScriptTriggerExit;
 };

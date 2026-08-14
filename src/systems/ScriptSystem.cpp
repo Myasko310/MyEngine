@@ -1,5 +1,8 @@
 #include "systems/ScriptSystem.h"
 
+#include "components/CollisionEventsComponent.h"
+#include "components/LightComponent.h"
+#include "components/RigidbodyComponent.h"
 #include "components/ScriptComponent.h"
 #include "components/TransformComponent.h"
 #include "core/Input.h"
@@ -20,6 +23,128 @@ namespace MyEngine
 	{
 		constexpr const char* kSystemRegistryKey = "MyEngine.ScriptSystem";
 		constexpr const char* kEntityRegistryKey = "MyEngine.ScriptEntityID";
+
+		bool InstallLuaHelpers(lua_State* L, bool entityContext)
+		{
+			const char* helperSource = entityContext ? R"LUA(
+engine = engine or {}
+engine.log = engine_log
+engine.is_key_down = engine_is_key_down
+engine.is_key_pressed = engine_is_key_pressed
+engine.is_key_released = engine_is_key_released
+engine.is_mouse_button_down = engine_is_mouse_button_down
+engine.is_mouse_button_pressed = engine_is_mouse_button_pressed
+engine.is_mouse_button_released = engine_is_mouse_button_released
+engine.get_mouse_delta = engine_get_mouse_delta
+engine.get_mouse_wheel = engine_get_mouse_wheel
+engine.get_mouse_position = engine_get_mouse_position
+engine.is_mouse_captured = engine_is_mouse_captured
+engine.find_entity_by_name = engine_find_entity_by_name
+engine.entity_exists = engine_entity_exists
+engine.get_entity_name = engine_get_entity_name
+engine.get_position_of = engine_get_position_of
+engine.set_position_of = engine_set_position_of
+engine.translate_of = engine_translate_of
+engine.has_rigidbody = engine_has_rigidbody
+engine.get_velocity = engine_get_velocity
+engine.set_velocity = engine_set_velocity
+engine.get_gravity_scale = engine_get_gravity_scale
+engine.set_gravity_scale = engine_set_gravity_scale
+engine.get_kinematic = engine_get_kinematic
+engine.set_kinematic = engine_set_kinematic
+engine.has_light = engine_has_light
+engine.get_light_color = engine_get_light_color
+engine.set_light_color = engine_set_light_color
+engine.get_light_intensity = engine_get_light_intensity
+engine.set_light_intensity = engine_set_light_intensity
+engine.get_light_range = engine_get_light_range
+engine.set_light_range = engine_set_light_range
+engine.get_light_cast_shadows = engine_get_light_cast_shadows
+engine.set_light_cast_shadows = engine_set_light_cast_shadows
+
+self = self or {}
+self.get_position = engine_get_position
+self.set_position = engine_set_position
+self.translate = engine_translate
+self.get_rotation = engine_get_rotation
+self.set_rotation = engine_set_rotation
+self.get_scale = engine_get_scale
+self.set_scale = engine_set_scale
+self.has_rigidbody = engine_has_rigidbody
+self.get_velocity = engine_get_velocity
+self.set_velocity = engine_set_velocity
+self.get_gravity_scale = engine_get_gravity_scale
+self.set_gravity_scale = engine_set_gravity_scale
+self.get_kinematic = engine_get_kinematic
+self.set_kinematic = engine_set_kinematic
+self.has_light = engine_has_light
+self.get_light_color = engine_get_light_color
+self.set_light_color = engine_set_light_color
+self.get_light_intensity = engine_get_light_intensity
+self.set_light_intensity = engine_set_light_intensity
+self.get_light_range = engine_get_light_range
+self.set_light_range = engine_set_light_range
+self.get_light_cast_shadows = engine_get_light_cast_shadows
+self.set_light_cast_shadows = engine_set_light_cast_shadows
+self.get_id = function(id) return id end
+self.log = engine_log
+)LUA"
+			:
+R"LUA(
+engine = engine or {}
+engine.log = engine_log
+engine.is_key_down = engine_is_key_down
+engine.is_key_pressed = engine_is_key_pressed
+engine.is_key_released = engine_is_key_released
+engine.is_mouse_button_down = engine_is_mouse_button_down
+engine.is_mouse_button_pressed = engine_is_mouse_button_pressed
+engine.is_mouse_button_released = engine_is_mouse_button_released
+engine.get_mouse_delta = engine_get_mouse_delta
+engine.get_mouse_wheel = engine_get_mouse_wheel
+engine.get_mouse_position = engine_get_mouse_position
+engine.is_mouse_captured = engine_is_mouse_captured
+engine.find_entity_by_name = engine_find_entity_by_name
+engine.entity_exists = engine_entity_exists
+engine.get_entity_name = engine_get_entity_name
+engine.get_position_of = engine_get_position_of
+engine.set_position_of = engine_set_position_of
+engine.translate_of = engine_translate_of
+engine.has_rigidbody = engine_has_rigidbody
+engine.get_velocity = engine_get_velocity
+engine.set_velocity = engine_set_velocity
+engine.get_gravity_scale = engine_get_gravity_scale
+engine.set_gravity_scale = engine_set_gravity_scale
+engine.get_kinematic = engine_get_kinematic
+engine.set_kinematic = engine_set_kinematic
+engine.has_light = engine_has_light
+engine.get_light_color = engine_get_light_color
+engine.set_light_color = engine_set_light_color
+engine.get_light_intensity = engine_get_light_intensity
+engine.set_light_intensity = engine_set_light_intensity
+engine.get_light_range = engine_get_light_range
+engine.set_light_range = engine_set_light_range
+engine.get_light_cast_shadows = engine_get_light_cast_shadows
+engine.set_light_cast_shadows = engine_set_light_cast_shadows
+
+scene = scene or {}
+scene.find_entity_by_name = engine_find_entity_by_name
+scene.entity_exists = engine_entity_exists
+scene.get_entity_name = engine_get_entity_name
+scene.get_position = engine_get_position_of
+scene.set_position = engine_set_position_of
+scene.translate = engine_translate_of
+scene.log = engine_log
+)LUA";
+
+			if (luaL_dostring(L, helperSource) != LUA_OK)
+			{
+				std::cerr << "[ScriptSystem] Failed to install Lua helpers: " << lua_tostring(L, -1) << std::endl;
+				lua_pop(L, 1);
+				return false;
+			}
+
+			return true;
+		}
 	}
 
 	ScriptSystem::~ScriptSystem()
@@ -92,13 +217,82 @@ namespace MyEngine
 		m_GlobalStates.resize(m_GlobalScripts.size());
 	}
 
+	void ScriptSystem::SyncScriptCollisionCallbacks(Entity& entity)
+	{
+		CollisionEventsComponent* events = nullptr;
+		if (entity.HasComponent<CollisionEventsComponent>())
+		{
+			events = &entity.GetComponent<CollisionEventsComponent>();
+		}
+		else
+		{
+			events = &entity.AddComponent<CollisionEventsComponent>();
+		}
+
+		const uint32_t entityID = entity.GetID();
+		events->onScriptCollisionEnter = [this, entityID](const std::shared_ptr<Entity>& other)
+		{
+			DispatchScriptCollisionEvent(entityID, other, "OnCollisionEnter");
+		};
+		events->onScriptCollisionExit = [this, entityID](const std::shared_ptr<Entity>& other)
+		{
+			DispatchScriptCollisionEvent(entityID, other, "OnCollisionExit");
+		};
+		events->onScriptTriggerEnter = [this, entityID](const std::shared_ptr<Entity>& other)
+		{
+			DispatchScriptCollisionEvent(entityID, other, "OnTriggerEnter");
+		};
+		events->onScriptTriggerExit = [this, entityID](const std::shared_ptr<Entity>& other)
+		{
+			DispatchScriptCollisionEvent(entityID, other, "OnTriggerExit");
+		};
+	}
+
+	void ScriptSystem::ClearScriptCollisionCallbacks(Entity& entity)
+	{
+		if (!entity.HasComponent<CollisionEventsComponent>())
+			return;
+
+		auto& events = entity.GetComponent<CollisionEventsComponent>();
+		events.onScriptCollisionEnter = nullptr;
+		events.onScriptCollisionExit = nullptr;
+		events.onScriptTriggerEnter = nullptr;
+		events.onScriptTriggerExit = nullptr;
+	}
+
+	void ScriptSystem::DispatchScriptCollisionEvent(uint32_t entityID, const std::shared_ptr<Entity>& otherEntity, const char* functionName)
+	{
+		auto it = m_States.find(entityID);
+		if (it == m_States.end() || !it->second.luaState)
+			return;
+
+		lua_State* L = it->second.luaState;
+		lua_getglobal(L, functionName);
+		if (lua_isfunction(L, -1))
+		{
+			lua_pushinteger(L, static_cast<lua_Integer>(entityID));
+			lua_pushinteger(L, static_cast<lua_Integer>(otherEntity ? otherEntity->GetID() : 0));
+			CallScriptFunction(L, functionName, 2, 0);
+		}
+		else
+		{
+			lua_pop(L, 1);
+		}
+	}
+
 	void ScriptSystem::SyncEntity(Scene& scene, Entity& entity, float deltaTime)
 	{
 		auto& scriptComponent = entity.GetComponent<ScriptComponent>();
 		uint32_t entityID = entity.GetID();
 
-		if (!scriptComponent.enabled || scriptComponent.scriptPath.empty())
+		auto existing = m_States.find(entityID);
+		if (scriptComponent.scriptPath.empty())
 		{
+			ClearScriptCollisionCallbacks(entity);
+			if (existing != m_States.end() && existing->second.luaState && existing->second.wasEnabled)
+			{
+				CallEntityLifecycle(existing->second.luaState, "OnDisable", entityID);
+			}
 			UnloadScript(entityID);
 			return;
 		}
@@ -113,6 +307,18 @@ namespace MyEngine
 			scriptComponent.requestReload = false;
 		}
 
+		if (!scriptComponent.enabled)
+		{
+			ClearScriptCollisionCallbacks(entity);
+			if (state.luaState && state.wasEnabled && !state.disablePending)
+			{
+				CallEntityLifecycle(state.luaState, "OnDisable", entityID);
+				state.disablePending = true;
+			}
+			state.wasEnabled = false;
+			return;
+		}
+
 		if (!state.luaState)
 		{
 			if (!LoadScript(scene, entity, state, scriptComponent))
@@ -122,6 +328,7 @@ namespace MyEngine
 			}
 		}
 
+		SyncScriptCollisionCallbacks(entity);
 		lua_State* L = state.luaState;
 
 		if (!state.started && scriptComponent.autoStart)
@@ -138,6 +345,13 @@ namespace MyEngine
 			}
 
 			state.started = true;
+		}
+
+		if (!state.wasEnabled)
+		{
+			CallEntityLifecycle(L, "OnEnable", entityID);
+			state.wasEnabled = true;
+			state.disablePending = false;
 		}
 
 		lua_getglobal(L, "OnUpdate");
@@ -160,8 +374,10 @@ namespace MyEngine
 			auto& config = m_GlobalScripts[i];
 			auto& state = m_GlobalStates[i];
 
-			if (!config.enabled || config.scriptPath.empty())
+			if (config.scriptPath.empty())
 			{
+				if (state.luaState && state.wasEnabled)
+					CallGlobalLifecycle(state.luaState, "OnGlobalDisable");
 				if (state.luaState)
 					lua_close(state.luaState);
 				state = ScriptState{};
@@ -170,6 +386,8 @@ namespace MyEngine
 
 			if (state.scriptPath != config.scriptPath || config.requestReload)
 			{
+				if (state.luaState && state.wasEnabled)
+					CallGlobalLifecycle(state.luaState, "OnGlobalDisable");
 				if (state.luaState)
 					lua_close(state.luaState);
 				state = ScriptState{};
@@ -186,6 +404,17 @@ namespace MyEngine
 				}
 			}
 
+			if (!config.enabled)
+			{
+				if (state.luaState && state.wasEnabled && !state.disablePending)
+				{
+					CallGlobalLifecycle(state.luaState, "OnGlobalDisable");
+					state.disablePending = true;
+				}
+				state.wasEnabled = false;
+				continue;
+			}
+
 			lua_State* L = state.luaState;
 			if (!state.started && config.autoStart)
 			{
@@ -200,6 +429,13 @@ namespace MyEngine
 				}
 
 				state.started = true;
+			}
+
+			if (!state.wasEnabled)
+			{
+				CallGlobalLifecycle(L, "OnGlobalEnable");
+				state.wasEnabled = true;
+				state.disablePending = false;
 			}
 
 			lua_getglobal(L, "OnGlobalUpdate");
@@ -369,6 +605,56 @@ namespace MyEngine
 
 		lua_pushcfunction(L, &ScriptSystem::LuaIsMouseCaptured);
 		lua_setglobal(L, "engine_is_mouse_captured");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaHasRigidbody);
+		lua_setglobal(L, "engine_has_rigidbody");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetVelocity);
+		lua_setglobal(L, "engine_get_velocity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetVelocity);
+		lua_setglobal(L, "engine_set_velocity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetGravityScale);
+		lua_setglobal(L, "engine_get_gravity_scale");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetGravityScale);
+		lua_setglobal(L, "engine_set_gravity_scale");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetKinematic);
+		lua_setglobal(L, "engine_get_kinematic");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetKinematic);
+		lua_setglobal(L, "engine_set_kinematic");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaHasLight);
+		lua_setglobal(L, "engine_has_light");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetLightColor);
+		lua_setglobal(L, "engine_get_light_color");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetLightColor);
+		lua_setglobal(L, "engine_set_light_color");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetLightIntensity);
+		lua_setglobal(L, "engine_get_light_intensity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetLightIntensity);
+		lua_setglobal(L, "engine_set_light_intensity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetLightRange);
+		lua_setglobal(L, "engine_get_light_range");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetLightRange);
+		lua_setglobal(L, "engine_set_light_range");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetLightCastShadows);
+		lua_setglobal(L, "engine_get_light_cast_shadows");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetLightCastShadows);
+		lua_setglobal(L, "engine_set_light_cast_shadows");
+
+		InstallLuaHelpers(L, true);
 	}
 
 	void ScriptSystem::RegisterGlobalBindings(lua_State* L)
@@ -450,6 +736,56 @@ namespace MyEngine
 
 		lua_pushcfunction(L, &ScriptSystem::LuaIsMouseCaptured);
 		lua_setglobal(L, "engine_is_mouse_captured");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaHasRigidbody);
+		lua_setglobal(L, "engine_has_rigidbody");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetVelocity);
+		lua_setglobal(L, "engine_get_velocity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetVelocity);
+		lua_setglobal(L, "engine_set_velocity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetGravityScale);
+		lua_setglobal(L, "engine_get_gravity_scale");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetGravityScale);
+		lua_setglobal(L, "engine_set_gravity_scale");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetKinematic);
+		lua_setglobal(L, "engine_get_kinematic");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetKinematic);
+		lua_setglobal(L, "engine_set_kinematic");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaHasLight);
+		lua_setglobal(L, "engine_has_light");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetLightColor);
+		lua_setglobal(L, "engine_get_light_color");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetLightColor);
+		lua_setglobal(L, "engine_set_light_color");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetLightIntensity);
+		lua_setglobal(L, "engine_get_light_intensity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetLightIntensity);
+		lua_setglobal(L, "engine_set_light_intensity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetLightRange);
+		lua_setglobal(L, "engine_get_light_range");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetLightRange);
+		lua_setglobal(L, "engine_set_light_range");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetLightCastShadows);
+		lua_setglobal(L, "engine_get_light_cast_shadows");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetLightCastShadows);
+		lua_setglobal(L, "engine_set_light_cast_shadows");
+
+		InstallLuaHelpers(L, false);
 	}
 
 	void ScriptSystem::CallScriptFunction(lua_State* L, const char* functionName, int argCount, int resultCount)
@@ -855,5 +1191,287 @@ namespace MyEngine
 	{
 		lua_pushboolean(L, Input::IsMouseCaptured());
 		return 1;
+	}
+
+	int ScriptSystem::LuaHasRigidbody(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		lua_pushboolean(L, entity && entity->HasComponent<RigidbodyComponent>());
+		return 1;
+	}
+
+	int ScriptSystem::LuaGetVelocity(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<RigidbodyComponent>())
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		const auto& rb = entity->GetComponent<RigidbodyComponent>();
+		lua_pushnumber(L, rb.velocity.x);
+		lua_pushnumber(L, rb.velocity.y);
+		lua_pushnumber(L, rb.velocity.z);
+		return 3;
+	}
+
+	int ScriptSystem::LuaSetVelocity(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return 0;
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<RigidbodyComponent>())
+			return 0;
+
+		auto& rb = entity->GetComponent<RigidbodyComponent>();
+		rb.velocity.x = static_cast<float>(luaL_checknumber(L, 1));
+		rb.velocity.y = static_cast<float>(luaL_checknumber(L, 2));
+		rb.velocity.z = static_cast<float>(luaL_checknumber(L, 3));
+		return 0;
+	}
+
+	int ScriptSystem::LuaGetGravityScale(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<RigidbodyComponent>())
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		lua_pushnumber(L, entity->GetComponent<RigidbodyComponent>().gravityScale);
+		return 1;
+	}
+
+	int ScriptSystem::LuaSetGravityScale(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return 0;
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<RigidbodyComponent>())
+			return 0;
+
+		entity->GetComponent<RigidbodyComponent>().gravityScale = static_cast<float>(luaL_checknumber(L, 1));
+		return 0;
+	}
+
+	int ScriptSystem::LuaGetKinematic(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		lua_pushboolean(L, entity && entity->HasComponent<RigidbodyComponent>() && entity->GetComponent<RigidbodyComponent>().isKinematic);
+		return 1;
+	}
+
+	int ScriptSystem::LuaSetKinematic(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return 0;
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<RigidbodyComponent>())
+			return 0;
+
+		entity->GetComponent<RigidbodyComponent>().isKinematic = lua_toboolean(L, 1) != 0;
+		return 0;
+	}
+
+	int ScriptSystem::LuaHasLight(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		lua_pushboolean(L, entity && entity->HasComponent<LightComponent>());
+		return 1;
+	}
+
+	int ScriptSystem::LuaGetLightColor(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<LightComponent>())
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		const auto& light = entity->GetComponent<LightComponent>();
+		lua_pushnumber(L, light.color.x);
+		lua_pushnumber(L, light.color.y);
+		lua_pushnumber(L, light.color.z);
+		return 3;
+	}
+
+	int ScriptSystem::LuaSetLightColor(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return 0;
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<LightComponent>())
+			return 0;
+
+		auto& light = entity->GetComponent<LightComponent>();
+		light.color.x = static_cast<float>(luaL_checknumber(L, 1));
+		light.color.y = static_cast<float>(luaL_checknumber(L, 2));
+		light.color.z = static_cast<float>(luaL_checknumber(L, 3));
+		return 0;
+	}
+
+	int ScriptSystem::LuaGetLightIntensity(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<LightComponent>())
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		lua_pushnumber(L, entity->GetComponent<LightComponent>().intensity);
+		return 1;
+	}
+
+	int ScriptSystem::LuaSetLightIntensity(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return 0;
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<LightComponent>())
+			return 0;
+
+		entity->GetComponent<LightComponent>().intensity = static_cast<float>(luaL_checknumber(L, 1));
+		return 0;
+	}
+
+	int ScriptSystem::LuaGetLightRange(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<LightComponent>())
+		{
+			lua_pushnil(L);
+			return 1;
+		}
+
+		lua_pushnumber(L, entity->GetComponent<LightComponent>().range);
+		return 1;
+	}
+
+	int ScriptSystem::LuaSetLightRange(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return 0;
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<LightComponent>())
+			return 0;
+
+		entity->GetComponent<LightComponent>().range = static_cast<float>(luaL_checknumber(L, 1));
+		return 0;
+	}
+
+	int ScriptSystem::LuaGetLightCastShadows(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		lua_pushboolean(L, entity && entity->HasComponent<LightComponent>() && entity->GetComponent<LightComponent>().castShadows);
+		return 1;
+	}
+
+	int ScriptSystem::LuaSetLightCastShadows(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return 0;
+
+		uint32_t entityID = GetBoundEntityID(L);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity || !entity->HasComponent<LightComponent>())
+			return 0;
+
+		entity->GetComponent<LightComponent>().castShadows = lua_toboolean(L, 1) != 0;
+		return 0;
 	}
 }

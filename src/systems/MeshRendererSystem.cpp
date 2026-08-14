@@ -496,13 +496,19 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         }
         else
         {
-            // Texture uniforms (non-PBR path)
+            // Reserve texture unit 0 for the 2D material sampler even when no
+            // texture is bound. If a point-light shadow cubemap also uses unit
+            // 0 while u_Texture still defaults to 0, OpenGL sees sampler2D and
+            // samplerCube reading from the same unit in one program and emits
+            // GL_INVALID_OPERATION ("program texture usage"), which was causing
+            // lit objects to vanish when point-light shadows were enabled.
+            renderer.shader->SetInt("u_Texture", 0);
+            nextTextureUnit = 1;
+
             if (renderer.useTexture && renderer.texture)
             {
-                renderer.texture->Bind(nextTextureUnit);
-                renderer.shader->SetInt("u_Texture", nextTextureUnit);
+                renderer.texture->Bind(0);
                 renderer.shader->SetBool("u_UseTexture", true);
-                ++nextTextureUnit;
 
                 // Debug: verify texture is valid
                 static bool debugOnce = false;
@@ -540,13 +546,18 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             renderer.shader->SetBool("u_PointLightCastShadows[" + idx + "]", pointShadowMapIndices[i] >= 0);
             renderer.shader->SetFloat("u_PointShadowFarPlane[" + idx + "]", pointShadowFarPlanes[i]);
 
+            // Always assign a dedicated cubemap unit for each point-light shadow
+            // sampler, even when that light is not currently casting shadows.
+            // If the samplerCube uniform is left at its default unit 0 while a
+            // sampler2D also uses unit 0, OpenGL reports GL_INVALID_OPERATION
+            // ("program texture usage") even though shadowing is disabled.
+            int pointShadowUnit = std::max(nextTextureUnit, 1);
+            renderer.shader->SetInt("u_PointShadowMap[" + idx + "]", pointShadowUnit);
             if (pointShadowMapIndices[i] >= 0 && m_Impl && m_Impl->pointShadowsEnabled)
             {
-                int pointShadowUnit = nextTextureUnit;
                 m_Impl->pointShadowMaps[pointShadowMapIndices[i]].BindForReading(pointShadowUnit);
-                renderer.shader->SetInt("u_PointShadowMap[" + idx + "]", pointShadowUnit);
-                ++nextTextureUnit;
             }
+            nextTextureUnit = pointShadowUnit + 1;
         }
 
         // Spot lights

@@ -71,7 +71,7 @@ float ShadowCalculation(vec4 fragPosLightSpace)
 	return shadow;
 }
 
-float PointShadowCalculation(int lightIndex, vec3 lightPos)
+float PointShadowCalculation(int lightIndex, vec3 lightPos, vec3 normal)
 {
 	if (!u_PointLightCastShadows[lightIndex])
 		return 0.0;
@@ -79,9 +79,16 @@ float PointShadowCalculation(int lightIndex, vec3 lightPos)
 	vec3 fragToLight = v_Position - lightPos;
 	float currentDepth = length(fragToLight);
 	float farPlane = max(u_PointShadowFarPlane[lightIndex], 0.001);
-	float closestDepth = texture(u_PointShadowMap[lightIndex], fragToLight).r * farPlane;
+	if (currentDepth >= farPlane)
+		return 0.0;
 
-	float bias = max(u_PointShadowBias, 0.0001);
+	float closestDepth = texture(u_PointShadowMap[lightIndex], fragToLight).r * farPlane;
+	if (closestDepth >= farPlane - 0.001)
+		return 0.0;
+
+	vec3 lightDir = normalize(lightPos - v_Position);
+	float angularBias = max(0.02 * (1.0 - max(dot(normalize(normal), lightDir), 0.0)), 0.002);
+	float bias = max(u_PointShadowBias, angularBias);
 	return (currentDepth - bias > closestDepth) ? 1.0 : 0.0;
 }
 
@@ -122,7 +129,7 @@ void main()
 		float specP = pow(max(dot(N, Hp), 0.0), u_MaterialShininess);
 		vec3 specularP = specP * u_PointLightColor[i];
 
-		float pointShadow = PointShadowCalculation(i, u_PointLightPos[i]);
+		float pointShadow = PointShadowCalculation(i, u_PointLightPos[i], N);
 		lighting += (1.0 - pointShadow) * (diffuseP + specularP) * atten;
 	}
 

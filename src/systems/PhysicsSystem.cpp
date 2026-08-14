@@ -635,6 +635,9 @@ namespace MyEngine
 			auto& callback = isTrigger ? events.onTriggerEnter : events.onCollisionEnter;
 			if (callback)
 				callback(b);
+			auto& scriptCallback = isTrigger ? events.onScriptTriggerEnter : events.onScriptCollisionEnter;
+			if (scriptCallback)
+				scriptCallback(b);
 		}
 		if (b->HasComponent<CollisionEventsComponent>())
 		{
@@ -642,6 +645,9 @@ namespace MyEngine
 			auto& callback = isTrigger ? events.onTriggerEnter : events.onCollisionEnter;
 			if (callback)
 				callback(a);
+			auto& scriptCallback = isTrigger ? events.onScriptTriggerEnter : events.onScriptCollisionEnter;
+			if (scriptCallback)
+				scriptCallback(a);
 		}
 	}
 
@@ -656,6 +662,9 @@ namespace MyEngine
 			auto& callback = isTrigger ? events.onTriggerExit : events.onCollisionExit;
 			if (callback)
 				callback(b);
+			auto& scriptCallback = isTrigger ? events.onScriptTriggerExit : events.onScriptCollisionExit;
+			if (scriptCallback)
+				scriptCallback(b);
 		}
 		if (b->HasComponent<CollisionEventsComponent>())
 		{
@@ -663,6 +672,9 @@ namespace MyEngine
 			auto& callback = isTrigger ? events.onTriggerExit : events.onCollisionExit;
 			if (callback)
 				callback(a);
+			auto& scriptCallback = isTrigger ? events.onScriptTriggerExit : events.onScriptCollisionExit;
+			if (scriptCallback)
+				scriptCallback(a);
 		}
 	}
 

@@ -52,6 +52,9 @@ namespace MyEngine
 	private:
 		void SyncEntity(Scene& scene, Entity& entity, float deltaTime);
 		void SyncGlobalScripts(Scene& scene, float deltaTime);
+		void SyncScriptCollisionCallbacks(Entity& entity);
+		void ClearScriptCollisionCallbacks(Entity& entity);
+		void DispatchScriptCollisionEvent(uint32_t entityID, const std::shared_ptr<Entity>& otherEntity, const char* functionName);
 		void UnloadScript(uint32_t entityID);
 		bool LoadScript(Scene& scene, Entity& entity, ScriptState& state, const ::ScriptComponent& scriptComponent);
 		bool LoadGlobalScript(Scene& scene, ScriptState& state, const GlobalScriptConfig& config);
@@ -89,6 +92,22 @@ namespace MyEngine
 		static int LuaGetMouseWheel(lua_State* L);
 		static int LuaGetMousePosition(lua_State* L);
 		static int LuaIsMouseCaptured(lua_State* L);
+		static int LuaHasRigidbody(lua_State* L);
+		static int LuaGetVelocity(lua_State* L);
+		static int LuaSetVelocity(lua_State* L);
+		static int LuaGetGravityScale(lua_State* L);
+		static int LuaSetGravityScale(lua_State* L);
+		static int LuaGetKinematic(lua_State* L);
+		static int LuaSetKinematic(lua_State* L);
+		static int LuaHasLight(lua_State* L);
+		static int LuaGetLightColor(lua_State* L);
+		static int LuaSetLightColor(lua_State* L);
+		static int LuaGetLightIntensity(lua_State* L);
+		static int LuaSetLightIntensity(lua_State* L);
+		static int LuaGetLightRange(lua_State* L);
+		static int LuaSetLightRange(lua_State* L);
+		static int LuaGetLightCastShadows(lua_State* L);
+		static int LuaSetLightCastShadows(lua_State* L);
 
 	private:
 		std::unordered_map<uint32_t, ScriptState> m_States;

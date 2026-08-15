@@ -55,6 +55,8 @@ namespace MyEngine
 		void SyncScriptCollisionCallbacks(Entity& entity);
 		void ClearScriptCollisionCallbacks(Entity& entity);
 		void DispatchScriptCollisionEvent(uint32_t entityID, const std::shared_ptr<Entity>& otherEntity, const char* functionName);
+		void DispatchGlobalEvent(const char* functionName, uint32_t entityID);
+		void DispatchGlobalEventWithString(const char* functionName, uint32_t entityID, const char* strArg);
 		void UnloadScript(uint32_t entityID);
 		bool LoadScript(Scene& scene, Entity& entity, ScriptState& state, const ::ScriptComponent& scriptComponent);
 		bool LoadGlobalScript(Scene& scene, ScriptState& state, const GlobalScriptConfig& config);
@@ -79,6 +81,10 @@ namespace MyEngine
 		static int LuaFindEntityByName(lua_State* L);
 		static int LuaEntityExists(lua_State* L);
 		static int LuaGetEntityName(lua_State* L);
+		static int LuaCreateEntity(lua_State* L);
+		static int LuaDestroyEntity(lua_State* L);
+		static int LuaAddComponent(lua_State* L);
+		static int LuaRemoveComponent(lua_State* L);
 		static int LuaGetPositionOf(lua_State* L);
 		static int LuaSetPositionOf(lua_State* L);
 		static int LuaTranslateOf(lua_State* L);

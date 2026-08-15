@@ -841,7 +841,7 @@ int main()
 
         if (play)
         {
-            hasPlaySnapshot = MyEngine::Serialization::SaveScene(scene, playSnapshotPath);
+            hasPlaySnapshot = MyEngine::Serialization::SaveScene(scene, playSnapshotPath, globalScripts);
             isPlaying = true;
         }
         else
@@ -876,7 +876,7 @@ int main()
                     if (e) ids.push_back(e->GetID());
                 for (uint32_t id : ids)
                     scene.DestroyEntity(id);
-                MyEngine::Serialization::LoadScene(scene, playSnapshotPath, litShader);
+                MyEngine::Serialization::LoadScene(scene, playSnapshotPath, litShader, &globalScripts);
                 hasPlaySnapshot = false;
 
                 // The player entity was destroyed above along with the rest of the
@@ -1094,7 +1094,7 @@ int main()
 
             if (!currentScenePath.empty())
             {
-                MyEngine::Serialization::SaveScene(scene, currentScenePath);
+                MyEngine::Serialization::SaveScene(scene, currentScenePath, globalScripts);
                 AddRecentScene(recentScenes, currentScenePath);
                 UpdateWindowTitle(window, currentScenePath);
             }
@@ -1105,7 +1105,7 @@ int main()
             std::string path = MyEngine::FileDialog::OpenSceneFile();
             if (!path.empty())
             {
-                MyEngine::Serialization::LoadScene(scene, path, litShader);
+                MyEngine::Serialization::LoadScene(scene, path, litShader, &globalScripts);
                 selectedEntity = nullptr;
                 currentScenePath = path;
                 AddRecentScene(recentScenes, path);
@@ -1344,7 +1344,7 @@ int main()
                     std::string path = MyEngine::FileDialog::OpenSceneFile();
                     if (!path.empty())
                     {
-                        MyEngine::Serialization::LoadScene(scene, path, litShader);
+                        MyEngine::Serialization::LoadScene(scene, path, litShader, &globalScripts);
                         selectedEntity = nullptr;
                         currentScenePath = path;
                         AddRecentScene(recentScenes, path);
@@ -1357,7 +1357,7 @@ int main()
                     {
                         if (ImGui::MenuItem(recentPath.c_str()))
                         {
-                            MyEngine::Serialization::LoadScene(scene, recentPath, litShader);
+                            MyEngine::Serialization::LoadScene(scene, recentPath, litShader, &globalScripts);
                             selectedEntity = nullptr;
                             currentScenePath = recentPath;
                             AddRecentScene(recentScenes, recentPath);
@@ -1374,7 +1374,7 @@ int main()
 
                     if (!currentScenePath.empty())
                     {
-                        MyEngine::Serialization::SaveScene(scene, currentScenePath);
+                        MyEngine::Serialization::SaveScene(scene, currentScenePath, globalScripts);
                         AddRecentScene(recentScenes, currentScenePath);
                         UpdateWindowTitle(window, currentScenePath);
                     }
@@ -1384,7 +1384,7 @@ int main()
                     std::string path = MyEngine::FileDialog::SaveSceneFile();
                     if (!path.empty())
                     {
-                        MyEngine::Serialization::SaveScene(scene, path);
+                        MyEngine::Serialization::SaveScene(scene, path, globalScripts);
                         currentScenePath = path;
                         AddRecentScene(recentScenes, currentScenePath);
                         UpdateWindowTitle(window, currentScenePath);
@@ -1701,7 +1701,7 @@ int main()
                             {
                                 selectedEntity = nullptr;
                                 undoStack.Clear();
-                                if (MyEngine::Serialization::LoadScene(scene, filePath, litShader))
+                                if (MyEngine::Serialization::LoadScene(scene, filePath, litShader, &globalScripts))
                                 {
                                     currentScenePath = filePath;
                                     AddRecentScene(recentScenes, currentScenePath);
@@ -2780,6 +2780,11 @@ int main()
                     std::string displayPath = gs.scriptPath.empty() ? "(none)" : gs.scriptPath;
                     ImGui::TextWrapped("Path: %s", displayPath.c_str());
 
+                    const bool hasPath = !gs.scriptPath.empty();
+                    const char* statusText = !hasPath ? "Missing script path" : (!gs.enabled ? "Disabled" : (gs.requestReload ? "Reload pending" : "Ready"));
+                    ImVec4 statusColor = !hasPath ? ImVec4(1.00f, 0.60f, 0.20f, 1.0f) : (!gs.enabled ? ImVec4(0.75f, 0.75f, 0.75f, 1.0f) : (gs.requestReload ? ImVec4(1.00f, 0.90f, 0.20f, 1.0f) : ImVec4(0.30f, 1.00f, 0.50f, 1.0f)));
+                    ImGui::TextColored(statusColor, "Status: %s", statusText);
+
                     if (ImGui::Button("Browse Lua..."))
                     {
                         std::string path = MyEngine::FileDialog::OpenScriptFile();
@@ -2803,13 +2808,35 @@ int main()
 
                     if (globalScripts.size() > 1)
                     {
-                        ImGui::SameLine();
-                        if (ImGui::Button("Remove"))
+                        if (i > 0)
                         {
-                            globalScripts.erase(globalScripts.begin() + static_cast<std::ptrdiff_t>(i));
-                            ImGui::PopID();
-                            break;
+                            ImGui::SameLine();
+                            if (ImGui::Button("Move Up"))
+                            {
+                                std::swap(globalScripts[i], globalScripts[i - 1]);
+                                ImGui::PopID();
+                                break;
+                            }
                         }
+
+                        if (i + 1 < globalScripts.size())
+                        {
+                            ImGui::SameLine();
+                            if (ImGui::Button("Move Down"))
+                            {
+                                std::swap(globalScripts[i], globalScripts[i + 1]);
+                                ImGui::PopID();
+                                break;
+                            }
+                        }
+                    }
+
+                    ImGui::SameLine();
+                    if (ImGui::Button("Remove"))
+                    {
+                        globalScripts.erase(globalScripts.begin() + static_cast<std::ptrdiff_t>(i));
+                        ImGui::PopID();
+                        break;
                     }
 
                     ImGui::Separator();

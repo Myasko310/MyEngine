@@ -12,6 +12,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -23,6 +24,52 @@ namespace MyEngine
 	{
 		constexpr const char* kSystemRegistryKey = "MyEngine.ScriptSystem";
 		constexpr const char* kEntityRegistryKey = "MyEngine.ScriptEntityID";
+
+		Entity* FindEntityByID(Scene& scene, uint32_t entityID)
+		{
+			for (const auto& entity : scene.GetEntities())
+			{
+				if (entity && entity->GetID() == entityID)
+					return entity.get();
+			}
+
+			return nullptr;
+		}
+
+		bool ResolveTargetEntity(lua_State* L, Scene& scene, uint32_t boundEntityID, int valueArgumentCount, uint32_t& targetEntityID, int& valueStartIndex)
+		{
+			targetEntityID = boundEntityID;
+			valueStartIndex = 1;
+
+			const int argCount = lua_gettop(L);
+			if (argCount == valueArgumentCount + 1 && lua_isinteger(L, 1))
+			{
+				lua_Integer requestedID = lua_tointeger(L, 1);
+				if (requestedID > 0)
+				{
+					targetEntityID = static_cast<uint32_t>(requestedID);
+					valueStartIndex = 2;
+				}
+			}
+
+			if (argCount < valueArgumentCount)
+				return false;
+
+			if (targetEntityID == 0)
+				return false;
+
+			return FindEntityByID(scene, targetEntityID) != nullptr;
+		}
+
+		std::string NormalizeComponentName(std::string value)
+		{
+			for (char& c : value)
+			{
+				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			}
+
+			return value;
+		}
 
 		bool InstallLuaHelpers(lua_State* L, bool entityContext)
 		{
@@ -42,6 +89,10 @@ engine.is_mouse_captured = engine_is_mouse_captured
 engine.find_entity_by_name = engine_find_entity_by_name
 engine.entity_exists = engine_entity_exists
 engine.get_entity_name = engine_get_entity_name
+engine.create_entity = engine_create_entity
+engine.destroy_entity = engine_destroy_entity
+engine.add_component = engine_add_component
+engine.remove_component = engine_remove_component
 engine.get_position_of = engine_get_position_of
 engine.set_position_of = engine_set_position_of
 engine.translate_of = engine_translate_of
@@ -106,6 +157,10 @@ engine.is_mouse_captured = engine_is_mouse_captured
 engine.find_entity_by_name = engine_find_entity_by_name
 engine.entity_exists = engine_entity_exists
 engine.get_entity_name = engine_get_entity_name
+engine.create_entity = engine_create_entity
+engine.destroy_entity = engine_destroy_entity
+engine.add_component = engine_add_component
+engine.remove_component = engine_remove_component
 engine.get_position_of = engine_get_position_of
 engine.set_position_of = engine_set_position_of
 engine.translate_of = engine_translate_of
@@ -130,6 +185,10 @@ scene = scene or {}
 scene.find_entity_by_name = engine_find_entity_by_name
 scene.entity_exists = engine_entity_exists
 scene.get_entity_name = engine_get_entity_name
+scene.create_entity = engine_create_entity
+scene.destroy_entity = engine_destroy_entity
+scene.add_component = engine_add_component
+scene.remove_component = engine_remove_component
 scene.get_position = engine_get_position_of
 scene.set_position = engine_set_position_of
 scene.translate = engine_translate_of
@@ -277,6 +336,49 @@ scene.log = engine_log
 		else
 		{
 			lua_pop(L, 1);
+		}
+	}
+
+	void ScriptSystem::DispatchGlobalEvent(const char* functionName, uint32_t entityID)
+	{
+		for (size_t i = 0; i < m_GlobalStates.size(); ++i)
+		{
+			lua_State* L = m_GlobalStates[i].luaState;
+			if (!L || !m_GlobalStates[i].started)
+				continue;
+
+			lua_getglobal(L, functionName);
+			if (lua_isfunction(L, -1))
+			{
+				lua_pushinteger(L, static_cast<lua_Integer>(entityID));
+				CallScriptFunction(L, functionName, 1, 0);
+			}
+			else
+			{
+				lua_pop(L, 1);
+			}
+		}
+	}
+
+	void ScriptSystem::DispatchGlobalEventWithString(const char* functionName, uint32_t entityID, const char* strArg)
+	{
+		for (size_t i = 0; i < m_GlobalStates.size(); ++i)
+		{
+			lua_State* L = m_GlobalStates[i].luaState;
+			if (!L || !m_GlobalStates[i].started)
+				continue;
+
+			lua_getglobal(L, functionName);
+			if (lua_isfunction(L, -1))
+			{
+				lua_pushinteger(L, static_cast<lua_Integer>(entityID));
+				lua_pushstring(L, strArg ? strArg : "");
+				CallScriptFunction(L, functionName, 2, 0);
+			}
+			else
+			{
+				lua_pop(L, 1);
+			}
 		}
 	}
 
@@ -567,6 +669,18 @@ scene.log = engine_log
 		lua_pushcfunction(L, &ScriptSystem::LuaGetEntityName);
 		lua_setglobal(L, "engine_get_entity_name");
 
+		lua_pushcfunction(L, &ScriptSystem::LuaCreateEntity);
+		lua_setglobal(L, "engine_create_entity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaDestroyEntity);
+		lua_setglobal(L, "engine_destroy_entity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaAddComponent);
+		lua_setglobal(L, "engine_add_component");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaRemoveComponent);
+		lua_setglobal(L, "engine_remove_component");
+
 		lua_pushcfunction(L, &ScriptSystem::LuaGetPositionOf);
 		lua_setglobal(L, "engine_get_position_of");
 
@@ -697,6 +811,18 @@ scene.log = engine_log
 
 		lua_pushcfunction(L, &ScriptSystem::LuaGetEntityName);
 		lua_setglobal(L, "engine_get_entity_name");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaCreateEntity);
+		lua_setglobal(L, "engine_create_entity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaDestroyEntity);
+		lua_setglobal(L, "engine_destroy_entity");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaAddComponent);
+		lua_setglobal(L, "engine_add_component");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaRemoveComponent);
+		lua_setglobal(L, "engine_remove_component");
 
 		lua_pushcfunction(L, &ScriptSystem::LuaGetPositionOf);
 		lua_setglobal(L, "engine_get_position_of");
@@ -861,18 +987,12 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_position: script runtime context is unavailable");
 
 		uint32_t entityID = GetBoundEntityID(L);
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_position: entity %u has no Transform component", entityID);
 
 		const auto& transform = entity->GetComponent<TransformComponent>();
 		lua_pushnumber(L, transform.position.x);
@@ -885,12 +1005,12 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_position: script runtime context is unavailable");
 
 		uint32_t entityID = GetBoundEntityID(L);
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_position: entity %u has no Transform component", entityID);
 
 		auto& transform = entity->GetComponent<TransformComponent>();
 		transform.position.x = static_cast<float>(luaL_checknumber(L, 1));
@@ -903,12 +1023,12 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.translate: script runtime context is unavailable");
 
 		uint32_t entityID = GetBoundEntityID(L);
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-			return 0;
+			return luaL_error(L, "engine.translate: entity %u has no Transform component", entityID);
 
 		auto& transform = entity->GetComponent<TransformComponent>();
 		transform.position.x += static_cast<float>(luaL_checknumber(L, 1));
@@ -921,18 +1041,12 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_rotation: script runtime context is unavailable");
 
 		uint32_t entityID = GetBoundEntityID(L);
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_rotation: entity %u has no Transform component", entityID);
 
 		const auto& transform = entity->GetComponent<TransformComponent>();
 		lua_pushnumber(L, transform.rotation.x);
@@ -945,12 +1059,12 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_rotation: script runtime context is unavailable");
 
 		uint32_t entityID = GetBoundEntityID(L);
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_rotation: entity %u has no Transform component", entityID);
 
 		auto& transform = entity->GetComponent<TransformComponent>();
 		transform.rotation.x = static_cast<float>(luaL_checknumber(L, 1));
@@ -963,18 +1077,12 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_scale: script runtime context is unavailable");
 
 		uint32_t entityID = GetBoundEntityID(L);
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_scale: entity %u has no Transform component", entityID);
 
 		const auto& transform = entity->GetComponent<TransformComponent>();
 		lua_pushnumber(L, transform.scale.x);
@@ -987,12 +1095,12 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_scale: script runtime context is unavailable");
 
 		uint32_t entityID = GetBoundEntityID(L);
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_scale: entity %u has no Transform component", entityID);
 
 		auto& transform = entity->GetComponent<TransformComponent>();
 		transform.scale.x = static_cast<float>(luaL_checknumber(L, 1));
@@ -1060,22 +1168,177 @@ scene.log = engine_log
 		return 1;
 	}
 
+	int ScriptSystem::LuaCreateEntity(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return luaL_error(L, "engine.create_entity: script runtime context is unavailable");
+
+		std::string name;
+		if (lua_gettop(L) >= 1)
+		{
+			if (!lua_isstring(L, 1))
+				return luaL_error(L, "engine.create_entity: expected optional string name");
+			name = lua_tostring(L, 1);
+		}
+
+		auto entity = system->m_CurrentScene->CreateEntity(name);
+		if (!entity)
+			return luaL_error(L, "engine.create_entity: failed to create entity");
+
+		if (!entity->HasComponent<TransformComponent>())
+		{
+			entity->AddComponent<TransformComponent>();
+		}
+
+		const lua_Integer newID = static_cast<lua_Integer>(entity->GetID());
+		system->DispatchGlobalEvent("OnEntityCreated", static_cast<uint32_t>(newID));
+
+		lua_pushinteger(L, newID);
+		return 1;
+	}
+
+	int ScriptSystem::LuaDestroyEntity(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return luaL_error(L, "engine.destroy_entity: script runtime context is unavailable");
+
+		uint32_t entityID = static_cast<uint32_t>(luaL_checkinteger(L, 1));
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity)
+			return luaL_error(L, "engine.destroy_entity: entity %u does not exist", entityID);
+
+		system->DispatchGlobalEvent("OnEntityDestroyed", entityID);
+		system->m_CurrentScene->DestroyEntity(entityID);
+		system->UnloadScript(entityID);
+		return 0;
+	}
+
+	int ScriptSystem::LuaAddComponent(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return luaL_error(L, "engine.add_component: script runtime context is unavailable");
+
+		uint32_t entityID = static_cast<uint32_t>(luaL_checkinteger(L, 1));
+		const char* componentNameRaw = luaL_checkstring(L, 2);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity)
+			return luaL_error(L, "engine.add_component: entity %u does not exist", entityID);
+
+		const std::string componentName = NormalizeComponentName(componentNameRaw ? componentNameRaw : "");
+		if (componentName == "transform")
+		{
+			if (!entity->HasComponent<TransformComponent>())
+				entity->AddComponent<TransformComponent>();
+		}
+		else if (componentName == "rigidbody")
+		{
+			if (!entity->HasComponent<RigidbodyComponent>())
+				entity->AddComponent<RigidbodyComponent>();
+		}
+		else if (componentName == "light")
+		{
+			if (!entity->HasComponent<LightComponent>())
+				entity->AddComponent<LightComponent>();
+		}
+		else if (componentName == "script")
+		{
+			auto& script = entity->HasComponent<ScriptComponent>()
+				? entity->GetComponent<ScriptComponent>()
+				: entity->AddComponent<ScriptComponent>();
+
+			if (lua_gettop(L) >= 3)
+			{
+				if (!lua_isstring(L, 3))
+					return luaL_error(L, "engine.add_component(script): expected string scriptPath as arg #3");
+				script.scriptPath = lua_tostring(L, 3);
+			}
+			if (lua_gettop(L) >= 4)
+			{
+				if (!lua_isboolean(L, 4))
+					return luaL_error(L, "engine.add_component(script): expected boolean enabled as arg #4");
+				script.enabled = lua_toboolean(L, 4) != 0;
+			}
+			if (lua_gettop(L) >= 5)
+			{
+				if (!lua_isboolean(L, 5))
+					return luaL_error(L, "engine.add_component(script): expected boolean autoStart as arg #5");
+				script.autoStart = lua_toboolean(L, 5) != 0;
+			}
+			script.requestReload = true;
+		}
+		else
+		{
+			return luaL_error(L, "engine.add_component: unsupported component '%s'", componentNameRaw ? componentNameRaw : "");
+		}
+
+		system->DispatchGlobalEventWithString("OnComponentAdded", entityID, componentName.c_str());
+
+		lua_pushboolean(L, 1);
+		return 1;
+	}
+
+	int ScriptSystem::LuaRemoveComponent(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return luaL_error(L, "engine.remove_component: script runtime context is unavailable");
+
+		uint32_t entityID = static_cast<uint32_t>(luaL_checkinteger(L, 1));
+		const char* componentNameRaw = luaL_checkstring(L, 2);
+		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		if (!entity)
+			return luaL_error(L, "engine.remove_component: entity %u does not exist", entityID);
+
+		const std::string componentName = NormalizeComponentName(componentNameRaw ? componentNameRaw : "");
+		if (componentName == "transform")
+		{
+			if (!entity->HasComponent<TransformComponent>())
+				return luaL_error(L, "engine.remove_component: entity %u has no Transform component", entityID);
+			entity->RemoveComponent<TransformComponent>();
+		}
+		else if (componentName == "rigidbody")
+		{
+			if (!entity->HasComponent<RigidbodyComponent>())
+				return luaL_error(L, "engine.remove_component: entity %u has no Rigidbody component", entityID);
+			entity->RemoveComponent<RigidbodyComponent>();
+		}
+		else if (componentName == "light")
+		{
+			if (!entity->HasComponent<LightComponent>())
+				return luaL_error(L, "engine.remove_component: entity %u has no Light component", entityID);
+			entity->RemoveComponent<LightComponent>();
+		}
+		else if (componentName == "script")
+		{
+			if (!entity->HasComponent<ScriptComponent>())
+				return luaL_error(L, "engine.remove_component: entity %u has no Script component", entityID);
+			entity->RemoveComponent<ScriptComponent>();
+			system->UnloadScript(entityID);
+		}
+		else
+		{
+			return luaL_error(L, "engine.remove_component: unsupported component '%s'", componentNameRaw ? componentNameRaw : "");
+		}
+
+		system->DispatchGlobalEventWithString("OnComponentRemoved", entityID, componentName.c_str());
+
+		lua_pushboolean(L, 1);
+		return 1;
+	}
+
 	int ScriptSystem::LuaGetPositionOf(lua_State* L)
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_position_of: script runtime context is unavailable");
 
 		uint32_t entityID = static_cast<uint32_t>(luaL_checkinteger(L, 1));
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_position_of: entity %u has no Transform component", entityID);
 
 		const auto& transform = entity->GetComponent<TransformComponent>();
 		lua_pushnumber(L, transform.position.x);
@@ -1088,12 +1351,12 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_position_of: script runtime context is unavailable");
 
 		uint32_t entityID = static_cast<uint32_t>(luaL_checkinteger(L, 1));
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_position_of: entity %u has no Transform component", entityID);
 
 		auto& transform = entity->GetComponent<TransformComponent>();
 		transform.position.x = static_cast<float>(luaL_checknumber(L, 2));
@@ -1106,12 +1369,12 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.translate_of: script runtime context is unavailable");
 
 		uint32_t entityID = static_cast<uint32_t>(luaL_checkinteger(L, 1));
 		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
 		if (!entity || !entity->HasComponent<TransformComponent>())
-			return 0;
+			return luaL_error(L, "engine.translate_of: entity %u has no Transform component", entityID);
 
 		auto& transform = entity->GetComponent<TransformComponent>();
 		transform.position.x += static_cast<float>(luaL_checknumber(L, 2));
@@ -1202,8 +1465,15 @@ scene.log = engine_log
 			return 1;
 		}
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		lua_pushboolean(L, entity && entity->HasComponent<RigidbodyComponent>());
 		return 1;
 	}
@@ -1212,18 +1482,16 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_velocity: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+			return luaL_error(L, "engine.get_velocity: invalid entity target or arguments");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<RigidbodyComponent>())
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_velocity: entity %u has no Rigidbody component", targetEntityID);
 
 		const auto& rb = entity->GetComponent<RigidbodyComponent>();
 		lua_pushnumber(L, rb.velocity.x);
@@ -1236,17 +1504,21 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_velocity: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int valueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 3, targetEntityID, valueStartIndex))
+			return luaL_error(L, "engine.set_velocity: expected (x, y, z) or (entityID, x, y, z)");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<RigidbodyComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_velocity: entity %u has no Rigidbody component", targetEntityID);
 
 		auto& rb = entity->GetComponent<RigidbodyComponent>();
-		rb.velocity.x = static_cast<float>(luaL_checknumber(L, 1));
-		rb.velocity.y = static_cast<float>(luaL_checknumber(L, 2));
-		rb.velocity.z = static_cast<float>(luaL_checknumber(L, 3));
+		rb.velocity.x = static_cast<float>(luaL_checknumber(L, valueStartIndex));
+		rb.velocity.y = static_cast<float>(luaL_checknumber(L, valueStartIndex + 1));
+		rb.velocity.z = static_cast<float>(luaL_checknumber(L, valueStartIndex + 2));
 		return 0;
 	}
 
@@ -1254,18 +1526,16 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_gravity_scale: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+			return luaL_error(L, "engine.get_gravity_scale: invalid entity target or arguments");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<RigidbodyComponent>())
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_gravity_scale: entity %u has no Rigidbody component", targetEntityID);
 
 		lua_pushnumber(L, entity->GetComponent<RigidbodyComponent>().gravityScale);
 		return 1;
@@ -1275,14 +1545,18 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_gravity_scale: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int valueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 1, targetEntityID, valueStartIndex))
+			return luaL_error(L, "engine.set_gravity_scale: expected (value) or (entityID, value)");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<RigidbodyComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_gravity_scale: entity %u has no Rigidbody component", targetEntityID);
 
-		entity->GetComponent<RigidbodyComponent>().gravityScale = static_cast<float>(luaL_checknumber(L, 1));
+		entity->GetComponent<RigidbodyComponent>().gravityScale = static_cast<float>(luaL_checknumber(L, valueStartIndex));
 		return 0;
 	}
 
@@ -1290,14 +1564,18 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushboolean(L, 0);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_kinematic: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
-		lua_pushboolean(L, entity && entity->HasComponent<RigidbodyComponent>() && entity->GetComponent<RigidbodyComponent>().isKinematic);
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+			return luaL_error(L, "engine.get_kinematic: invalid entity target or arguments");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
+		if (!entity || !entity->HasComponent<RigidbodyComponent>())
+			return luaL_error(L, "engine.get_kinematic: entity %u has no Rigidbody component", targetEntityID);
+
+		lua_pushboolean(L, entity->GetComponent<RigidbodyComponent>().isKinematic ? 1 : 0);
 		return 1;
 	}
 
@@ -1305,14 +1583,18 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_kinematic: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int valueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 1, targetEntityID, valueStartIndex))
+			return luaL_error(L, "engine.set_kinematic: expected (isKinematic) or (entityID, isKinematic)");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<RigidbodyComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_kinematic: entity %u has no Rigidbody component", targetEntityID);
 
-		entity->GetComponent<RigidbodyComponent>().isKinematic = lua_toboolean(L, 1) != 0;
+		entity->GetComponent<RigidbodyComponent>().isKinematic = lua_toboolean(L, valueStartIndex) != 0;
 		return 0;
 	}
 
@@ -1325,8 +1607,15 @@ scene.log = engine_log
 			return 1;
 		}
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		lua_pushboolean(L, entity && entity->HasComponent<LightComponent>());
 		return 1;
 	}
@@ -1335,18 +1624,16 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_light_color: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+			return luaL_error(L, "engine.get_light_color: invalid entity target or arguments");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<LightComponent>())
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_light_color: entity %u has no Light component", targetEntityID);
 
 		const auto& light = entity->GetComponent<LightComponent>();
 		lua_pushnumber(L, light.color.x);
@@ -1359,17 +1646,21 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_light_color: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int valueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 3, targetEntityID, valueStartIndex))
+			return luaL_error(L, "engine.set_light_color: expected (r, g, b) or (entityID, r, g, b)");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<LightComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_light_color: entity %u has no Light component", targetEntityID);
 
 		auto& light = entity->GetComponent<LightComponent>();
-		light.color.x = static_cast<float>(luaL_checknumber(L, 1));
-		light.color.y = static_cast<float>(luaL_checknumber(L, 2));
-		light.color.z = static_cast<float>(luaL_checknumber(L, 3));
+		light.color.x = static_cast<float>(luaL_checknumber(L, valueStartIndex));
+		light.color.y = static_cast<float>(luaL_checknumber(L, valueStartIndex + 1));
+		light.color.z = static_cast<float>(luaL_checknumber(L, valueStartIndex + 2));
 		return 0;
 	}
 
@@ -1377,18 +1668,16 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_light_intensity: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+			return luaL_error(L, "engine.get_light_intensity: invalid entity target or arguments");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<LightComponent>())
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_light_intensity: entity %u has no Light component", targetEntityID);
 
 		lua_pushnumber(L, entity->GetComponent<LightComponent>().intensity);
 		return 1;
@@ -1398,14 +1687,18 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_light_intensity: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int valueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 1, targetEntityID, valueStartIndex))
+			return luaL_error(L, "engine.set_light_intensity: expected (value) or (entityID, value)");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<LightComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_light_intensity: entity %u has no Light component", targetEntityID);
 
-		entity->GetComponent<LightComponent>().intensity = static_cast<float>(luaL_checknumber(L, 1));
+		entity->GetComponent<LightComponent>().intensity = static_cast<float>(luaL_checknumber(L, valueStartIndex));
 		return 0;
 	}
 
@@ -1413,18 +1706,16 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_light_range: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+			return luaL_error(L, "engine.get_light_range: invalid entity target or arguments");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<LightComponent>())
-		{
-			lua_pushnil(L);
-			return 1;
-		}
+			return luaL_error(L, "engine.get_light_range: entity %u has no Light component", targetEntityID);
 
 		lua_pushnumber(L, entity->GetComponent<LightComponent>().range);
 		return 1;
@@ -1434,14 +1725,18 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_light_range: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int valueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 1, targetEntityID, valueStartIndex))
+			return luaL_error(L, "engine.set_light_range: expected (value) or (entityID, value)");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<LightComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_light_range: entity %u has no Light component", targetEntityID);
 
-		entity->GetComponent<LightComponent>().range = static_cast<float>(luaL_checknumber(L, 1));
+		entity->GetComponent<LightComponent>().range = static_cast<float>(luaL_checknumber(L, valueStartIndex));
 		return 0;
 	}
 
@@ -1454,8 +1749,15 @@ scene.log = engine_log
 			return 1;
 		}
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		lua_pushboolean(L, entity && entity->HasComponent<LightComponent>() && entity->GetComponent<LightComponent>().castShadows);
 		return 1;
 	}
@@ -1464,14 +1766,18 @@ scene.log = engine_log
 	{
 		auto* system = GetSystem(L);
 		if (!system || !system->m_CurrentScene)
-			return 0;
+			return luaL_error(L, "engine.set_light_cast_shadows: script runtime context is unavailable");
 
-		uint32_t entityID = GetBoundEntityID(L);
-		Entity* entity = FindEntity(*system->m_CurrentScene, entityID);
+		uint32_t targetEntityID = 0;
+		int valueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 1, targetEntityID, valueStartIndex))
+			return luaL_error(L, "engine.set_light_cast_shadows: expected (enabled) or (entityID, enabled)");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
 		if (!entity || !entity->HasComponent<LightComponent>())
-			return 0;
+			return luaL_error(L, "engine.set_light_cast_shadows: entity %u has no Light component", targetEntityID);
 
-		entity->GetComponent<LightComponent>().castShadows = lua_toboolean(L, 1) != 0;
+		entity->GetComponent<LightComponent>().castShadows = lua_toboolean(L, valueStartIndex) != 0;
 		return 0;
 	}
 }

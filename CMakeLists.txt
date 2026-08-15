@@ -364,6 +364,96 @@ if(EXISTS "C:/vcpkg/installed/x64-windows/bin")
 endif()
 
 # ============================================================
+# Smoke tests (serializer + Lua API)
+# ============================================================
+option(MYENGINE_BUILD_SMOKE_TESTS "Build smoke tests" ON)
+if(MYENGINE_BUILD_SMOKE_TESTS)
+    enable_testing()
+
+    set(SOURCES_NO_MAIN ${SOURCES})
+    list(REMOVE_ITEM SOURCES_NO_MAIN src/main.cpp)
+
+    add_executable(MyEngineSmokeTests
+        tests/SmokeTests.cpp
+        ${SOURCES_NO_MAIN}
+    )
+
+    target_include_directories(MyEngineSmokeTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/vendor/imgui
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/vendor/imgui/backends
+    )
+
+    if(LUA_FOUND)
+        target_include_directories(MyEngineSmokeTests PRIVATE ${LUA_INCLUDE_DIR})
+    endif()
+
+    target_link_libraries(MyEngineSmokeTests PRIVATE
+        OpenGL::GL
+        glad::glad
+        glfw
+        glm::glm
+        ${LUA_LIBRARIES}
+    )
+
+    if(TARGET OpenAL::OpenAL)
+        target_link_libraries(MyEngineSmokeTests PRIVATE OpenAL::OpenAL)
+    elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/OpenAL32.lib")
+        target_include_directories(MyEngineSmokeTests PRIVATE "C:/vcpkg/installed/x64-windows/include")
+        target_link_libraries(MyEngineSmokeTests PRIVATE "C:/vcpkg/installed/x64-windows/lib/OpenAL32.lib")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/OpenAL32.lib")
+        target_include_directories(MyEngineSmokeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+        target_link_libraries(MyEngineSmokeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/OpenAL32.lib")
+    endif()
+
+    if(WIN32)
+        target_link_libraries(MyEngineSmokeTests PRIVATE comdlg32)
+    endif()
+
+    if(TARGET imguizmo::imguizmo)
+        target_link_libraries(MyEngineSmokeTests PRIVATE imguizmo::imguizmo)
+        target_compile_definitions(MyEngineSmokeTests PRIVATE USE_IMGUIZMO)
+    elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/imguizmo.lib")
+        target_include_directories(MyEngineSmokeTests PRIVATE "C:/vcpkg/installed/x64-windows/include")
+        target_link_libraries(MyEngineSmokeTests PRIVATE "C:/vcpkg/installed/x64-windows/lib/imguizmo.lib")
+        target_compile_definitions(MyEngineSmokeTests PRIVATE USE_IMGUIZMO)
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imguizmo.lib")
+        target_include_directories(MyEngineSmokeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+        target_link_libraries(MyEngineSmokeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imguizmo.lib")
+        target_compile_definitions(MyEngineSmokeTests PRIVATE USE_IMGUIZMO)
+    endif()
+
+    if(TARGET imgui::imgui)
+        target_link_libraries(MyEngineSmokeTests PRIVATE imgui::imgui)
+        target_compile_definitions(MyEngineSmokeTests PRIVATE USE_IMGUI)
+    elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/imgui.lib")
+        target_include_directories(MyEngineSmokeTests PRIVATE "C:/vcpkg/installed/x64-windows/include")
+        target_link_libraries(MyEngineSmokeTests PRIVATE "C:/vcpkg/installed/x64-windows/lib/imgui.lib")
+        target_compile_definitions(MyEngineSmokeTests PRIVATE USE_IMGUI)
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imgui.lib")
+        target_include_directories(MyEngineSmokeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+        target_link_libraries(MyEngineSmokeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imgui.lib")
+        target_compile_definitions(MyEngineSmokeTests PRIVATE USE_IMGUI)
+    endif()
+
+    if(TARGET assimp::assimp)
+        target_link_libraries(MyEngineSmokeTests PRIVATE assimp::assimp)
+    elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/assimp-vc145-mt.lib")
+        target_include_directories(MyEngineSmokeTests PRIVATE "C:/vcpkg/installed/x64-windows/include")
+        target_link_libraries(MyEngineSmokeTests PRIVATE "C:/vcpkg/installed/x64-windows/lib/assimp-vc145-mt.lib")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/assimp-vc145-mt.lib")
+        target_include_directories(MyEngineSmokeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+        target_link_libraries(MyEngineSmokeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/assimp-vc145-mt.lib")
+    endif()
+
+    target_compile_definitions(MyEngineSmokeTests PRIVATE
+        GLM_ENABLE_EXPERIMENTAL
+    )
+
+    add_test(NAME MyEngineSmokeTests COMMAND MyEngineSmokeTests)
+endif()
+
+# ============================================================
 # Tools subdirectory
 # ============================================================
 add_subdirectory(tools)

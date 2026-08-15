@@ -28,6 +28,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/prettywriter.h>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
@@ -61,12 +62,17 @@ namespace MyEngine
 			return v;
 		}
 
-		bool SaveScene(const ::Scene& scene, const std::string& path)
+		bool SaveScene(
+			const ::Scene& scene,
+			const std::string& path,
+			const std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>& globalScripts
+		)
 		{
 			StringBuffer sb;
 			PrettyWriter<StringBuffer> writer(sb);
 
 			writer.StartObject();
+			writer.Key("sceneVersion"); writer.Int(3);
 			writer.Key("entities");
 			writer.StartArray();
 
@@ -305,6 +311,21 @@ namespace MyEngine
 			}
 
 			writer.EndArray();
+
+			writer.Key("globalScripts");
+			writer.StartArray();
+			for (size_t i = 0; i < globalScripts.size(); ++i)
+			{
+				const auto& gs = globalScripts[i];
+				writer.StartObject();
+				writer.Key("order"); writer.Uint(static_cast<unsigned int>(i));
+				writer.Key("scriptPath"); writer.String(gs.scriptPath.c_str());
+				writer.Key("enabled"); writer.Bool(gs.enabled);
+				writer.Key("autoStart"); writer.Bool(gs.autoStart);
+				writer.EndObject();
+			}
+			writer.EndArray();
+
 			writer.EndObject();
 
 			std::ofstream ofs(path, std::ios::binary);
@@ -320,7 +341,12 @@ namespace MyEngine
 			return true;
 		}
 
-		bool LoadScene(::Scene& scene, const std::string& path, const std::shared_ptr<MyEngine::Shader>& defaultShader)
+		bool LoadScene(
+			::Scene& scene,
+			const std::string& path,
+			const std::shared_ptr<MyEngine::Shader>& defaultShader,
+			std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>* outGlobalScripts
+		)
 		{
 			std::ifstream ifs(path);
 			if (!ifs)
@@ -341,6 +367,48 @@ namespace MyEngine
 
 			if (!doc.HasMember("entities") || !doc["entities"].IsArray())
 				return false;
+
+			if (outGlobalScripts)
+			{
+				outGlobalScripts->clear();
+				if (doc.HasMember("globalScripts") && doc["globalScripts"].IsArray())
+				{
+					std::vector<std::pair<unsigned int, MyEngine::ScriptSystem::GlobalScriptConfig>> orderedScripts;
+					for (const auto& gsValue : doc["globalScripts"].GetArray())
+					{
+						if (!gsValue.IsObject())
+							continue;
+
+						MyEngine::ScriptSystem::GlobalScriptConfig config;
+						if (gsValue.HasMember("scriptPath") && gsValue["scriptPath"].IsString())
+							config.scriptPath = gsValue["scriptPath"].GetString();
+						if (gsValue.HasMember("enabled") && gsValue["enabled"].IsBool())
+							config.enabled = gsValue["enabled"].GetBool();
+						if (gsValue.HasMember("autoStart") && gsValue["autoStart"].IsBool())
+							config.autoStart = gsValue["autoStart"].GetBool();
+						config.requestReload = false;
+
+						unsigned int orderIndex = static_cast<unsigned int>(orderedScripts.size());
+						if (gsValue.HasMember("order") && gsValue["order"].IsUint())
+							orderIndex = gsValue["order"].GetUint();
+						orderedScripts.emplace_back(orderIndex, config);
+					}
+
+					std::sort(
+						orderedScripts.begin(),
+						orderedScripts.end(),
+						[](const auto& a, const auto& b)
+						{
+							return a.first < b.first;
+						}
+					);
+
+					for (const auto& orderedScript : orderedScripts)
+					{
+						outGlobalScripts->push_back(orderedScript.second);
+					}
+				}
+			}
 
 			// Entity IDs are reassigned on load; remember the saved id for each
 			// loaded entity so parent references can be remapped afterwards.

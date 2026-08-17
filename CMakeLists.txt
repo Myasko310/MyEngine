@@ -123,6 +123,7 @@ set(SOURCES
     src/rendering/Texture.cpp
     src/rendering/Skybox.cpp
     src/rendering/PointShadowMap.cpp
+    src/rendering/Material.cpp
     src/renderer/FrustumCuller.cpp
     src/core/Input.cpp
     src/core/AssetManager.cpp
@@ -140,6 +141,7 @@ set(SOURCES
         src/systems/AudioSystem.cpp
         src/systems/AnimationSystem.cpp
         src/systems/ScriptSystem.cpp
+        src/systems/ParticleSystem.cpp
         src/serialization/SceneSerializer.cpp
     )
 

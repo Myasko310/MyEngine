@@ -9,6 +9,7 @@
 #include "components/SkeletonComponent.h"
 #include "components/AnimationComponent.h"
 #include "rendering/Shader.h"
+#include "rendering/Material.h"
 #include "audio/AudioClip.h"
 
 namespace MyEngine
@@ -17,6 +18,7 @@ namespace MyEngine
 	std::unordered_map<std::string, SkinnedModelData> AssetManager::s_SkinnedModelCache;
 	std::unordered_map<std::string, std::shared_ptr<Texture>> AssetManager::s_TextureCache;
 	std::unordered_map<std::string, std::shared_ptr<Shader>> AssetManager::s_ShaderCache;
+	std::unordered_map<std::string, std::shared_ptr<Material>> AssetManager::s_MaterialCache;
 	std::unordered_map<std::string, std::shared_ptr<AudioClip>> AssetManager::s_AudioClipCache;
 
 	std::vector<std::shared_ptr<Mesh>> AssetManager::LoadModel(const std::string& path)
@@ -78,6 +80,20 @@ namespace MyEngine
 		auto shader = std::make_shared<Shader>(vertexPath, fragmentPath);
 		s_ShaderCache[key] = shader;
 		return shader;
+	}
+
+	std::shared_ptr<Material> AssetManager::LoadMaterial(const std::string& path)
+	{
+		auto it = s_MaterialCache.find(path);
+		if (it != s_MaterialCache.end())
+			return it->second;
+
+		auto material = std::make_shared<Material>();
+		if (!material->LoadFromFile(path))
+			return nullptr;
+
+		s_MaterialCache[path] = material;
+		return material;
 	}
 
 	std::shared_ptr<AudioClip> AssetManager::LoadAudioClip(const std::string& path)

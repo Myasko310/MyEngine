@@ -76,6 +76,8 @@
 #include "systems/AudioSystem.h"
 #include "systems/AnimationSystem.h"
 #include "systems/ScriptSystem.h"
+#include "systems/ParticleSystem.h"
+#include "components/ParticleEmitterComponent.h"
 
 // Core (picking)
 #include "core/Raycast.h"
@@ -356,6 +358,7 @@ int main()
     std::string skyboxFacePaths[6]; // +X,-X,+Y,-Y,+Z,-Z
 
     AnimationSystem animationSystem;
+    MyEngine::ParticleSystem particleSystem;
 
     PhysicsSystem physicsSystem;
 
@@ -1282,6 +1285,7 @@ int main()
         // multiplied by a zero bone matrix, collapsing the mesh to the
         // origin (invisible) before Play is hit.
         animationSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
+        particleSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
 
         cameraSystem.Update(scene, window, deltaTime, aspectRatio);
 
@@ -2000,22 +2004,112 @@ int main()
                         {
                             auto& renderer = selectedEntity->GetComponent<MeshRendererComponent>();
                             ImGui::Checkbox("Visible", &renderer.visible);
-                            ImGui::ColorEdit3("Albedo", &renderer.albedo.x);
-                            // Shininess affects specular highlights for both textured and
-                            // untextured materials, so keep it always editable here.
-                            ImGui::DragFloat("Shininess", &renderer.shininess, 1.0f, 0.0f, 256.0f);
+
+                            ImGui::Separator();
+                            ImGui::Text("Material Asset");
+                            if (renderer.materialPath.empty() && renderer.material && !renderer.material->GetPath().empty())
+                            {
+                                renderer.materialPath = renderer.material->GetPath();
+                            }
+                            ImGui::TextWrapped("Current: %s", renderer.materialPath.empty() ? "(inline component material)" : renderer.materialPath.c_str());
+
+                            static char materialPathBuffer[256] = "assets/materials/default.material.json";
+                            ImGui::InputText("Material Path", materialPathBuffer, sizeof(materialPathBuffer));
+                            if (ImGui::Button("Load Material"))
+                            {
+                                std::string path = materialPathBuffer;
+                                if (!path.empty())
+                                {
+                                    if (auto material = MyEngine::AssetManager::LoadMaterial(path))
+                                    {
+                                        renderer.material = material;
+                                        renderer.materialPath = path;
+                                        if (material->shader)
+                                            renderer.shader = material->shader;
+                                    }
+                                }
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Create Material From Renderer"))
+                            {
+                                auto material = std::make_shared<MyEngine::Material>();
+                                material->shader = renderer.shader;
+                                if (renderer.shader)
+                                {
+                                    material->shaderVertexPath = renderer.shader->GetVertexPath();
+                                    material->shaderFragmentPath = renderer.shader->GetFragmentPath();
+                                }
+                                material->albedo = renderer.albedo;
+                                material->shininess = renderer.shininess;
+                                material->texture = renderer.texture;
+                                material->useTexture = renderer.useTexture;
+                                material->usePBR = renderer.usePBR;
+                                material->metallic = renderer.metallic;
+                                material->roughness = renderer.roughness;
+                                material->aoStrength = renderer.aoStrength;
+                                material->emissive = renderer.emissive;
+                                material->albedoMap = renderer.albedoMap;
+                                material->normalMap = renderer.normalMap;
+                                material->metallicRoughnessMap = renderer.metallicRoughnessMap;
+                                material->aoMap = renderer.aoMap;
+                                material->emissiveMap = renderer.emissiveMap;
+                                renderer.material = material;
+                                renderer.materialPath = materialPathBuffer;
+                                renderer.material->SetPath(renderer.materialPath);
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Clear Material"))
+                            {
+                                renderer.material = nullptr;
+                                renderer.materialPath.clear();
+                            }
+
+                            if (renderer.material && ImGui::Button("Save Material"))
+                            {
+                                std::string path = materialPathBuffer;
+                                if (!path.empty())
+                                {
+                                    renderer.materialPath = path;
+                                    renderer.material->SetPath(path);
+                                    if (renderer.material->shader)
+                                    {
+                                        renderer.material->shaderVertexPath = renderer.material->shader->GetVertexPath();
+                                        renderer.material->shaderFragmentPath = renderer.material->shader->GetFragmentPath();
+                                    }
+                                    renderer.material->SaveToFile(path);
+                                }
+                            }
+
+                            auto* material = renderer.material.get();
+                            auto& editableAlbedo = material ? material->albedo : renderer.albedo;
+                            float& editableShininess = material ? material->shininess : renderer.shininess;
+                            bool& editableUseTexture = material ? material->useTexture : renderer.useTexture;
+                            auto& editableTexture = material ? material->texture : renderer.texture;
+                            bool& editableUsePBR = material ? material->usePBR : renderer.usePBR;
+                            float& editableMetallic = material ? material->metallic : renderer.metallic;
+                            float& editableRoughness = material ? material->roughness : renderer.roughness;
+                            float& editableAO = material ? material->aoStrength : renderer.aoStrength;
+                            auto& editableEmissive = material ? material->emissive : renderer.emissive;
+                            auto& editableAlbedoMap = material ? material->albedoMap : renderer.albedoMap;
+                            auto& editableNormalMap = material ? material->normalMap : renderer.normalMap;
+                            auto& editableMetallicRoughnessMap = material ? material->metallicRoughnessMap : renderer.metallicRoughnessMap;
+                            auto& editableAOMap = material ? material->aoMap : renderer.aoMap;
+                            auto& editableEmissiveMap = material ? material->emissiveMap : renderer.emissiveMap;
+
+                            ImGui::ColorEdit3("Albedo", &editableAlbedo.x);
+                            ImGui::DragFloat("Shininess", &editableShininess, 1.0f, 0.0f, 256.0f);
 
                             ImGui::Separator();
                             ImGui::Text("Texture");
-                            ImGui::Checkbox("Use Texture", &renderer.useTexture);
+                            ImGui::Checkbox("Use Texture", &editableUseTexture);
 
-                            if (renderer.texture)
+                            if (editableTexture)
                             {
-                                ImGui::Text("Path: %s", renderer.texture->GetPath().c_str());
+                                ImGui::Text("Path: %s", editableTexture->GetPath().c_str());
                                 if (ImGui::Button("Clear Texture"))
                                 {
-                                    renderer.texture = nullptr;
-                                    renderer.useTexture = false;
+                                    editableTexture = nullptr;
+                                    editableUseTexture = false;
                                 }
                             }
                             else
@@ -2023,9 +2117,6 @@ int main()
                                 ImGui::Text("No texture loaded");
                             }
 
-                            // Cache the list of available textures found under assets/textures
-                            // (rescanned each time the folder mtime changes would be ideal, but
-                            // a simple static cache populated once keeps this lightweight).
                             static std::vector<std::string> availableTextures;
                             static bool texturesScanned = false;
                             if (!texturesScanned)
@@ -2057,18 +2148,18 @@ int main()
                                 availableTextures.clear();
                             }
 
-                            std::string currentTextureName = renderer.texture ? renderer.texture->GetPath() : "None";
+                            std::string currentTextureName = editableTexture ? editableTexture->GetPath() : "None";
                             if (ImGui::BeginCombo("Select Texture", currentTextureName.c_str()))
                             {
                                 for (const auto& texPath : availableTextures)
                                 {
-                                    bool isSelected = renderer.texture && renderer.texture->GetPath() == texPath;
+                                    bool isSelected = editableTexture && editableTexture->GetPath() == texPath;
                                     if (ImGui::Selectable(texPath.c_str(), isSelected))
                                     {
                                         try
                                         {
-                                            renderer.texture = MyEngine::AssetManager::LoadTexture(texPath);
-                                            renderer.useTexture = true;
+                                            editableTexture = MyEngine::AssetManager::LoadTexture(texPath);
+                                            editableUseTexture = true;
                                         }
                                         catch (const std::exception& e)
                                         {
@@ -2087,8 +2178,8 @@ int main()
                             {
                                 try
                                 {
-                                    renderer.texture = MyEngine::AssetManager::LoadTexture(texturePath);
-                                    renderer.useTexture = true;
+                                    editableTexture = MyEngine::AssetManager::LoadTexture(texturePath);
+                                    editableUseTexture = true;
                                 }
                                 catch (const std::exception& e)
                                 {
@@ -2098,22 +2189,30 @@ int main()
 
                             ImGui::Separator();
                             ImGui::Text("PBR Material");
-                            ImGui::Checkbox("Use PBR##usePbr", &renderer.usePBR);
+                            ImGui::Checkbox("Use PBR##usePbr", &editableUsePBR);
 
-                            if (renderer.usePBR)
+                            if (editableUsePBR)
                             {
-                                if (!renderer.shader)
+                                if (material)
+                                {
+                                    if (!material->shader)
+                                    {
+                                        material->shader = MyEngine::AssetManager::LoadShader("shaders/pbr.vert", "shaders/pbr.frag");
+                                        material->shaderVertexPath = "shaders/pbr.vert";
+                                        material->shaderFragmentPath = "shaders/pbr.frag";
+                                    }
+                                    renderer.shader = material->shader;
+                                }
+                                else if (!renderer.shader)
                                 {
                                     renderer.shader = MyEngine::AssetManager::LoadShader("shaders/pbr.vert", "shaders/pbr.frag");
                                 }
 
-                                ImGui::SliderFloat("Metallic", &renderer.metallic, 0.0f, 1.0f);
-                                ImGui::SliderFloat("Roughness", &renderer.roughness, 0.04f, 1.0f);
-                                ImGui::SliderFloat("AO Strength", &renderer.aoStrength, 0.0f, 1.0f);
-                                ImGui::ColorEdit3("Emissive", &renderer.emissive.x);
+                                ImGui::SliderFloat("Metallic", &editableMetallic, 0.0f, 1.0f);
+                                ImGui::SliderFloat("Roughness", &editableRoughness, 0.04f, 1.0f);
+                                ImGui::SliderFloat("AO Strength", &editableAO, 0.0f, 1.0f);
+                                ImGui::ColorEdit3("Emissive", &editableEmissive.x);
 
-                                // Reuses the same availableTextures scan as the classic texture
-                                // picker above so PBR maps can be assigned from assets/textures.
                                 auto pbrMapPicker = [&](const char* label, std::shared_ptr<MyEngine::Texture>& map)
                                 {
                                     std::string currentName = map ? map->GetPath() : "None";
@@ -2146,11 +2245,11 @@ int main()
                                     }
                                 };
 
-                                pbrMapPicker("Albedo Map", renderer.albedoMap);
-                                pbrMapPicker("Normal Map", renderer.normalMap);
-                                pbrMapPicker("Metallic/Roughness Map", renderer.metallicRoughnessMap);
-                                pbrMapPicker("AO Map", renderer.aoMap);
-                                pbrMapPicker("Emissive Map", renderer.emissiveMap);
+                                pbrMapPicker("Albedo Map", editableAlbedoMap);
+                                pbrMapPicker("Normal Map", editableNormalMap);
+                                pbrMapPicker("Metallic/Roughness Map", editableMetallicRoughnessMap);
+                                pbrMapPicker("AO Map", editableAOMap);
+                                pbrMapPicker("Emissive Map", editableEmissiveMap);
                             }
                         }
                     }
@@ -2550,6 +2649,56 @@ int main()
                         if (ImGui::Button("Add Audio Listener"))
                         {
                             selectedEntity->AddComponent<AudioListenerComponent>();
+                        }
+                    }
+
+                    // ---- Particle Emitter Component ----
+                    if (selectedEntity->HasComponent<ParticleEmitterComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Particle Emitter", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            auto& emitter = selectedEntity->GetComponent<ParticleEmitterComponent>();
+
+                            ImGui::Checkbox("Emitting", &emitter.emitting);
+
+                            if (ImGui::SliderInt("Max Particles", &emitter.maxParticles, 1, 10000))
+                                emitter.poolDirty = true;
+
+                            ImGui::SliderFloat("Spawn Rate", &emitter.spawnRate, 0.0f, 500.0f);
+                            ImGui::SliderFloat("Lifetime", &emitter.lifetime, 0.05f, 20.0f);
+                            ImGui::SliderFloat("Lifetime Variance", &emitter.lifetimeVariance, 0.0f, 5.0f);
+
+                            ImGui::Separator();
+                            ImGui::Text("Emission");
+                            ImGui::SliderFloat3("Direction##emit", &emitter.emitDirection.x, -1.0f, 1.0f);
+                            ImGui::SliderFloat("Speed", &emitter.emitSpeed, 0.0f, 30.0f);
+                            ImGui::SliderFloat("Speed Variance", &emitter.emitSpeedVariance, 0.0f, 10.0f);
+                            ImGui::SliderFloat("Spread Angle", &emitter.spreadAngle, 0.0f, 180.0f);
+                            ImGui::SliderFloat3("Gravity##emit", &emitter.gravity.x, -20.0f, 20.0f);
+
+                            ImGui::Separator();
+                            ImGui::Text("Appearance");
+                            ImGui::ColorEdit4("Color Start", &emitter.colorStart.r);
+                            ImGui::ColorEdit4("Color End",   &emitter.colorEnd.r);
+                            ImGui::SliderFloat("Size Start", &emitter.sizeStart, 0.0f, 5.0f);
+                            ImGui::SliderFloat("Size End",   &emitter.sizeEnd,   0.0f, 5.0f);
+
+                            // Count alive particles for debug info
+                            int alive = 0;
+                            for (const auto& p : emitter.particles)
+                                if (p.alive) ++alive;
+                            ImGui::Text("Alive: %d / %d", alive, emitter.maxParticles);
+
+                            if (ImGui::Button("Remove Particle Emitter"))
+                                selectedEntity->RemoveComponent<ParticleEmitterComponent>();
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Particle Emitter"))
+                        {
+                            auto& emitter = selectedEntity->AddComponent<ParticleEmitterComponent>();
+                            emitter.poolDirty = true;
                         }
                     }
                 }
@@ -3105,7 +3254,11 @@ int main()
 
         renderSystem.Render(scene, view, projection);
 
-        // Skybox is drawn after opaque geometry (into whichever framebuffer
+        // Particles are rendered after opaque geometry and before skybox
+        // so they alpha-blend correctly over solid surfaces.
+        particleSystem.Render(scene, view, projection);
+
+        // Skybox is drawn after opaque geometry
         // is currently bound - the HDR post-process target or the default
         // framebuffer) so only far-depth pixels are filled, minimizing the
         // chance of pass state impacting scene object rendering.

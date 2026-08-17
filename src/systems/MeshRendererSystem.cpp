@@ -437,14 +437,31 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         if (!meshComponent.mesh)
             continue;
 
-        if (!renderer.shader)
+        auto activeMaterial = renderer.material;
+        auto activeShader = (activeMaterial && activeMaterial->shader) ? activeMaterial->shader : renderer.shader;
+        if (!activeShader)
             continue;
 
-        renderer.shader->Use();
+        const glm::vec3& materialAlbedo = activeMaterial ? activeMaterial->albedo : renderer.albedo;
+        float materialShininess = activeMaterial ? activeMaterial->shininess : renderer.shininess;
+        bool useTexture = activeMaterial ? activeMaterial->useTexture : renderer.useTexture;
+        const auto& baseTexture = activeMaterial ? activeMaterial->texture : renderer.texture;
+        bool usePBR = activeMaterial ? activeMaterial->usePBR : renderer.usePBR;
+        float metallic = activeMaterial ? activeMaterial->metallic : renderer.metallic;
+        float roughness = activeMaterial ? activeMaterial->roughness : renderer.roughness;
+        float aoStrength = activeMaterial ? activeMaterial->aoStrength : renderer.aoStrength;
+        const glm::vec3& emissive = activeMaterial ? activeMaterial->emissive : renderer.emissive;
+        const auto& albedoMap = activeMaterial ? activeMaterial->albedoMap : renderer.albedoMap;
+        const auto& normalMap = activeMaterial ? activeMaterial->normalMap : renderer.normalMap;
+        const auto& metallicRoughnessMap = activeMaterial ? activeMaterial->metallicRoughnessMap : renderer.metallicRoughnessMap;
+        const auto& aoMap = activeMaterial ? activeMaterial->aoMap : renderer.aoMap;
+        const auto& emissiveMap = activeMaterial ? activeMaterial->emissiveMap : renderer.emissiveMap;
 
-        renderer.shader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
-        renderer.shader->SetMat4("u_View", view);
-        renderer.shader->SetMat4("u_Projection", projection);
+        activeShader->Use();
+
+        activeShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
+        activeShader->SetMat4("u_View", view);
+        activeShader->SetMat4("u_Projection", projection);
 
         // Skinned meshes upload their computed bone matrix palette (already
         // sampled/animated by AnimationSystem this frame) so the skinning
@@ -455,68 +472,60 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
             for (int b = 0; b < boneCount; ++b)
             {
-                renderer.shader->SetMat4("u_BoneMatrices[" + std::to_string(b) + "]", anim.boneMatrices[b]);
+                activeShader->SetMat4("u_BoneMatrices[" + std::to_string(b) + "]", anim.boneMatrices[b]);
             }
         }
 
         // Material uniforms
-        renderer.shader->SetVec3("u_MaterialAlbedo", renderer.albedo);
-        renderer.shader->SetFloat("u_MaterialShininess", renderer.shininess);
+        activeShader->SetVec3("u_MaterialAlbedo", materialAlbedo);
+        activeShader->SetFloat("u_MaterialShininess", materialShininess);
 
         int nextTextureUnit = 0;
 
-        if (renderer.usePBR)
+        if (usePBR)
         {
-            // PBR scalar factors
-            renderer.shader->SetFloat("u_Metallic", renderer.metallic);
-            renderer.shader->SetFloat("u_Roughness", renderer.roughness);
-            renderer.shader->SetFloat("u_AOStrength", renderer.aoStrength);
-            renderer.shader->SetVec3("u_Emissive", renderer.emissive);
+            activeShader->SetFloat("u_Metallic", metallic);
+            activeShader->SetFloat("u_Roughness", roughness);
+            activeShader->SetFloat("u_AOStrength", aoStrength);
+            activeShader->SetVec3("u_Emissive", emissive);
 
             auto bindOptionalMap = [&](const std::shared_ptr<MyEngine::Texture>& map, const char* useUniform, const char* samplerUniform)
             {
                 if (map)
                 {
                     map->Bind(nextTextureUnit);
-                    renderer.shader->SetInt(samplerUniform, nextTextureUnit);
-                    renderer.shader->SetBool(useUniform, true);
+                    activeShader->SetInt(samplerUniform, nextTextureUnit);
+                    activeShader->SetBool(useUniform, true);
                     ++nextTextureUnit;
                 }
                 else
                 {
-                    renderer.shader->SetBool(useUniform, false);
+                    activeShader->SetBool(useUniform, false);
                 }
             };
 
-            bindOptionalMap(renderer.albedoMap, "u_UseAlbedoMap", "u_AlbedoMap");
-            bindOptionalMap(renderer.normalMap, "u_UseNormalMap", "u_NormalMap");
-            bindOptionalMap(renderer.metallicRoughnessMap, "u_UseMetallicRoughnessMap", "u_MetallicRoughnessMap");
-            bindOptionalMap(renderer.aoMap, "u_UseAOMap", "u_AOMap");
-            bindOptionalMap(renderer.emissiveMap, "u_UseEmissiveMap", "u_EmissiveMap");
+            bindOptionalMap(albedoMap, "u_UseAlbedoMap", "u_AlbedoMap");
+            bindOptionalMap(normalMap, "u_UseNormalMap", "u_NormalMap");
+            bindOptionalMap(metallicRoughnessMap, "u_UseMetallicRoughnessMap", "u_MetallicRoughnessMap");
+            bindOptionalMap(aoMap, "u_UseAOMap", "u_AOMap");
+            bindOptionalMap(emissiveMap, "u_UseEmissiveMap", "u_EmissiveMap");
         }
         else
         {
-            // Reserve texture unit 0 for the 2D material sampler even when no
-            // texture is bound. If a point-light shadow cubemap also uses unit
-            // 0 while u_Texture still defaults to 0, OpenGL sees sampler2D and
-            // samplerCube reading from the same unit in one program and emits
-            // GL_INVALID_OPERATION ("program texture usage"), which was causing
-            // lit objects to vanish when point-light shadows were enabled.
-            renderer.shader->SetInt("u_Texture", 0);
+            activeShader->SetInt("u_Texture", 0);
             nextTextureUnit = 1;
 
-            if (renderer.useTexture && renderer.texture)
+            if (useTexture && baseTexture)
             {
-                renderer.texture->Bind(0);
-                renderer.shader->SetBool("u_UseTexture", true);
+                baseTexture->Bind(0);
+                activeShader->SetBool("u_UseTexture", true);
 
-                // Debug: verify texture is valid
                 static bool debugOnce = false;
                 if (!debugOnce)
                 {
                     std::cout << "[MeshRendererSystem] Texture enabled!" << std::endl;
-                    std::cout << "  - Texture ID: " << renderer.texture->GetID() << std::endl;
-                    std::cout << "  - Path: " << renderer.texture->GetPath() << std::endl;
+                    std::cout << "  - Texture ID: " << baseTexture->GetID() << std::endl;
+                    std::cout << "  - Path: " << baseTexture->GetPath() << std::endl;
                     std::cout << "  - UseTexture uniform: true" << std::endl;
                     std::cout << "  - Texture unit: 0" << std::endl;
                     debugOnce = true;
@@ -524,35 +533,30 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             }
             else
             {
-                renderer.shader->SetBool("u_UseTexture", false);
+                activeShader->SetBool("u_UseTexture", false);
             }
         }
 
         // Light uniforms
-        renderer.shader->SetVec3("u_LightDirection", lightDir.x, lightDir.y, lightDir.z);
-        renderer.shader->SetVec3("u_LightColor", lightColor.x, lightColor.y, lightColor.z);
-        renderer.shader->SetVec3("u_AmbientColor", ambientColor.x, ambientColor.y, ambientColor.z);
-        renderer.shader->SetVec3("u_ViewPos", viewPos);
-        renderer.shader->SetFloat("u_PointShadowBias", m_Impl ? m_Impl->pointShadowBias : 0.02f);
+        activeShader->SetVec3("u_LightDirection", lightDir.x, lightDir.y, lightDir.z);
+        activeShader->SetVec3("u_LightColor", lightColor.x, lightColor.y, lightColor.z);
+        activeShader->SetVec3("u_AmbientColor", ambientColor.x, ambientColor.y, ambientColor.z);
+        activeShader->SetVec3("u_ViewPos", viewPos);
+        activeShader->SetFloat("u_PointShadowBias", m_Impl ? m_Impl->pointShadowBias : 0.02f);
 
         // Point lights
-        renderer.shader->SetInt("u_NumPointLights", static_cast<int>(pointLights.size()));
+        activeShader->SetInt("u_NumPointLights", static_cast<int>(pointLights.size()));
         for (size_t i = 0; i < pointLights.size(); ++i)
         {
             std::string idx = std::to_string(i);
-            renderer.shader->SetVec3("u_PointLightPos[" + idx + "]", pointLights[i].pos);
-            renderer.shader->SetVec3("u_PointLightColor[" + idx + "]", pointLights[i].color);
-            renderer.shader->SetFloat("u_PointLightRange[" + idx + "]", pointLights[i].range);
-            renderer.shader->SetBool("u_PointLightCastShadows[" + idx + "]", pointShadowMapIndices[i] >= 0);
-            renderer.shader->SetFloat("u_PointShadowFarPlane[" + idx + "]", pointShadowFarPlanes[i]);
+            activeShader->SetVec3("u_PointLightPos[" + idx + "]", pointLights[i].pos);
+            activeShader->SetVec3("u_PointLightColor[" + idx + "]", pointLights[i].color);
+            activeShader->SetFloat("u_PointLightRange[" + idx + "]", pointLights[i].range);
+            activeShader->SetBool("u_PointLightCastShadows[" + idx + "]", pointShadowMapIndices[i] >= 0);
+            activeShader->SetFloat("u_PointShadowFarPlane[" + idx + "]", pointShadowFarPlanes[i]);
 
-            // Always assign a dedicated cubemap unit for each point-light shadow
-            // sampler, even when that light is not currently casting shadows.
-            // If the samplerCube uniform is left at its default unit 0 while a
-            // sampler2D also uses unit 0, OpenGL reports GL_INVALID_OPERATION
-            // ("program texture usage") even though shadowing is disabled.
             int pointShadowUnit = std::max(nextTextureUnit, 1);
-            renderer.shader->SetInt("u_PointShadowMap[" + idx + "]", pointShadowUnit);
+            activeShader->SetInt("u_PointShadowMap[" + idx + "]", pointShadowUnit);
             if (pointShadowMapIndices[i] >= 0 && m_Impl && m_Impl->pointShadowsEnabled)
             {
                 m_Impl->pointShadowMaps[pointShadowMapIndices[i]].BindForReading(pointShadowUnit);
@@ -561,29 +565,27 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         }
 
         // Spot lights
-        renderer.shader->SetInt("u_NumSpotLights", static_cast<int>(spotLights.size()));
+        activeShader->SetInt("u_NumSpotLights", static_cast<int>(spotLights.size()));
         for (size_t i = 0; i < spotLights.size(); ++i)
         {
             std::string idx = std::to_string(i);
-            renderer.shader->SetVec3("u_SpotLightPos[" + idx + "]", spotLights[i].pos);
-            renderer.shader->SetVec3("u_SpotLightDir[" + idx + "]", spotLights[i].dir);
-            renderer.shader->SetVec3("u_SpotLightColor[" + idx + "]", spotLights[i].color);
-            renderer.shader->SetFloat("u_SpotLightRange[" + idx + "]", spotLights[i].range);
-            renderer.shader->SetFloat("u_SpotLightInnerCos[" + idx + "]", spotLights[i].innerCos);
-            renderer.shader->SetFloat("u_SpotLightOuterCos[" + idx + "]", spotLights[i].outerCos);
+            activeShader->SetVec3("u_SpotLightPos[" + idx + "]", spotLights[i].pos);
+            activeShader->SetVec3("u_SpotLightDir[" + idx + "]", spotLights[i].dir);
+            activeShader->SetVec3("u_SpotLightColor[" + idx + "]", spotLights[i].color);
+            activeShader->SetFloat("u_SpotLightRange[" + idx + "]", spotLights[i].range);
+            activeShader->SetFloat("u_SpotLightInnerCos[" + idx + "]", spotLights[i].innerCos);
+            activeShader->SetFloat("u_SpotLightOuterCos[" + idx + "]", spotLights[i].outerCos);
         }
 
         // Shadow uniforms
-        renderer.shader->SetMat4("u_LightSpace", lightSpaceMatrix);
-        renderer.shader->SetBool("u_DirectionalShadowsEnabled", m_Impl && m_Impl->shadowsEnabled);
+        activeShader->SetMat4("u_LightSpace", lightSpaceMatrix);
+        activeShader->SetBool("u_DirectionalShadowsEnabled", m_Impl && m_Impl->shadowsEnabled);
         if (m_Impl && m_Impl->shadowsEnabled)
         {
-            // Bind shadow map to the next free texture unit (material maps may
-            // have already claimed units 0..nextTextureUnit-1)
             int shadowUnit = nextTextureUnit;
             m_Impl->shadowMap.BindForReading(shadowUnit);
-            renderer.shader->SetInt("u_ShadowMap", shadowUnit);
-            renderer.shader->SetFloat("u_ShadowBias", m_Impl->shadowBias);
+            activeShader->SetInt("u_ShadowMap", shadowUnit);
+            activeShader->SetFloat("u_ShadowBias", m_Impl->shadowBias);
         }
 
         meshComponent.mesh->Draw();

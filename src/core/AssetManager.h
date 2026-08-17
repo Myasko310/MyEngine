@@ -15,6 +15,7 @@ namespace MyEngine
 	class AudioClip;
 	class Skeleton;
 	class AnimationClip;
+	class Material;
 
 	// Result of loading a rigged/animated model: meshes plus the shared
 	// skeleton and animation clips extracted from the same source file.
@@ -42,6 +43,9 @@ namespace MyEngine
 
 		// Load/create a shader from vertex+fragment paths (cached by combined path)
 		static std::shared_ptr<Shader> LoadShader(const std::string& vertexPath, const std::string& fragmentPath);
+
+		// Load a material asset (cached by path)
+		static std::shared_ptr<Material> LoadMaterial(const std::string& path);
 
 		// Load an audio clip (WAV) from disk (cached by path)
 		static std::shared_ptr<AudioClip> LoadAudioClip(const std::string& path);
@@ -71,6 +75,7 @@ namespace MyEngine
 		static std::unordered_map<std::string, SkinnedModelData> s_SkinnedModelCache;
 		static std::unordered_map<std::string, std::shared_ptr<Texture>> s_TextureCache;
 		static std::unordered_map<std::string, std::shared_ptr<Shader>> s_ShaderCache;
+		static std::unordered_map<std::string, std::shared_ptr<Material>> s_MaterialCache;
 		static std::unordered_map<std::string, std::shared_ptr<AudioClip>> s_AudioClipCache;
 	};
 }

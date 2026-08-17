@@ -169,6 +169,14 @@ namespace MyEngine
 					writer.Key("albedo"); SerializeVec3(writer, mr.albedo);
 					writer.Key("shininess"); writer.Double(mr.shininess);
 					writer.Key("useTexture"); writer.Bool(mr.useTexture);
+					if (!mr.materialPath.empty())
+					{
+						writer.Key("materialPath"); writer.String(mr.materialPath.c_str());
+					}
+					else if (mr.material && !mr.material->GetPath().empty())
+					{
+						writer.Key("materialPath"); writer.String(mr.material->GetPath().c_str());
+					}
 					if (mr.texture)
 					{
 						writer.Key("texturePath"); writer.String(mr.texture->GetPath().c_str());
@@ -544,6 +552,15 @@ namespace MyEngine
 					if (mo.HasMember("visible")) mr.visible = mo["visible"].GetBool();
 					if (mo.HasMember("albedo")) mr.albedo = DeserializeVec3(mo["albedo"]);
 					if (mo.HasMember("shininess")) mr.shininess = static_cast<float>(mo["shininess"].GetDouble());
+					if (mo.HasMember("materialPath") && mo["materialPath"].IsString())
+					{
+						mr.materialPath = mo["materialPath"].GetString();
+						mr.material = MyEngine::AssetManager::LoadMaterial(mr.materialPath);
+						if (mr.material && mr.material->shader)
+						{
+							mr.shader = mr.material->shader;
+						}
+					}
 					if (mo.HasMember("texturePath") && mo["texturePath"].IsString())
 					{
 						mr.texture = MyEngine::AssetManager::LoadTexture(mo["texturePath"].GetString());

@@ -1,14 +1,18 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include <glm/glm.hpp>
 
 #include "rendering/Shader.h"
 #include "rendering/Texture.h"
+#include "rendering/Material.h"
 
 struct MeshRendererComponent
 {
+    std::shared_ptr<MyEngine::Material> material = nullptr;
+    std::string materialPath;
     std::shared_ptr<MyEngine::Shader> shader = nullptr;
     bool visible = true;
     glm::vec3 albedo = glm::vec3(1.0f);

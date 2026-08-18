@@ -32,6 +32,15 @@ public:
         m_Name = name;
     }
 
+    // --- Tag & Layer ---
+    const std::string& GetTag() const   { return m_Tag; }
+    void SetTag(const std::string& tag) { m_Tag = tag; }
+
+    // Layer is a single index [0-31] identifying which layer this entity
+    // belongs to.  Use LayerMask::GetName/SetName to manage layer names.
+    uint32_t GetLayer() const          { return m_Layer; }
+    void     SetLayer(uint32_t layer)  { m_Layer = layer; }
+
     template<typename T, typename... Args>
     T& AddComponent(Args&&... args)
     {
@@ -72,8 +81,10 @@ public:
     }
 
 private:
-    uint32_t m_ID = 0;
+    uint32_t    m_ID    = 0;
     std::string m_Name;
+    std::string m_Tag;
+    uint32_t    m_Layer = 0;  // index into LayerMask registry
 
     std::unordered_map<std::type_index, std::shared_ptr<void>> m_Components;
 };

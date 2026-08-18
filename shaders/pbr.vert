@@ -9,13 +9,12 @@ layout(location = 6) in vec3 a_Tangent;
 uniform mat4 u_Model;
 uniform mat4 u_View;
 uniform mat4 u_Projection;
-uniform mat4 u_LightSpace;
 
 out vec3 v_Position;
 out vec3 v_Color;
 out vec3 v_Normal;
 out vec2 v_TexCoords;
-out vec4 v_FragPosLightSpace;
+out float v_ViewSpaceDepth;  // positive view-space depth for cascade selection
 out mat3 v_TBN;
 
 void main()
@@ -26,15 +25,12 @@ void main()
 	vec3 N = normalize(normalMatrix * a_Normal);
 	v_Normal = N;
 
-	// Build the TBN matrix for tangent-space normal mapping. Falls back to
-	// an arbitrary orthogonal basis when the imported mesh has no tangents
-	// (a_Tangent == 0), which is harmless since u_UseNormalMap is only true
-	// when a normal map was actually assigned.
+	// Build the TBN matrix for tangent-space normal mapping.
 	vec3 T = a_Tangent;
 	if (dot(T, T) > 0.0001)
 	{
 		T = normalize(normalMatrix * T);
-		T = normalize(T - N * dot(N, T)); // re-orthogonalize (Gram-Schmidt)
+		T = normalize(T - N * dot(N, T));
 		vec3 B = cross(N, T);
 		v_TBN = mat3(T, B, N);
 	}
@@ -45,6 +41,8 @@ void main()
 
 	v_Color = a_Color;
 	v_TexCoords = a_TexCoords;
-	v_FragPosLightSpace = u_LightSpace * vec4(v_Position, 1.0);
-	gl_Position = u_Projection * u_View * vec4(v_Position, 1.0);
+
+	vec4 viewPos = u_View * vec4(v_Position, 1.0);
+	v_ViewSpaceDepth = -viewPos.z;
+	gl_Position = u_Projection * viewPos;
 }

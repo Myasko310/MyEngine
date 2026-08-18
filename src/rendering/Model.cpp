@@ -3,7 +3,9 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <assimp/material.h>
 
+#include <filesystem>
 #include <iostream>
 #include <unordered_map>
 
@@ -114,8 +116,18 @@ namespace MyEngine
 		}
 
 		m_Meshes.clear();
+		m_MeshMaterials.clear();
 		m_Skeleton.reset();
 		m_AnimationClips.clear();
+
+		// Build directory prefix for resolving relative texture paths
+		std::string modelDir;
+		{
+			std::filesystem::path p(path);
+			modelDir = p.parent_path().generic_string();
+			if (!modelDir.empty() && modelDir.back() != '/')
+				modelDir += '/';
+		}
 
 		// Collect bone offset matrices across all meshes first, so the node
 		// tree walk below (CollectBones) knows which nodes are bones.
@@ -241,6 +253,51 @@ namespace MyEngine
 
 			auto mesh = std::make_shared<Mesh>(vertices, indices);
 			m_Meshes.push_back(mesh);
+
+			// Extract material data for this mesh
+			MeshMaterialData matData;
+			if (aMesh->mMaterialIndex < scene->mNumMaterials)
+			{
+				aiMaterial* aiMat = scene->mMaterials[aMesh->mMaterialIndex];
+
+				// Name
+				aiString matName;
+				if (aiMat->Get(AI_MATKEY_NAME, matName) == AI_SUCCESS)
+					matData.name = matName.C_Str();
+
+				// Diffuse colour -> albedo
+				aiColor4D diffuse(1.0f, 1.0f, 1.0f, 1.0f);
+				if (aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, diffuse) == AI_SUCCESS)
+					matData.albedo = glm::vec3(diffuse.r, diffuse.g, diffuse.b);
+
+				// Shininess
+				float shininess = 32.0f;
+				if (aiMat->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS && shininess > 0.0f)
+					matData.shininess = shininess;
+
+				// First diffuse texture path
+				aiString texPath;
+				if (aiMat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
+				{
+					std::string tp = texPath.C_Str();
+					// If the path is relative, make it relative to the model directory
+					if (!tp.empty() && tp[0] != '/' && tp.find(':') == std::string::npos)
+						tp = modelDir + tp;
+					matData.diffuseTexturePath = tp;
+				}
+
+				// First normal map path (try NORMALS, fall back to HEIGHT)
+				aiString nrmPath;
+				if (aiMat->GetTexture(aiTextureType_NORMALS, 0, &nrmPath) == AI_SUCCESS ||
+					aiMat->GetTexture(aiTextureType_HEIGHT,  0, &nrmPath) == AI_SUCCESS)
+				{
+					std::string np = nrmPath.C_Str();
+					if (!np.empty() && np[0] != '/' && np.find(':') == std::string::npos)
+						np = modelDir + np;
+					matData.normalTexturePath = np;
+				}
+			}
+			m_MeshMaterials.push_back(std::move(matData));
 		}
 
 		// Process animations: one AnimationClip per aiAnimation, one

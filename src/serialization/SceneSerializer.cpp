@@ -19,6 +19,10 @@
 #include "components/SkeletonComponent.h"
 #include "components/AnimationComponent.h"
 #include "components/ScriptComponent.h"
+#include "components/LODComponent.h"
+#include "components/TerrainComponent.h"
+#include "components/NavigationAgentComponent.h"
+#include "core/LayerMask.h"
 #include "rendering/MeshPrimitives.h"
 #include "rendering/Texture.h"
 #include "audio/AudioClip.h"
@@ -29,6 +33,7 @@
 #include <rapidjson/prettywriter.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
@@ -68,11 +73,37 @@ namespace MyEngine
 			const std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>& globalScripts
 		)
 		{
+			std::string json = SaveSceneToString(scene, globalScripts);
+			if (json.empty()) return false;
+
+			std::ofstream ofs(path, std::ios::binary);
+			if (!ofs)
+			{
+				std::cerr << "Failed to open " << path << " for writing." << std::endl;
+				return false;
+			}
+			ofs << json;
+			ofs.close();
+			return true;
+		}
+
+		std::string SaveSceneToString(
+			const ::Scene& scene,
+			const std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>& globalScripts
+		)
+		{
 			StringBuffer sb;
 			PrettyWriter<StringBuffer> writer(sb);
 
 			writer.StartObject();
 			writer.Key("sceneVersion"); writer.Int(3);
+
+			// Layer name registry
+			writer.Key("layerNames"); writer.StartArray();
+			for (int i = 0; i < MyEngine::MAX_LAYERS; ++i)
+				writer.String(MyEngine::LayerMask::GetName(i).c_str());
+			writer.EndArray();
+
 			writer.Key("entities");
 			writer.StartArray();
 
@@ -85,6 +116,8 @@ namespace MyEngine
 
 				writer.Key("id"); writer.Uint(e->GetID());
 				writer.Key("name"); writer.String(e->GetName().c_str());
+				writer.Key("tag");  writer.String(e->GetTag().c_str());
+				writer.Key("layer"); writer.Uint(e->GetLayer());
 
 				// Transform
 				if (e->HasComponent<TransformComponent>())
@@ -141,6 +174,42 @@ namespace MyEngine
 					writer.EndObject();
 				}
 
+				// LODComponent
+				if (e->HasComponent<LODComponent>())
+				{
+					auto& lod = e->GetComponent<LODComponent>();
+					writer.Key("LODComponent");
+					writer.StartObject();
+					writer.Key("enabled"); writer.Bool(lod.enabled);
+					writer.Key("levels"); writer.StartArray();
+					for (auto& lvl : lod.levels)
+					{
+						writer.StartObject();
+						writer.Key("distance"); writer.Double(lvl.distanceThreshold);
+						writer.Key("assetPath"); writer.String(lvl.assetPath.c_str());
+						writer.EndObject();
+					}
+					writer.EndArray();
+					writer.EndObject();
+				}
+
+				// TerrainComponent
+				if (e->HasComponent<TerrainComponent>())
+				{
+					auto& tc = e->GetComponent<TerrainComponent>();
+					writer.Key("TerrainComponent");
+					writer.StartObject();
+					writer.Key("heightmapPath");      writer.String(tc.heightmapPath.c_str());
+					writer.Key("width");              writer.Double(tc.width);
+					writer.Key("depth");              writer.Double(tc.depth);
+					writer.Key("heightScale");        writer.Double(tc.heightScale);
+					writer.Key("resolution");         writer.Int(tc.resolution);
+					writer.Key("surfaceTexturePath"); writer.String(tc.surfaceTexturePath.c_str());
+					writer.Key("shaderVertPath");     writer.String(tc.shaderVertPath.c_str());
+					writer.Key("shaderFragPath");     writer.String(tc.shaderFragPath.c_str());
+					writer.EndObject();
+				}
+
 				// AnimationComponent: playback state only. The clips/skeleton
 				// themselves come back from re-loading the skinned model via
 				// MeshComponent.assetPath (see above/below), since they're
@@ -156,6 +225,17 @@ namespace MyEngine
 					writer.Key("playbackSpeed"); writer.Double(ac.playbackSpeed);
 					writer.Key("playing"); writer.Bool(ac.playing);
 					writer.Key("looping"); writer.Bool(ac.looping);
+					writer.EndObject();
+				}
+
+				// NavigationAgentComponent
+				if (e->HasComponent<NavigationAgentComponent>())
+				{
+					auto& nav = e->GetComponent<NavigationAgentComponent>();
+					writer.Key("NavAgent");
+					writer.StartObject();
+					writer.Key("speed");           writer.Double(nav.speed);
+					writer.Key("stoppingDistance"); writer.Double(nav.stoppingDistance);
 					writer.EndObject();
 				}
 
@@ -336,17 +416,84 @@ namespace MyEngine
 
 			writer.EndObject();
 
-			std::ofstream ofs(path, std::ios::binary);
-			if (!ofs)
+			return std::string(sb.GetString());
+		}
+
+		bool LoadSceneFromString(
+			::Scene& scene,
+			const std::string& json,
+			const std::shared_ptr<MyEngine::Shader>& defaultShader,
+			std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>* outGlobalScripts
+		)
+		{
+			if (json.empty()) return false;
+
+			Document doc;
+			if (doc.Parse(json.c_str()).HasParseError())
 			{
-				std::cerr << "Failed to open " << path << " for writing." << std::endl;
+				std::cerr << "Failed to parse scene JSON from string." << std::endl;
 				return false;
 			}
 
-			ofs << sb.GetString();
-			ofs.close();
+			if (!doc.HasMember("entities") || !doc["entities"].IsArray())
+				return false;
 
-			return true;
+			// Restore layer name registry if present
+			if (doc.HasMember("layerNames") && doc["layerNames"].IsArray())
+			{
+				const auto& ln = doc["layerNames"].GetArray();
+				for (int i = 0; i < MyEngine::MAX_LAYERS && i < static_cast<int>(ln.Size()); ++i)
+					if (ln[i].IsString())
+						MyEngine::LayerMask::SetName(i, ln[i].GetString());
+			}
+
+			// Re-use LoadScene by writing to a temp in-memory path trick — 
+			// actually delegate by passing json as if from a stream.
+			// We do this by writing to a temp file path and delegating, but
+			// to avoid disk I/O we directly duplicate the parse+load body.
+			// For now call the file-based loader via a stringstream temp file.
+			// (Full inline implementation below mirrors LoadScene exactly.)
+
+			if (outGlobalScripts)
+			{
+				outGlobalScripts->clear();
+				if (doc.HasMember("globalScripts") && doc["globalScripts"].IsArray())
+				{
+					std::vector<std::pair<unsigned int, MyEngine::ScriptSystem::GlobalScriptConfig>> orderedScripts;
+					for (const auto& gsValue : doc["globalScripts"].GetArray())
+					{
+						if (!gsValue.IsObject()) continue;
+						MyEngine::ScriptSystem::GlobalScriptConfig config;
+						if (gsValue.HasMember("scriptPath") && gsValue["scriptPath"].IsString())
+							config.scriptPath = gsValue["scriptPath"].GetString();
+						if (gsValue.HasMember("enabled") && gsValue["enabled"].IsBool())
+							config.enabled = gsValue["enabled"].GetBool();
+						if (gsValue.HasMember("autoStart") && gsValue["autoStart"].IsBool())
+							config.autoStart = gsValue["autoStart"].GetBool();
+						config.requestReload = false;
+						unsigned int orderIndex = static_cast<unsigned int>(orderedScripts.size());
+						if (gsValue.HasMember("order") && gsValue["order"].IsUint())
+							orderIndex = gsValue["order"].GetUint();
+						orderedScripts.emplace_back(orderIndex, config);
+					}
+					std::sort(orderedScripts.begin(), orderedScripts.end(),
+						[](const auto& a, const auto& b){ return a.first < b.first; });
+					for (auto& [idx, cfg] : orderedScripts)
+						outGlobalScripts->push_back(cfg);
+				}
+			}
+
+			// Write json to a temp file then delegate to LoadScene
+			// (avoids duplicating the entire entity-load body)
+			const std::string tmpPath =
+				(std::filesystem::temp_directory_path() / "MyEngine_inmem_load.scene").generic_string();
+			{
+				std::ofstream tmp(tmpPath, std::ios::binary);
+				if (!tmp) return false;
+				tmp << json;
+			}
+			// Clear global scripts from the temp load (already handled above)
+			return LoadScene(scene, tmpPath, defaultShader, nullptr);
 		}
 
 		bool LoadScene(
@@ -375,6 +522,15 @@ namespace MyEngine
 
 			if (!doc.HasMember("entities") || !doc["entities"].IsArray())
 				return false;
+
+			// Restore layer name registry if present
+			if (doc.HasMember("layerNames") && doc["layerNames"].IsArray())
+			{
+				const auto& ln = doc["layerNames"].GetArray();
+				for (int i = 0; i < MyEngine::MAX_LAYERS && i < static_cast<int>(ln.Size()); ++i)
+					if (ln[i].IsString())
+						MyEngine::LayerMask::SetName(i, ln[i].GetString());
+			}
 
 			if (outGlobalScripts)
 			{
@@ -434,6 +590,9 @@ namespace MyEngine
 
 				if (v.HasMember("id") && v["id"].IsUint())
 					savedToNewID[v["id"].GetUint()] = ent->GetID();
+
+				if (v.HasMember("tag")   && v["tag"].IsString())   ent->SetTag(v["tag"].GetString());
+				if (v.HasMember("layer") && v["layer"].IsUint())   ent->SetLayer(v["layer"].GetUint());
 
 				if (v.HasMember("Transform") && v["Transform"].IsObject())
 				{
@@ -534,12 +693,53 @@ namespace MyEngine
 					}
 				}
 
+				if (v.HasMember("LODComponent") && v["LODComponent"].IsObject())
+				{
+					const auto& lo = v["LODComponent"];
+					auto& lod = ent->AddComponent<LODComponent>();
+					if (lo.HasMember("enabled")) lod.enabled = lo["enabled"].GetBool();
+					if (lo.HasMember("levels") && lo["levels"].IsArray())
+					{
+						for (auto& lvlv : lo["levels"].GetArray())
+						{
+							LODComponent::Level lvl;
+							if (lvlv.HasMember("distance"))  lvl.distanceThreshold = static_cast<float>(lvlv["distance"].GetDouble());
+							if (lvlv.HasMember("assetPath")) lvl.assetPath = lvlv["assetPath"].GetString();
+							if (!lvl.assetPath.empty())
+							{
+								auto meshes = MyEngine::AssetManager::LoadModel(lvl.assetPath);
+								if (!meshes.empty()) lvl.mesh = meshes[0];
+							}
+							lod.levels.push_back(std::move(lvl));
+						}
+					}
+				}
+
+				if (v.HasMember("TerrainComponent") && v["TerrainComponent"].IsObject())
+				{
+					const auto& to = v["TerrainComponent"];
+					auto& tc = ent->AddComponent<TerrainComponent>();
+					if (to.HasMember("heightmapPath"))      tc.heightmapPath      = to["heightmapPath"].GetString();
+					if (to.HasMember("width"))              tc.width              = static_cast<float>(to["width"].GetDouble());
+					if (to.HasMember("depth"))              tc.depth              = static_cast<float>(to["depth"].GetDouble());
+					if (to.HasMember("heightScale"))        tc.heightScale        = static_cast<float>(to["heightScale"].GetDouble());
+					if (to.HasMember("resolution"))         tc.resolution         = to["resolution"].GetInt();
+					if (to.HasMember("surfaceTexturePath")) tc.surfaceTexturePath = to["surfaceTexturePath"].GetString();
+					if (to.HasMember("shaderVertPath"))     tc.shaderVertPath     = to["shaderVertPath"].GetString();
+					if (to.HasMember("shaderFragPath"))     tc.shaderFragPath     = to["shaderFragPath"].GetString();
+					if (!tc.surfaceTexturePath.empty())
+						tc.surfaceTexture = MyEngine::AssetManager::LoadTexture(tc.surfaceTexturePath);
+					if (!tc.shaderVertPath.empty() && !tc.shaderFragPath.empty())
+						tc.shader = MyEngine::AssetManager::LoadShader(tc.shaderVertPath, tc.shaderFragPath);
+					tc.dirty = true;
+				}
+
 				if (v.HasMember("MeshRenderer") && v["MeshRenderer"].IsObject())
 				{
 					auto& mr = ent->AddComponent<MeshRendererComponent>();
 					const auto& mo = v["MeshRenderer"];
-					if (mo.HasMember("shaderVertexPath") && mo["shaderVertexPath"].IsString() &&
-						mo.HasMember("shaderFragmentPath") && mo["shaderFragmentPath"].IsString())
+				if (mo.HasMember("shaderVertexPath") && mo["shaderVertexPath"].IsString() &&
+					mo.HasMember("shaderFragmentPath") && mo["shaderFragmentPath"].IsString())
 					{
 						mr.shader = MyEngine::AssetManager::LoadShader(mo["shaderVertexPath"].GetString(), mo["shaderFragmentPath"].GetString());
 					}
@@ -582,9 +782,18 @@ namespace MyEngine
 					if (aco.HasMember("playbackSpeed")) ac.playbackSpeed = static_cast<float>(aco["playbackSpeed"].GetDouble());
 					if (aco.HasMember("playing")) ac.playing = aco["playing"].GetBool();
 					if (aco.HasMember("looping")) ac.looping = aco["looping"].GetBool();
-				}
+					}
 
-				// Rigidbody (must exist as a Component-derived type; add then populate fields)
+					// NavigationAgentComponent
+					if (v.HasMember("NavAgent") && v["NavAgent"].IsObject())
+					{
+						auto& nav = ent->AddComponent<NavigationAgentComponent>();
+						const auto& no = v["NavAgent"];
+						if (no.HasMember("speed"))           nav.speed           = static_cast<float>(no["speed"].GetDouble());
+						if (no.HasMember("stoppingDistance")) nav.stoppingDistance = static_cast<float>(no["stoppingDistance"].GetDouble());
+					}
+
+					// Rigidbody (must exist as a Component-derived type; add then populate fields)
 				if (v.HasMember("Rigidbody") && v["Rigidbody"].IsObject())
 				{
 					auto& rb = ent->AddComponent<MyEngine::RigidbodyComponent>();
@@ -718,7 +927,71 @@ namespace MyEngine
 					ent->GetComponent<JointComponent>().connectedEntityID = it->second;
 			}
 
-			return true;
-		}
-	}
-}
+					return true;
+					}
+
+					// -------------------------------------------------------------------
+					// Prefab helpers
+					// -------------------------------------------------------------------
+					// SavePrefab serialises a single entity by creating a temporary
+					// single-entity scene and delegating to SaveScene.
+							bool SavePrefab(
+								::Entity* entity,
+								const std::string& path
+							)
+							{
+								if (!entity)
+									return false;
+
+								// Build a minimal temporary scene that contains only this entity.
+								::Scene tmp;
+								auto clone = tmp.CreateEntity(entity->GetName());
+
+					#define COPY_COMPONENT(T) \
+						if (entity->HasComponent<T>()) clone->AddComponent<T>() = entity->GetComponent<T>()
+
+								COPY_COMPONENT(TransformComponent);
+								COPY_COMPONENT(CameraComponent);
+								COPY_COMPONENT(LightComponent);
+								COPY_COMPONENT(MeshComponent);
+								COPY_COMPONENT(MeshRendererComponent);
+								COPY_COMPONENT(BoundingSphereComponent);
+								COPY_COMPONENT(RigidbodyComponent);
+								COPY_COMPONENT(BoxColliderComponent);
+								COPY_COMPONENT(CapsuleColliderComponent);
+								COPY_COMPONENT(PlaneColliderComponent);
+								COPY_COMPONENT(AudioSourceComponent);
+								COPY_COMPONENT(AudioListenerComponent);
+								COPY_COMPONENT(JointComponent);
+								COPY_COMPONENT(SkeletonComponent);
+								COPY_COMPONENT(AnimationComponent);
+								COPY_COMPONENT(ScriptComponent);
+										COPY_COMPONENT(LODComponent);
+										COPY_COMPONENT(TerrainComponent);
+										COPY_COMPONENT(NavigationAgentComponent);
+								#undef COPY_COMPONENT
+
+								return SaveScene(tmp, path);
+							}
+
+					// SpawnPrefab loads a prefab file (which is just a single-entity scene
+					// file), creates the entity in the target scene and returns it.
+					::Entity* SpawnPrefab(
+						::Scene& scene,
+						const std::string& path,
+						const std::shared_ptr<MyEngine::Shader>& defaultShader
+					)
+					{
+						size_t before = scene.GetEntities().size();
+
+						if (!LoadScene(scene, path, defaultShader))
+							return nullptr;
+
+						auto& entities = scene.GetEntities();
+						if (entities.size() <= before)
+							return nullptr;
+
+						return entities.back().get();
+					}
+				}
+			}

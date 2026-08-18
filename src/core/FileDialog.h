@@ -22,5 +22,24 @@ namespace MyEngine
 		// Opens a native "Open File" dialog filtered to Lua scripts.
 		// Returns the selected file path, or an empty string if cancelled.
 		std::string OpenScriptFile();
+
+		// Opens a native "Open File" dialog filtered to *.material.json files.
+		// Returns the selected file path, or an empty string if cancelled.
+		std::string OpenMaterialFile();
+
+		// Opens a native "Save File" dialog filtered to *.material.json files.
+		// Returns the selected file path (with .material.json extension ensured),
+		// or an empty string if cancelled.
+		std::string SaveMaterialFile();
+
+		// Opens a native "Open File" dialog filtered to common 3D model formats.
+		// Returns the selected file path, or an empty string if cancelled.
+		std::string OpenModelFile();
+
+		// Opens a native "Open File" dialog filtered to *.prefab.json files.
+		std::string OpenPrefabFile();
+
+		// Opens a native "Save File" dialog filtered to *.prefab.json files.
+		std::string SavePrefabFile();
 	}
 }

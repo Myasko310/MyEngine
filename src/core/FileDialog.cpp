@@ -83,6 +83,93 @@ namespace MyEngine
 
 			return std::string();
 		}
+
+		std::string OpenMaterialFile()
+		{
+			char fileName[MAX_PATH] = "";
+
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "Material Files (*.material.json)\0*.material.json\0JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.lpstrDefExt = "json";
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+			if (GetOpenFileNameA(&ofn))
+				return std::string(fileName);
+
+			return std::string();
+		}
+
+		std::string SaveMaterialFile()
+		{
+			char fileName[MAX_PATH] = "new_material.material.json";
+
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "Material Files (*.material.json)\0*.material.json\0JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.lpstrDefExt = "json";
+			ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+			if (GetSaveFileNameA(&ofn))
+				return std::string(fileName);
+
+			return std::string();
+		}
+
+		std::string OpenModelFile()
+		{
+			char fileName[MAX_PATH] = "";
+
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "3D Model Files (*.obj;*.fbx;*.gltf;*.glb;*.dae)\0*.obj;*.fbx;*.gltf;*.glb;*.dae\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+			if (GetOpenFileNameA(&ofn))
+				return std::string(fileName);
+
+			return std::string();
+		}
+
+		std::string OpenPrefabFile()
+		{
+			char fileName[MAX_PATH] = "";
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "Prefab Files (*.prefab.json)\0*.prefab.json\0JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+			if (GetOpenFileNameA(&ofn))
+				return std::string(fileName);
+			return std::string();
+		}
+
+		std::string SavePrefabFile()
+		{
+			char fileName[MAX_PATH] = "new_prefab.prefab.json";
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "Prefab Files (*.prefab.json)\0*.prefab.json\0JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.lpstrDefExt = "json";
+			ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+			if (GetSaveFileNameA(&ofn))
+				return std::string(fileName);
+			return std::string();
+		}
 #else
 		std::string OpenSceneFile()
 		{
@@ -100,6 +187,31 @@ namespace MyEngine
 		}
 
 		std::string OpenScriptFile()
+		{
+			return std::string();
+		}
+
+		std::string OpenMaterialFile()
+		{
+			return std::string();
+		}
+
+		std::string SaveMaterialFile()
+		{
+			return std::string();
+		}
+
+		std::string OpenModelFile()
+		{
+			return std::string();
+		}
+
+		std::string OpenPrefabFile()
+		{
+			return std::string();
+		}
+
+		std::string SavePrefabFile()
 		{
 			return std::string();
 		}

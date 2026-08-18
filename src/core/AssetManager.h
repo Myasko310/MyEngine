@@ -47,6 +47,15 @@ namespace MyEngine
 		// Load a material asset (cached by path)
 		static std::shared_ptr<Material> LoadMaterial(const std::string& path);
 
+		// Import materials embedded in a model file.
+		// For each mesh in the model a Material asset is created (or reused if it
+		// already exists) under `outputDir/<modelStem>_<index>.material.json`.
+		// The returned vector is ordered to match the model's mesh list.
+		// Pass an empty outputDir to default to "assets/materials".
+		static std::vector<std::shared_ptr<Material>> ImportModelMaterials(
+			const std::string& modelPath,
+			const std::string& outputDir = "");
+
 		// Load an audio clip (WAV) from disk (cached by path)
 		static std::shared_ptr<AudioClip> LoadAudioClip(const std::string& path);
 

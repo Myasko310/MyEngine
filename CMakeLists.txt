@@ -124,11 +124,17 @@ set(SOURCES
     src/rendering/Skybox.cpp
     src/rendering/PointShadowMap.cpp
     src/rendering/Material.cpp
+    src/rendering/IBLProbe.cpp
+    src/systems/TerrainSystem.cpp
+    src/systems/NavMeshSystem.cpp
     src/renderer/FrustumCuller.cpp
     src/core/Input.cpp
     src/core/AssetManager.cpp
     src/core/Raycast.cpp
     src/core/FileDialog.cpp
+    src/core/LayerMask.cpp
+
+    src/rendering/SSAOPass.cpp
 
     src/audio/AudioEngine.cpp
     src/audio/AudioClip.cpp

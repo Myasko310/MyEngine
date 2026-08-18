@@ -30,6 +30,7 @@
 #include "components/BoundingSphereComponent.h"
 #include "components/MeshComponent.h"
 #include "components/MeshRendererComponent.h"
+#include "components/LODComponent.h"
 #include "components/RigidbodyComponent.h"
 #include "components/PlaneColliderComponent.h"
 #include "components/BoxColliderComponent.h"
@@ -55,6 +56,7 @@
 #include "serialization/SceneSerializer.h"
 // Asset manager
 #include "core/AssetManager.h"
+#include "core/LayerMask.h"
 
 #ifdef USE_IMGUI
 #include "imgui.h"
@@ -70,6 +72,10 @@
 // Systems
 #include "systems/CameraSystem.h"
 #include "systems/MeshRendererSystem.h"
+#include "systems/TerrainSystem.h"
+#include "systems/NavMeshSystem.h"
+#include "components/TerrainComponent.h"
+#include "components/NavigationAgentComponent.h"
 #include "rendering/PostProcessPipeline.h"
 #include "rendering/Skybox.h"
 #include "systems/PhysicsSystem.h"
@@ -343,6 +349,9 @@ int main()
     CameraSystem cameraSystem;
 
     MeshRendererSystem renderSystem;
+    TerrainSystem terrainSystem;
+    terrainSystem.Init();
+    NavMeshSystem navMeshSystem;
 
     MyEngine::PostProcessPipeline postProcess;
     postProcess.Init(static_cast<unsigned int>(g_WindowWidth), static_cast<unsigned int>(g_WindowHeight));
@@ -796,12 +805,12 @@ int main()
     // Scene simulation state
     bool isPlaying = false;
 
-    // Play/edit mode snapshot: the scene is serialized to a temp file when
-    // entering play mode and restored when stopping, so simulation changes
-    // (physics, scripts) don't permanently alter the edited scene.
-    bool hasPlaySnapshot = false;
-    const std::string playSnapshotPath =
-        (std::filesystem::temp_directory_path() / "MyEngine_playmode_snapshot.scene").generic_string();
+    // Play/edit mode snapshot: the scene is serialized to an in-memory
+    // string when entering play mode and restored when stopping, so
+    // simulation changes (physics, scripts) don't permanently alter the
+    // edited scene.  No temp file needed.
+    bool        hasPlaySnapshot   = false;
+    std::string playSnapshotJSON;  // in-memory snapshot (replaces temp file)
 
     // Scene file state
     std::string currentScenePath;
@@ -819,6 +828,21 @@ int main()
     bool showPhysicsPanel = true;
     bool showAssetBrowser = true;
     std::string assetBrowserPath = "assets";
+
+    // Material Browser state
+    bool showMaterialBrowser = false;
+    bool showIBLPanel        = false;
+    bool showLayerManager    = false;
+    std::string materialBrowserPath = "assets/materials";
+    std::string selectedMaterialPath;                          // currently selected file in the list
+    std::shared_ptr<MyEngine::Material> editingMaterial;       // material open in the inline editor
+    char  materialRenameBuffer[256] = "";                      // rename-in-place buffer
+    bool  materialRenameActive = false;                        // is rename mode open
+    char  newMaterialNameBuffer[256] = "new_material.material.json"; // create-new dialog buffer
+    bool  showNewMaterialDialog = false;
+    // Texture list used by the material editor (same scan as inspector)
+    std::vector<std::string> matBrowserTextures;
+    bool matBrowserTexturesScanned = false;
     std::vector<MyEngine::ScriptSystem::GlobalScriptConfig> globalScripts = { MyEngine::ScriptSystem::GlobalScriptConfig{} };
 
 #ifdef USE_IMGUIZMO
@@ -844,7 +868,8 @@ int main()
 
         if (play)
         {
-            hasPlaySnapshot = MyEngine::Serialization::SaveScene(scene, playSnapshotPath, globalScripts);
+            playSnapshotJSON = MyEngine::Serialization::SaveSceneToString(scene, globalScripts);
+            hasPlaySnapshot  = !playSnapshotJSON.empty();
             isPlaying = true;
         }
         else
@@ -879,8 +904,9 @@ int main()
                     if (e) ids.push_back(e->GetID());
                 for (uint32_t id : ids)
                     scene.DestroyEntity(id);
-                MyEngine::Serialization::LoadScene(scene, playSnapshotPath, litShader, &globalScripts);
-                hasPlaySnapshot = false;
+                MyEngine::Serialization::LoadSceneFromString(scene, playSnapshotJSON, litShader, &globalScripts);
+                hasPlaySnapshot  = false;
+                playSnapshotJSON.clear();
 
                 // The player entity was destroyed above along with the rest of the
                 // scene; re-resolve it from the freshly loaded entities so gameplay
@@ -1084,6 +1110,16 @@ int main()
                 t.position = glm::vec3(0.0f, 0.5f, -3.0f);
                 t.scale = glm::vec3(1.0f);
                 MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], path, litShader);
+                // Auto-create materials from embedded model data
+                auto importedMats = MyEngine::AssetManager::ImportModelMaterials(path);
+                if (!importedMats.empty() && importedMats[0])
+                {
+                    auto& mr = ent->GetComponent<MeshRendererComponent>();
+                    mr.material     = importedMats[0];
+                    mr.materialPath = importedMats[0]->GetPath();
+                    if (importedMats[0]->shader)
+                        mr.shader = importedMats[0]->shader;
+                }
             }
         }
 
@@ -1292,6 +1328,7 @@ int main()
         audioSystem.Update(scene, deltaTime);
         scriptSystem.SetGlobalScripts(globalScripts);
         scriptSystem.OnUpdate(scene, deltaTime);
+        navMeshSystem.Update(scene, deltaTime);
 
         glm::mat4 view = cameraSystem.GetViewMatrix();
         glm::mat4 projection = cameraSystem.GetProjectionMatrix();
@@ -1395,6 +1432,17 @@ int main()
                     }
                 }
                 ImGui::Separator();
+                if (ImGui::MenuItem("Spawn Prefab..."))
+                {
+                    std::string path = MyEngine::FileDialog::OpenPrefabFile();
+                    if (!path.empty())
+                    {
+                        auto spawned = MyEngine::Serialization::SpawnPrefab(scene, path, litShader);
+                        if (spawned)
+                            selectedEntity = spawned;
+                    }
+                }
+                ImGui::Separator();
                 if (ImGui::MenuItem("Exit", "ESC"))
                 {
                     glfwSetWindowShouldClose(window, true);
@@ -1407,11 +1455,19 @@ int main()
                     ImGui::MenuItem("Scene Hierarchy", nullptr, &showSceneHierarchy);
                     ImGui::MenuItem("Inspector", nullptr, &showInspector);
                     ImGui::MenuItem("Lighting", nullptr, &showLightingPanel);
+                    ImGui::MenuItem("IBL", nullptr, &showIBLPanel);
+                    ImGui::MenuItem("Layer Manager", nullptr, &showLayerManager);
                     ImGui::MenuItem("Post-Processing", nullptr, &showPostProcessPanel);
                     ImGui::MenuItem("Skybox", nullptr, &showSkyboxPanel);
                     ImGui::MenuItem("Scripting", nullptr, &showScriptingPanel);
                     ImGui::MenuItem("Performance", nullptr, &showPerformancePanel);
                     ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
+                    ImGui::MenuItem("Material Browser", nullptr, &showMaterialBrowser);
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Bake NavMesh"))
+                    {
+                        navMeshSystem.Bake(scene);
+                    }
                     ImGui::Separator();
                     if (ImGui::MenuItem("Toggle Wireframe", "F"))
                     {
@@ -1475,6 +1531,16 @@ int main()
                             t.position = glm::vec3(0.0f, 0.5f, -3.0f);
                             t.scale = glm::vec3(1.0f);
                             MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], path, litShader);
+                            // Auto-create materials from embedded model data
+                            auto importedMats = MyEngine::AssetManager::ImportModelMaterials(path);
+                            if (!importedMats.empty() && importedMats[0])
+                            {
+                                auto& mr = ent->GetComponent<MeshRendererComponent>();
+                                mr.material     = importedMats[0];
+                                mr.materialPath = importedMats[0]->GetPath();
+                                if (importedMats[0]->shader)
+                                    mr.shader = importedMats[0]->shader;
+                            }
                             selectedEntity = ent.get();
                         }
                     }
@@ -1687,6 +1753,16 @@ int main()
                                     auto& t = ent->AddComponent<TransformComponent>();
                                     t.position = glm::vec3(0.0f, 0.5f, -3.0f);
                                     MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], filePath, litShader);
+                                    // Auto-create materials from embedded model data
+                                    auto importedMats = MyEngine::AssetManager::ImportModelMaterials(filePath);
+                                    if (!importedMats.empty() && importedMats[0])
+                                    {
+                                        auto& mr = ent->GetComponent<MeshRendererComponent>();
+                                        mr.material     = importedMats[0];
+                                        mr.materialPath = importedMats[0]->GetPath();
+                                        if (importedMats[0]->shader)
+                                            mr.shader = importedMats[0]->shader;
+                                    }
                                     selectedEntity = ent.get();
                                 }
                             }
@@ -1700,6 +1776,14 @@ int main()
                                     as.clipPath = filePath;
                                     as.clip = MyEngine::AssetManager::LoadAudioClip(filePath);
                                 }
+                            }
+                            else if (filePath.find(".material.json") != std::string::npos)
+                            {
+                                // Open the material browser and jump straight to this file
+                                showMaterialBrowser = true;
+                                selectedMaterialPath = filePath;
+                                editingMaterial = MyEngine::AssetManager::LoadMaterial(filePath);
+                                matBrowserTexturesScanned = false;
                             }
                             else if (ext == ".scene" || ext == ".json")
                             {
@@ -1720,6 +1804,8 @@ int main()
                                 ImGui::SetTooltip("Double-click: add model to scene");
                             else if (ext == ".wav")
                                 ImGui::SetTooltip("Double-click: assign clip to selected entity's audio source");
+                            else if (filePath.find(".material.json") != std::string::npos)
+                                ImGui::SetTooltip("Double-click: open in Material Browser");
                             else if (ext == ".scene" || ext == ".json")
                                 ImGui::SetTooltip("Double-click: open scene");
                         }
@@ -1734,8 +1820,448 @@ int main()
             }
 
             // ============================================================
-            // Scene Hierarchy Panel
+            // Material Browser Panel
             // ============================================================
+            if (showMaterialBrowser)
+            {
+                ImGui::SetNextWindowPos(ImVec2(320, 440), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(680, 560), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Material Browser", &showMaterialBrowser);
+
+                namespace fs = std::filesystem;
+
+                // Ensure the root folder exists
+                {
+                    std::error_code ec;
+                    fs::create_directories(materialBrowserPath, ec);
+                }
+
+                // ---- Toolbar ----
+                if (ImGui::Button("New Material"))
+                    showNewMaterialDialog = true;
+
+                ImGui::SameLine();
+                if (ImGui::Button("Open..."))
+                {
+                    std::string picked = MyEngine::FileDialog::OpenMaterialFile();
+                    if (!picked.empty())
+                    {
+                        selectedMaterialPath = picked;
+                        editingMaterial = MyEngine::AssetManager::LoadMaterial(picked);
+                        matBrowserTexturesScanned = false;
+                    }
+                }
+
+                ImGui::SameLine();
+                if (ImGui::Button("Refresh"))
+                    matBrowserTexturesScanned = false; // also forces texture list rescan
+
+                ImGui::SameLine();
+                ImGui::TextDisabled("Dir: %s", materialBrowserPath.c_str());
+
+                ImGui::Separator();
+
+                // ---- New Material dialog (inline) ----
+                if (showNewMaterialDialog)
+                {
+                    ImGui::InputText("Name##newmat", newMaterialNameBuffer, sizeof(newMaterialNameBuffer));
+                    ImGui::SameLine();
+                    if (ImGui::Button("Create##newmat"))
+                    {
+                        std::string newPath = materialBrowserPath + "/" + newMaterialNameBuffer;
+                        // Ensure .material.json extension
+                        if (newPath.find(".material.json") == std::string::npos)
+                            newPath += ".material.json";
+
+                        auto mat = std::make_shared<MyEngine::Material>();
+                        mat->SetPath(newPath);
+                        mat->shaderVertexPath  = "shaders/lit.vert";
+                        mat->shaderFragmentPath = "shaders/lit.frag";
+                        mat->shader = MyEngine::AssetManager::LoadShader(mat->shaderVertexPath, mat->shaderFragmentPath);
+                        mat->SaveToFile(newPath);
+
+                        selectedMaterialPath = newPath;
+                        editingMaterial = mat;
+                        showNewMaterialDialog = false;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel##newmat"))
+                        showNewMaterialDialog = false;
+
+                    ImGui::Separator();
+                }
+
+                // ---- Two-column layout: list | editor ----
+                float listWidth = 220.0f;
+                ImGui::BeginChild("##matlist", ImVec2(listWidth, 0), true);
+
+                // Breadcrumb navigation
+                if (materialBrowserPath != "assets/materials")
+                {
+                    if (ImGui::Button("<- Back"))
+                    {
+                        fs::path parent = fs::path(materialBrowserPath).parent_path();
+                        materialBrowserPath = parent.empty() ? "assets/materials" : parent.generic_string();
+                        selectedMaterialPath.clear();
+                        editingMaterial = nullptr;
+                    }
+                }
+                ImGui::TextDisabled("%s", fs::path(materialBrowserPath).filename().string().c_str());
+                ImGui::Separator();
+
+                if (fs::exists(materialBrowserPath) && fs::is_directory(materialBrowserPath))
+                {
+                    // Subdirectories first
+                    for (const auto& entry : fs::directory_iterator(materialBrowserPath))
+                    {
+                        if (!entry.is_directory()) continue;
+                        std::string label = "[DIR] " + entry.path().filename().string();
+                        if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
+                            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                        {
+                            materialBrowserPath = entry.path().generic_string();
+                            selectedMaterialPath.clear();
+                            editingMaterial = nullptr;
+                        }
+                    }
+
+                    // Material files
+                    for (const auto& entry : fs::directory_iterator(materialBrowserPath))
+                    {
+                        if (!entry.is_regular_file()) continue;
+                        std::string filePath = entry.path().generic_string();
+                        std::string fileName = entry.path().filename().string();
+                        // Only show .material.json and .json files
+                        if (filePath.find(".json") == std::string::npos) continue;
+
+                        bool isSelected = (filePath == selectedMaterialPath);
+                        if (ImGui::Selectable(fileName.c_str(), isSelected))
+                        {
+                            selectedMaterialPath = filePath;
+                            editingMaterial = MyEngine::AssetManager::LoadMaterial(filePath);
+                            matBrowserTexturesScanned = false;
+                            materialRenameActive = false;
+                        }
+
+                        // Right-click context menu
+                        if (ImGui::BeginPopupContextItem(filePath.c_str()))
+                        {
+                            if (ImGui::MenuItem("Edit"))
+                            {
+                                selectedMaterialPath = filePath;
+                                editingMaterial = MyEngine::AssetManager::LoadMaterial(filePath);
+                                matBrowserTexturesScanned = false;
+                            }
+                            if (ImGui::MenuItem("Assign to Selected Entity"))
+                            {
+                                if (selectedEntity && selectedEntity->HasComponent<MeshRendererComponent>())
+                                {
+                                    auto mat = MyEngine::AssetManager::LoadMaterial(filePath);
+                                    if (mat)
+                                    {
+                                        auto& mr = selectedEntity->GetComponent<MeshRendererComponent>();
+                                        mr.material = mat;
+                                        mr.materialPath = filePath;
+                                        if (mat->shader)
+                                            mr.shader = mat->shader;
+                                    }
+                                }
+                            }
+                            ImGui::Separator();
+                            if (ImGui::MenuItem("Rename"))
+                            {
+                                selectedMaterialPath = filePath;
+                                std::strncpy(materialRenameBuffer, fileName.c_str(), sizeof(materialRenameBuffer) - 1);
+                                materialRenameActive = true;
+                            }
+                            if (ImGui::MenuItem("Delete"))
+                            {
+                                std::error_code ec;
+                                fs::remove(filePath, ec);
+                                if (selectedMaterialPath == filePath)
+                                {
+                                    selectedMaterialPath.clear();
+                                    editingMaterial = nullptr;
+                                }
+                            }
+                            ImGui::EndPopup();
+                        }
+
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Click: select | Right-click: options");
+                    }
+                }
+                else
+                {
+                    ImGui::TextDisabled("Folder not found");
+                }
+
+                ImGui::EndChild();
+                ImGui::SameLine();
+
+                // ---- Right side: editor ----
+                ImGui::BeginChild("##mateditor", ImVec2(0, 0), false);
+
+                if (!selectedMaterialPath.empty() && editingMaterial)
+                {
+                    auto& mat = *editingMaterial;
+
+                    // Rename bar
+                    if (materialRenameActive)
+                    {
+                        ImGui::SetNextItemWidth(300.0f);
+                        if (ImGui::InputText("##rename", materialRenameBuffer, sizeof(materialRenameBuffer),
+                                             ImGuiInputTextFlags_EnterReturnsTrue))
+                        {
+                            std::string newPath = fs::path(selectedMaterialPath).parent_path().generic_string()
+                                                  + "/" + materialRenameBuffer;
+                            std::error_code ec;
+                            fs::rename(selectedMaterialPath, newPath, ec);
+                            if (!ec)
+                            {
+                                mat.SetPath(newPath);
+                                selectedMaterialPath = newPath;
+                            }
+                            materialRenameActive = false;
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("OK##ren"))
+                        {
+                            std::string newPath = fs::path(selectedMaterialPath).parent_path().generic_string()
+                                                  + "/" + materialRenameBuffer;
+                            std::error_code ec;
+                            fs::rename(selectedMaterialPath, newPath, ec);
+                            if (!ec) { mat.SetPath(newPath); selectedMaterialPath = newPath; }
+                            materialRenameActive = false;
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Cancel##ren"))
+                            materialRenameActive = false;
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("%s", selectedMaterialPath.c_str());
+                    }
+
+                    ImGui::Separator();
+
+                    // --- Shader ---
+                    if (ImGui::CollapsingHeader("Shader", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        static char vertBuf[256]; static char fragBuf[256];
+                        // Sync buffers on first select
+                        static std::string lastMatPath;
+                        if (lastMatPath != selectedMaterialPath)
+                        {
+                            lastMatPath = selectedMaterialPath;
+                            std::strncpy(vertBuf, mat.shaderVertexPath.c_str(), sizeof(vertBuf) - 1);
+                            std::strncpy(fragBuf, mat.shaderFragmentPath.c_str(), sizeof(fragBuf) - 1);
+                        }
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::InputText("Vertex##sv", vertBuf, sizeof(vertBuf));
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::InputText("Fragment##sf", fragBuf, sizeof(fragBuf));
+                        if (ImGui::Button("Apply Shader"))
+                        {
+                            mat.shaderVertexPath  = vertBuf;
+                            mat.shaderFragmentPath = fragBuf;
+                            try { mat.shader = MyEngine::AssetManager::LoadShader(vertBuf, fragBuf); }
+                            catch (...) { mat.shader = nullptr; }
+                        }
+                        ImGui::SameLine();
+                        // Quick presets
+                        if (ImGui::Button("Lit"))
+                        {
+                            std::strncpy(vertBuf, "shaders/lit.vert", sizeof(vertBuf)-1);
+                            std::strncpy(fragBuf, "shaders/lit.frag", sizeof(fragBuf)-1);
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("PBR"))
+                        {
+                            std::strncpy(vertBuf, "shaders/pbr.vert", sizeof(vertBuf)-1);
+                            std::strncpy(fragBuf, "shaders/pbr.frag", sizeof(fragBuf)-1);
+                        }
+                        ImGui::TextDisabled("Loaded: %s", mat.shader ? "yes" : "no");
+                    }
+
+                    // --- Classic properties ---
+                    if (ImGui::CollapsingHeader("Surface", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        ImGui::ColorEdit3("Albedo", &mat.albedo.x);
+                        ImGui::DragFloat("Shininess", &mat.shininess, 1.0f, 0.0f, 256.0f);
+                        ImGui::Checkbox("Use Texture", &mat.useTexture);
+
+                        // Texture scan (lazy)
+                        if (!matBrowserTexturesScanned)
+                        {
+                            matBrowserTextures.clear();
+                            std::error_code ec2;
+                            if (fs::exists("assets/textures", ec2))
+                            {
+                                for (const auto& te : fs::recursive_directory_iterator("assets/textures", ec2))
+                                {
+                                    if (!te.is_regular_file()) continue;
+                                    std::string ext2 = te.path().extension().string();
+                                    std::transform(ext2.begin(), ext2.end(), ext2.begin(),
+                                        [](unsigned char c){ return (char)std::tolower(c); });
+                                    if (ext2==".png"||ext2==".jpg"||ext2==".jpeg"||ext2==".bmp"||ext2==".tga")
+                                        matBrowserTextures.push_back(te.path().generic_string());
+                                }
+                                std::sort(matBrowserTextures.begin(), matBrowserTextures.end());
+                            }
+                            matBrowserTexturesScanned = true;
+                        }
+
+                        auto texPicker = [&](const char* label, std::shared_ptr<MyEngine::Texture>& slot)
+                        {
+                            std::string cur = slot ? slot->GetPath() : "None";
+                            if (ImGui::BeginCombo(label, cur.c_str()))
+                            {
+                                if (ImGui::Selectable("None", !slot)) slot = nullptr;
+                                for (const auto& tp : matBrowserTextures)
+                                {
+                                    bool sel = slot && slot->GetPath() == tp;
+                                    if (ImGui::Selectable(tp.c_str(), sel))
+                                    {
+                                        try { slot = MyEngine::AssetManager::LoadTexture(tp); }
+                                        catch (...) {}
+                                    }
+                                    if (sel) ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+                        };
+
+                        texPicker("Texture##matbase", mat.texture);
+
+                        // Browse button
+                        ImGui::SameLine();
+                        if (ImGui::Button("Browse##basetex"))
+                        {
+                            std::string p = MyEngine::FileDialog::OpenImageFile();
+                            if (!p.empty())
+                            {
+                                try { mat.texture = MyEngine::AssetManager::LoadTexture(p); mat.useTexture = true; }
+                                catch (...) {}
+                            }
+                        }
+                    }
+
+                    // --- PBR ---
+                    if (ImGui::CollapsingHeader("PBR##matHeader"))
+                    {
+                        ImGui::Checkbox("Use PBR##matpbr", &mat.usePBR);
+                        if (mat.usePBR)
+                        {
+                            ImGui::SliderFloat("Metallic##matMetallic",   &mat.metallic,   0.0f, 1.0f);
+                            ImGui::SliderFloat("Roughness##matRoughness", &mat.roughness,  0.04f, 1.0f);
+                            ImGui::SliderFloat("AO##matAOStrength",       &mat.aoStrength, 0.0f, 1.0f);
+                            ImGui::ColorEdit3("Emissive##matEmissiveColor", &mat.emissive.x);
+                            ImGui::Separator();
+                            auto texPicker2 = [&](const char* label, std::shared_ptr<MyEngine::Texture>& slot)
+                            {
+                                std::string cur = slot ? slot->GetPath() : "None";
+                                if (ImGui::BeginCombo(label, cur.c_str()))
+                                {
+                                    if (ImGui::Selectable("None", !slot)) slot = nullptr;
+                                    for (const auto& tp : matBrowserTextures)
+                                    {
+                                        bool sel = slot && slot->GetPath() == tp;
+                                        if (ImGui::Selectable(tp.c_str(), sel))
+                                        {
+                                            try { slot = MyEngine::AssetManager::LoadTexture(tp); }
+                                            catch (...) {}
+                                        }
+                                        if (sel) ImGui::SetItemDefaultFocus();
+                                    }
+                                    ImGui::EndCombo();
+                                }
+                                ImGui::SameLine();
+                                std::string browseId = std::string("Browse##") + label;
+                                if (ImGui::Button(browseId.c_str()))
+                                {
+                                    std::string p = MyEngine::FileDialog::OpenImageFile();
+                                    if (!p.empty())
+                                    {
+                                        try { slot = MyEngine::AssetManager::LoadTexture(p); }
+                                        catch (...) {}
+                                    }
+                                }
+                            };
+                            texPicker2("Albedo Map##matAlbedo",            mat.albedoMap);
+                            texPicker2("Normal Map##matNormal",            mat.normalMap);
+                            texPicker2("MetallicRoughness##matMetalRough", mat.metallicRoughnessMap);
+                            texPicker2("AO Map##matAO",                    mat.aoMap);
+                            texPicker2("Emissive Map##matEmissive",        mat.emissiveMap);
+                        }
+                    }
+
+                    // --- Render Flags ---
+                    if (ImGui::CollapsingHeader("Render Flags##matRenderFlags"))
+                    {
+                        // Blend Mode
+                        const char* blendItems[] = { "Opaque", "Alpha Blend", "Additive" };
+                        int blendIdx = static_cast<int>(mat.blendMode);
+                        if (ImGui::Combo("Blend Mode##matBlend", &blendIdx, blendItems, IM_ARRAYSIZE(blendItems)))
+                            mat.blendMode = static_cast<MyEngine::BlendMode>(blendIdx);
+
+                        // Cull Mode
+                        const char* cullItems[] = { "Back", "Front", "Off (Double-Sided)" };
+                        int cullIdx = static_cast<int>(mat.cullMode);
+                        if (ImGui::Combo("Cull Mode##matCull", &cullIdx, cullItems, IM_ARRAYSIZE(cullItems)))
+                            mat.cullMode = static_cast<MyEngine::CullMode>(cullIdx);
+
+                        ImGui::Checkbox("Depth Write##matDepthWrite", &mat.depthWrite);
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Depth Test##matDepthTest",   &mat.depthTest);
+
+                        ImGui::DragInt("Render Queue##matRQ", &mat.renderQueue, 1.0f, 0, 5000);
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(Opaque~2000, Transparent~3000)");
+                    }
+
+                    ImGui::Separator();
+                    if (ImGui::Button("Save##matbrowser"))
+                    {
+                        mat.shaderVertexPath  = mat.shader ? mat.shader->GetVertexPath()   : mat.shaderVertexPath;
+                        mat.shaderFragmentPath = mat.shader ? mat.shader->GetFragmentPath() : mat.shaderFragmentPath;
+                        mat.SaveToFile(selectedMaterialPath);
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Save As...##matbrowser"))
+                    {
+                        std::string dest = MyEngine::FileDialog::SaveMaterialFile();
+                        if (!dest.empty())
+                        {
+                            mat.SetPath(dest);
+                            mat.shaderVertexPath  = mat.shader ? mat.shader->GetVertexPath()   : mat.shaderVertexPath;
+                            mat.shaderFragmentPath = mat.shader ? mat.shader->GetFragmentPath() : mat.shaderFragmentPath;
+                            mat.SaveToFile(dest);
+                            selectedMaterialPath = dest;
+                        }
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Assign to Selected Entity##matbrowser"))
+                    {
+                        if (selectedEntity && selectedEntity->HasComponent<MeshRendererComponent>())
+                        {
+                            auto& mr = selectedEntity->GetComponent<MeshRendererComponent>();
+                            mr.material = editingMaterial;
+                            mr.materialPath = selectedMaterialPath;
+                            if (editingMaterial->shader)
+                                mr.shader = editingMaterial->shader;
+                        }
+                    }
+                }
+                else
+                {
+                    ImGui::TextDisabled("Select a material from the list or create a new one.");
+                }
+
+                ImGui::EndChild();
+                ImGui::End();
+            }
+
             if (showSceneHierarchy)
             {
                 ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
@@ -1883,6 +2409,52 @@ int main()
                 if (selectedEntity)
                 {
                     ImGui::Text("Entity: %s", selectedEntity->GetName().c_str());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Save as Prefab"))
+                    {
+                        std::string prefabPath = MyEngine::FileDialog::SavePrefabFile();
+                        if (!prefabPath.empty())
+                        {
+                            if (MyEngine::Serialization::SavePrefab(selectedEntity, prefabPath))
+                                ImGui::OpenPopup("PrefabSaved");
+                        }
+                    }
+                    if (ImGui::BeginPopup("PrefabSaved"))
+                    {
+                        ImGui::Text("Prefab saved successfully.");
+                        if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
+                        ImGui::EndPopup();
+                    }
+                    ImGui::Separator();
+
+                    // --- Tag & Layer ---
+                    {
+                        // Tag input
+                        static char tagBuf[64] = "";
+                        strncpy_s(tagBuf, selectedEntity->GetTag().c_str(), sizeof(tagBuf) - 1);
+                        ImGui::SetNextItemWidth(140.0f);
+                        if (ImGui::InputText("Tag##entityTag", tagBuf, sizeof(tagBuf)))
+                            selectedEntity->SetTag(tagBuf);
+
+                        ImGui::SameLine();
+
+                        // Layer combo
+                        ImGui::SetNextItemWidth(140.0f);
+                        int currentLayer = static_cast<int>(selectedEntity->GetLayer());
+                        const auto& layerNames = MyEngine::LayerMask::GetNames();
+                        if (ImGui::BeginCombo("Layer##entityLayer",
+                                layerNames[currentLayer].c_str()))
+                        {
+                            for (int li = 0; li < MyEngine::MAX_LAYERS; ++li)
+                            {
+                                bool sel = (li == currentLayer);
+                                if (ImGui::Selectable(layerNames[li].c_str(), sel))
+                                    selectedEntity->SetLayer(static_cast<uint32_t>(li));
+                                if (sel) ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+                    }
                     ImGui::Separator();
 
                     // Transform Component
@@ -2011,72 +2583,102 @@ int main()
                             {
                                 renderer.materialPath = renderer.material->GetPath();
                             }
-                            ImGui::TextWrapped("Current: %s", renderer.materialPath.empty() ? "(inline component material)" : renderer.materialPath.c_str());
 
-                            static char materialPathBuffer[256] = "assets/materials/default.material.json";
-                            ImGui::InputText("Material Path", materialPathBuffer, sizeof(materialPathBuffer));
-                            if (ImGui::Button("Load Material"))
+                            // --- Material file picker ---
+                            static char materialPathBuffer[256] = "";
                             {
-                                std::string path = materialPathBuffer;
-                                if (!path.empty())
+                                // Show current path (truncated) as a read-only label
+                                const char* displayPath = renderer.materialPath.empty()
+                                    ? "(none)"
+                                    : renderer.materialPath.c_str();
+                                ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x - 140.0f);
+                                ImGui::InputText("##matPickerPath", const_cast<char*>(displayPath),
+                                    renderer.materialPath.size() + 1,
+                                    ImGuiInputTextFlags_ReadOnly);
+                                ImGui::PopItemWidth();
+
+                                ImGui::SameLine();
+                                if (ImGui::Button("Browse...##matPicker"))
                                 {
-                                    if (auto material = MyEngine::AssetManager::LoadMaterial(path))
+                                    std::string picked = MyEngine::FileDialog::OpenMaterialFile();
+                                    if (!picked.empty())
                                     {
-                                        renderer.material = material;
-                                        renderer.materialPath = path;
-                                        if (material->shader)
-                                            renderer.shader = material->shader;
+                                        if (auto mat = MyEngine::AssetManager::LoadMaterial(picked))
+                                        {
+                                            renderer.material     = mat;
+                                            renderer.materialPath = picked;
+                                            if (mat->shader)
+                                                renderer.shader = mat->shader;
+                                            // Keep the legacy path buffer in sync
+                                            std::strncpy(materialPathBuffer, picked.c_str(),
+                                                sizeof(materialPathBuffer) - 1);
+                                            materialPathBuffer[sizeof(materialPathBuffer) - 1] = '\0';
+                                        }
                                     }
                                 }
+                                ImGui::SameLine();
+                                if (ImGui::Button("X##matPickerClear"))
+                                {
+                                    renderer.material = nullptr;
+                                    renderer.materialPath.clear();
+                                    materialPathBuffer[0] = '\0';
+                                }
+                                ImGui::SetItemTooltip("Clear assigned material");
                             }
-                            ImGui::SameLine();
-                            if (ImGui::Button("Create Material From Renderer"))
+
+                            // Secondary actions row
+                            if (ImGui::Button("Create From Renderer##matCreate"))
                             {
                                 auto material = std::make_shared<MyEngine::Material>();
                                 material->shader = renderer.shader;
                                 if (renderer.shader)
                                 {
-                                    material->shaderVertexPath = renderer.shader->GetVertexPath();
+                                    material->shaderVertexPath   = renderer.shader->GetVertexPath();
                                     material->shaderFragmentPath = renderer.shader->GetFragmentPath();
                                 }
-                                material->albedo = renderer.albedo;
-                                material->shininess = renderer.shininess;
-                                material->texture = renderer.texture;
-                                material->useTexture = renderer.useTexture;
-                                material->usePBR = renderer.usePBR;
-                                material->metallic = renderer.metallic;
-                                material->roughness = renderer.roughness;
-                                material->aoStrength = renderer.aoStrength;
-                                material->emissive = renderer.emissive;
-                                material->albedoMap = renderer.albedoMap;
-                                material->normalMap = renderer.normalMap;
+                                material->albedo              = renderer.albedo;
+                                material->shininess           = renderer.shininess;
+                                material->texture             = renderer.texture;
+                                material->useTexture          = renderer.useTexture;
+                                material->usePBR              = renderer.usePBR;
+                                material->metallic            = renderer.metallic;
+                                material->roughness           = renderer.roughness;
+                                material->aoStrength          = renderer.aoStrength;
+                                material->emissive            = renderer.emissive;
+                                material->albedoMap           = renderer.albedoMap;
+                                material->normalMap           = renderer.normalMap;
                                 material->metallicRoughnessMap = renderer.metallicRoughnessMap;
-                                material->aoMap = renderer.aoMap;
-                                material->emissiveMap = renderer.emissiveMap;
-                                renderer.material = material;
-                                renderer.materialPath = materialPathBuffer;
-                                renderer.material->SetPath(renderer.materialPath);
+                                material->aoMap               = renderer.aoMap;
+                                material->emissiveMap         = renderer.emissiveMap;
+                                renderer.material             = material;
+                                // Prompt for a save location immediately
+                                std::string savePath = MyEngine::FileDialog::SaveMaterialFile();
+                                if (!savePath.empty())
+                                {
+                                    material->SetPath(savePath);
+                                    material->SaveToFile(savePath);
+                                    renderer.materialPath = savePath;
+                                    std::strncpy(materialPathBuffer, savePath.c_str(),
+                                        sizeof(materialPathBuffer) - 1);
+                                    materialPathBuffer[sizeof(materialPathBuffer) - 1] = '\0';
+                                }
                             }
                             ImGui::SameLine();
-                            if (ImGui::Button("Clear Material"))
+                            if (renderer.material && ImGui::Button("Save##matSave"))
                             {
-                                renderer.material = nullptr;
-                                renderer.materialPath.clear();
-                            }
-
-                            if (renderer.material && ImGui::Button("Save Material"))
-                            {
-                                std::string path = materialPathBuffer;
-                                if (!path.empty())
+                                std::string savePath = renderer.materialPath;
+                                if (savePath.empty())
+                                    savePath = MyEngine::FileDialog::SaveMaterialFile();
+                                if (!savePath.empty())
                                 {
-                                    renderer.materialPath = path;
-                                    renderer.material->SetPath(path);
+                                    renderer.materialPath = savePath;
+                                    renderer.material->SetPath(savePath);
                                     if (renderer.material->shader)
                                     {
-                                        renderer.material->shaderVertexPath = renderer.material->shader->GetVertexPath();
+                                        renderer.material->shaderVertexPath   = renderer.material->shader->GetVertexPath();
                                         renderer.material->shaderFragmentPath = renderer.material->shader->GetFragmentPath();
                                     }
-                                    renderer.material->SaveToFile(path);
+                                    renderer.material->SaveToFile(savePath);
                                 }
                             }
 
@@ -2252,6 +2854,205 @@ int main()
                                 pbrMapPicker("Emissive Map", editableEmissiveMap);
                             }
                         }
+                    }
+
+                    // LOD Component
+                    if (selectedEntity->HasComponent<LODComponent>())
+                    {
+                        auto& lod = selectedEntity->GetComponent<LODComponent>();
+                        if (ImGui::CollapsingHeader("Level of Detail (LOD)", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            ImGui::Checkbox("Enabled##lod", &lod.enabled);
+                            ImGui::Separator();
+
+                            for (int li = 0; li < static_cast<int>(lod.levels.size()); ++li)
+                            {
+                                auto& lvl = lod.levels[li];
+                                ImGui::PushID(li);
+
+                                ImGui::Text("Level %d", li);
+                                ImGui::SameLine();
+                                if (lod.activeLevel == li)
+                                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "(active)");
+
+                                ImGui::DragFloat("Distance##lod", &lvl.distanceThreshold, 1.0f, 0.0f, 10000.0f);
+
+                                // Asset path / mesh picker
+                                ImGui::InputText("Mesh Path##lod", lvl.assetPath.data(), lvl.assetPath.capacity() + 1,
+                                    ImGuiInputTextFlags_ReadOnly);
+                                ImGui::SameLine();
+                                if (ImGui::Button("Browse##lod"))
+                                {
+                                    std::string picked = MyEngine::FileDialog::OpenModelFile();
+                                    if (!picked.empty())
+                                    {
+                                        auto meshes = MyEngine::AssetManager::LoadModel(picked);
+                                        if (!meshes.empty())
+                                        {
+                                            lvl.mesh = meshes[0];
+                                            lvl.assetPath = picked;
+                                        }
+                                    }
+                                }
+                                ImGui::SameLine();
+                                if (ImGui::Button("Remove##lod"))
+                                {
+                                    lod.levels.erase(lod.levels.begin() + li);
+                                    ImGui::PopID();
+                                    break;
+                                }
+
+                                ImGui::PopID();
+                                ImGui::Separator();
+                            }
+
+                            if (ImGui::Button("Add LOD Level"))
+                            {
+                                LODComponent::Level lvl;
+                                lvl.distanceThreshold = lod.levels.empty() ? 50.0f
+                                    : lod.levels.back().distanceThreshold + 50.0f;
+                                lod.levels.push_back(std::move(lvl));
+                            }
+
+                            ImGui::SameLine();
+                            if (ImGui::Button("Remove LOD Component"))
+                            {
+                                selectedEntity->RemoveComponent<LODComponent>();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add LOD Component"))
+                        {
+                            selectedEntity->AddComponent<LODComponent>();
+                        }
+                    }
+
+                    // ---------------------------------------------------
+                    // Terrain Component
+                    // ---------------------------------------------------
+                    if (selectedEntity->HasComponent<TerrainComponent>())
+                    {
+                        auto& terrain = selectedEntity->GetComponent<TerrainComponent>();
+                        if (ImGui::CollapsingHeader("Terrain", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            // Heightmap picker
+                            ImGui::Text("Heightmap");
+                            static char terrainHmBuf[256] = "";
+                            strncpy_s(terrainHmBuf, terrain.heightmapPath.c_str(), sizeof(terrainHmBuf) - 1);
+                            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 100.0f);
+                            if (ImGui::InputText("##terrainHm", terrainHmBuf, sizeof(terrainHmBuf)))
+                            {
+                                terrain.heightmapPath = terrainHmBuf;
+                                terrain.dirty = true;
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Browse##terrainHm"))
+                            {
+                                std::string p = MyEngine::FileDialog::OpenImageFile();
+                                if (!p.empty())
+                                {
+                                    terrain.heightmapPath = p;
+                                    terrain.dirty = true;
+                                }
+                            }
+
+                            ImGui::Separator();
+
+                            // Dimensions
+                            bool dimsChanged = false;
+                            dimsChanged |= ImGui::DragFloat("Width##terrain",       &terrain.width,       1.0f, 1.0f, 10000.0f);
+                            dimsChanged |= ImGui::DragFloat("Depth##terrain",       &terrain.depth,       1.0f, 1.0f, 10000.0f);
+                            dimsChanged |= ImGui::DragFloat("Height Scale##terrain",&terrain.heightScale, 0.5f, 0.0f, 1000.0f);
+                            if (ImGui::DragInt("Resolution##terrain", &terrain.resolution, 1.0f, 2, 512))
+                                dimsChanged = true;
+                            if (dimsChanged)
+                                terrain.dirty = true;
+
+                            // Surface texture picker
+                            ImGui::Separator();
+                            ImGui::Text("Surface Texture");
+                            std::string surfName = terrain.surfaceTexture
+                                ? terrain.surfaceTexture->GetPath() : "(none)";
+                            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 100.0f);
+                            ImGui::InputText("##terrainSurf", surfName.data(), surfName.size() + 1,
+                                ImGuiInputTextFlags_ReadOnly);
+                            ImGui::SameLine();
+                            if (ImGui::Button("Browse##terrainSurf"))
+                            {
+                                std::string p = MyEngine::FileDialog::OpenImageFile();
+                                if (!p.empty())
+                                {
+                                    terrain.surfaceTexture = MyEngine::AssetManager::LoadTexture(p);
+                                    terrain.surfaceTexturePath = p;
+                                }
+                            }
+
+                            // Rebuild button
+                            ImGui::Separator();
+                            if (ImGui::Button("Rebuild Terrain Mesh"))
+                                TerrainSystem::RebuildMesh(terrain);
+
+                            ImGui::SameLine();
+                            if (ImGui::Button("Remove Terrain Component"))
+                                selectedEntity->RemoveComponent<TerrainComponent>();
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Terrain Component"))
+                        {
+                            auto& t = selectedEntity->AddComponent<TerrainComponent>();
+                            t.dirty = true;
+                        }
+                    }
+
+                    // ---------------------------------------------------
+                    // Navigation Agent Component
+                    // ---------------------------------------------------
+                    if (selectedEntity->HasComponent<NavigationAgentComponent>())
+                    {
+                        auto& agent = selectedEntity->GetComponent<NavigationAgentComponent>();
+                        if (ImGui::CollapsingHeader("Navigation Agent", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            ImGui::Checkbox("Active##nav", &agent.active);
+                            ImGui::DragFloat("Speed##nav",            &agent.speed,           0.1f, 0.0f, 100.0f);
+                            ImGui::DragFloat("Stopping Dist##nav",   &agent.stoppingDistance, 0.05f, 0.0f, 10.0f);
+                            ImGui::DragFloat3("Target##nav",         &agent.targetPosition.x, 0.1f);
+
+                            std::string agentStatus = agent.arrived ? "Arrived" :
+                                ("Moving (wp " + std::to_string(agent.waypointIndex) +
+                                 "/" + std::to_string(static_cast<int>(agent.path.size())) + ")");
+                            ImGui::Text("Status: %s", agentStatus.c_str());
+
+                            if (ImGui::Button("Set Destination##nav"))
+                            {
+                                if (selectedEntity->HasComponent<TransformComponent>())
+                                {
+                                    auto& tc = selectedEntity->GetComponent<TransformComponent>();
+                                    agent.path = navMeshSystem.FindPath(tc.position, agent.targetPosition);
+                                    agent.waypointIndex = 0;
+                                    agent.arrived = agent.path.empty();
+                                    agent.active  = !agent.path.empty();
+                                }
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Stop##nav"))
+                            {
+                                agent.active  = false;
+                                agent.arrived = true;
+                                agent.path.clear();
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Remove##nav"))
+                                selectedEntity->RemoveComponent<NavigationAgentComponent>();
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Nav Agent"))
+                            selectedEntity->AddComponent<NavigationAgentComponent>();
                     }
 
                     // Rigidbody Component
@@ -2801,6 +3602,62 @@ int main()
             }
 
             // ============================================================
+            // Layer Manager Panel
+            // ============================================================
+            if (showLayerManager)
+            {
+                ImGui::SetNextWindowSize(ImVec2(320, 420), ImGuiCond_FirstUseEver);
+                if (ImGui::Begin("Layer Manager", &showLayerManager))
+                {
+                    ImGui::TextDisabled("Rename layers used to filter entities.");
+                    ImGui::Separator();
+                    for (int li = 0; li < MyEngine::MAX_LAYERS; ++li)
+                    {
+                        ImGui::PushID(li);
+                        char buf[64] = "";
+                        strncpy_s(buf, MyEngine::LayerMask::GetName(li).c_str(), sizeof(buf) - 1);
+                        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 60.0f);
+                        if (ImGui::InputText("##layerName", buf, sizeof(buf),
+                                ImGuiInputTextFlags_EnterReturnsTrue))
+                            MyEngine::LayerMask::SetName(li, buf);
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("[%d]", li);
+                        ImGui::PopID();
+                    }
+                    ImGui::Separator();
+                    if (ImGui::Button("Reset to Defaults"))
+                        MyEngine::LayerMask::Reset();
+                }
+                ImGui::End();
+            }
+
+            // IBL Panel
+            // ============================================================
+            if (showIBLPanel)
+            {
+                ImGui::SetNextWindowSize(ImVec2(280, 160), ImGuiCond_FirstUseEver);
+                if (ImGui::Begin("IBL##iblWindow", &showIBLPanel))
+                {
+                    bool iblOn = renderSystem.GetIBLEnabled();
+                    if (ImGui::Checkbox("Enable IBL##ibl", &iblOn))
+                        renderSystem.SetIBLEnabled(iblOn);
+
+                    float iblIntensity = renderSystem.GetIBLIntensity();
+                    if (ImGui::SliderFloat("IBL Intensity##ibl", &iblIntensity, 0.0f, 4.0f))
+                        renderSystem.SetIBLIntensity(iblIntensity);
+
+                    ImGui::Separator();
+                    if (ImGui::Button("Bake from Skybox##iblBake"))
+                    {
+                        if (skybox.IsLoaded())
+                            renderSystem.InitIBL(skybox.GetCubemapTexture());
+                    }
+                    ImGui::SetItemTooltip("Convolves the active skybox cubemap to generate irradiance/prefilter/BRDF maps");
+                }
+                ImGui::End();
+            }
+
+            // ============================================================
             // Post-Processing Panel
             // ============================================================
             if (showPostProcessPanel)
@@ -2826,6 +3683,25 @@ int main()
                 float bloomIntensity = postProcess.GetBloomIntensity();
                 if (ImGui::SliderFloat("Bloom Intensity", &bloomIntensity, 0.0f, 3.0f))
                     postProcess.SetBloomIntensity(bloomIntensity);
+
+                ImGui::Separator();
+                ImGui::Text("SSAO");
+
+                bool ssaoEnabled = renderSystem.GetSSAOEnabled();
+                if (ImGui::Checkbox("SSAO Enabled", &ssaoEnabled))
+                    renderSystem.SetSSAOEnabled(ssaoEnabled);
+
+                float ssaoRadius = renderSystem.GetSSAORadius();
+                if (ImGui::SliderFloat("SSAO Radius", &ssaoRadius, 0.05f, 2.0f))
+                    renderSystem.SetSSAORadius(ssaoRadius);
+
+                float ssaoBias = renderSystem.GetSSAOBias();
+                if (ImGui::SliderFloat("SSAO Bias", &ssaoBias, 0.001f, 0.1f, "%.4f"))
+                    renderSystem.SetSSAOBias(ssaoBias);
+
+                float ssaoPower = renderSystem.GetSSAOPower();
+                if (ImGui::SliderFloat("SSAO Power", &ssaoPower, 0.5f, 4.0f))
+                    renderSystem.SetSSAOPower(ssaoPower);
 
                 ImGui::End();
             }
@@ -3257,6 +4133,7 @@ int main()
         // Particles are rendered after opaque geometry and before skybox
         // so they alpha-blend correctly over solid surfaces.
         particleSystem.Render(scene, view, projection);
+        terrainSystem.Render(scene, view, projection, glm::vec3(glm::inverse(view)[3]), litShader);
 
         // Skybox is drawn after opaque geometry
         // is currently bound - the HDR post-process target or the default

@@ -10,6 +10,20 @@ namespace MyEngine
 	class Shader;
 	class Texture;
 
+	enum class BlendMode
+	{
+		Opaque     = 0,  // GL_NONE, no blending
+		AlphaBlend = 1,  // standard alpha compositing
+		Additive   = 2   // additive / particle / glow
+	};
+
+	enum class CullMode
+	{
+		Back  = 0,  // default back-face culling
+		Front = 1,  // front-face culling (e.g. inner surfaces)
+		Off   = 2   // double-sided
+	};
+
 	class Material
 	{
 	public:
@@ -45,6 +59,13 @@ namespace MyEngine
 		std::shared_ptr<Texture> metallicRoughnessMap = nullptr;
 		std::shared_ptr<Texture> aoMap = nullptr;
 		std::shared_ptr<Texture> emissiveMap = nullptr;
+
+		// --- Render flags ---
+		BlendMode blendMode   = BlendMode::Opaque;
+		CullMode  cullMode    = CullMode::Back;
+		bool      depthWrite  = true;
+		bool      depthTest   = true;
+		int       renderQueue = 2000; // lower = earlier draw; use >2500 for transparent
 
 	private:
 		std::string m_Path;

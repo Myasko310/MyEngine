@@ -1,5 +1,8 @@
 #include "systems/MeshRendererSystem.h"
 
+#include "rendering/IBLProbe.h"
+#include "components/LODComponent.h"
+
 #include "components/MeshComponent.h"
 #include "components/MeshRendererComponent.h"
 #include "components/TransformComponent.h"
@@ -11,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -47,8 +51,11 @@ void MeshRendererSystem::SetShadowSize(unsigned int size)
 {
     if (!m_Impl) m_Impl = std::make_unique<Impl>();
     m_Impl->shadowSize = size;
-    if (m_Impl->shadowMap.GetDepthTexture() == 0)
-        m_Impl->shadowMap.Init(size, size);
+    for (auto& cm : m_Impl->cascadeMaps)
+    {
+        if (cm.GetDepthTexture() == 0)
+            cm.Init(size, size);
+    }
 }
 
 unsigned int MeshRendererSystem::GetShadowSize() const
@@ -116,10 +123,85 @@ bool MeshRendererSystem::GetWireframe() const
     return m_Impl ? m_Impl->wireframe : false;
 }
 
+unsigned int MeshRendererSystem::GetCascadeTexture(int cascade) const
+{
+    if (!m_Impl || cascade < 0 || cascade >= MAX_CASCADES) return 0;
+    return m_Impl->cascadeMaps[cascade].GetDepthTexture();
+}
+
 unsigned int MeshRendererSystem::GetShadowTexture() const
 {
-    return m_Impl ? m_Impl->shadowMap.GetDepthTexture() : 0;
+    return GetCascadeTexture(0);
 }
+
+void MeshRendererSystem::SetNumCascades(int n)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->numCascades = std::clamp(n, 1, MAX_CASCADES);
+}
+
+int MeshRendererSystem::GetNumCascades() const
+{
+    return m_Impl ? m_Impl->numCascades : 4;
+}
+
+void MeshRendererSystem::SetSplitLambda(float lambda)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->splitLambda = std::clamp(lambda, 0.0f, 1.0f);
+}
+
+float MeshRendererSystem::GetSplitLambda() const
+{
+    return m_Impl ? m_Impl->splitLambda : 0.75f;
+}
+
+void MeshRendererSystem::InitIBL(unsigned int skyboxCubemap)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->pendingIBLCubemap = skyboxCubemap;
+    m_Impl->iblEnabled = true;
+}
+void MeshRendererSystem::SetIBLEnabled(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->iblEnabled = enabled;
+}
+bool MeshRendererSystem::GetIBLEnabled() const { return m_Impl ? m_Impl->iblEnabled : false; }
+void MeshRendererSystem::SetIBLIntensity(float intensity)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->iblIntensity = intensity;
+}
+float MeshRendererSystem::GetIBLIntensity() const { return m_Impl ? m_Impl->iblIntensity : 1.0f; }
+
+void MeshRendererSystem::SetSSAOEnabled(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->ssaoEnabled = enabled;
+}
+bool MeshRendererSystem::GetSSAOEnabled() const { return m_Impl ? m_Impl->ssaoEnabled : false; }
+
+void MeshRendererSystem::SetSSAORadius(float r)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->ssaoPass.SetRadius(r);
+}
+float MeshRendererSystem::GetSSAORadius() const { return m_Impl ? m_Impl->ssaoPass.GetRadius() : 0.5f; }
+
+void MeshRendererSystem::SetSSAOBias(float b)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->ssaoPass.SetBias(b);
+}
+float MeshRendererSystem::GetSSAOBias() const { return m_Impl ? m_Impl->ssaoPass.GetBias() : 0.025f; }
+
+void MeshRendererSystem::SetSSAOPower(float p)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->ssaoPass.SetPower(p);
+}
+float MeshRendererSystem::GetSSAOPower() const { return m_Impl ? m_Impl->ssaoPass.GetPower() : 1.5f; }
 
 
 void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::mat4& projection)
@@ -131,7 +213,15 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     static std::shared_ptr<MyEngine::Shader> depthShader = nullptr;
     static std::shared_ptr<MyEngine::Shader> depthSkinnedShader = nullptr;
     static std::shared_ptr<MyEngine::Shader> pointDepthShader = nullptr;
+    static MyEngine::IBLProbe                s_IBLProbe;
     static bool initialized = false;
+
+    // Bake IBL if a new cubemap was requested via InitIBL()
+    if (m_Impl && m_Impl->pendingIBLCubemap != 0)
+    {
+        s_IBLProbe.Init(m_Impl->pendingIBLCubemap);
+        m_Impl->pendingIBLCubemap = 0;
+    }
 
     if (!initialized)
     {
@@ -141,10 +231,26 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         // Initialize impl shadow map
         if (!m_Impl)
             m_Impl = std::make_unique<Impl>();
-        m_Impl->shadowMap.Init(m_Impl->shadowSize, m_Impl->shadowSize);
+        for (auto& cm : m_Impl->cascadeMaps)
+            cm.Init(m_Impl->shadowSize, m_Impl->shadowSize);
         for (auto& pointShadowMap : m_Impl->pointShadowMaps)
             pointShadowMap.Init(m_Impl->pointShadowSize);
         initialized = true;
+    }
+
+    // (Re-)initialize SSAO if viewport size changed or first use
+    {
+        GLint vp[4];
+        glGetIntegerv(GL_VIEWPORT, vp);
+        unsigned int vpW = static_cast<unsigned int>(vp[2]);
+        unsigned int vpH = static_cast<unsigned int>(vp[3]);
+        if (vpW > 0 && vpH > 0)
+        {
+            if (m_Impl->ssaoPass.GetOcclusionTexture() == 0)
+                m_Impl->ssaoPass.Init(vpW, vpH);
+            else
+                m_Impl->ssaoPass.Resize(vpW, vpH);
+        }
     }
 
     // Find first directional light in the scene (if any), and collect
@@ -201,126 +307,226 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         }
     }
 
-    // Compute light-space matrix for directional light
-    // Use a conventional orthographic near/far range (positive distances)
-    float orthoSize = 10.0f;
-    float nearPlane = 1.0f;
-    float farPlane = 50.0f;
-    glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
-    // Place the light further back along its direction to cover the scene from above
-    // Ensure the light 'up' is consistent with world up to avoid flipping the
-    // shadow projection when the light direction is near-up or near-down.
+    // --- Cascaded Shadow Maps ---
+    // Compute cascade split distances using the practical split scheme
+    // (blend of logarithmic and uniform), then fit a tight light-space
+    // ortho frustum around each camera sub-frustum slice.
+
+    const int numCascades = m_Impl ? std::clamp(m_Impl->numCascades, 1, MAX_CASCADES) : 4;
+    const float splitLambda = m_Impl ? m_Impl->splitLambda : 0.75f;
+
+    // Reconstruct camera near/far from the projection matrix
+    // For a perspective matrix: near = P[3][2] / (P[2][2] - 1), far = P[3][2] / (P[2][2] + 1)
+    const float camNear = projection[3][2] / (projection[2][2] - 1.0f);
+    const float camFar  = projection[3][2] / (projection[2][2] + 1.0f);
+
+    // Cascade split planes in view space (near to far)
+    // splits[0] = camNear, splits[numCascades] = camFar
+    std::array<float, MAX_CASCADES + 1> splitDepths;
+    splitDepths[0] = camNear;
+    for (int i = 1; i <= numCascades; ++i)
+    {
+        float ratio     = static_cast<float>(i) / static_cast<float>(numCascades);
+        float splitLog  = camNear * std::pow(camFar / camNear, ratio);
+        float splitUnif = camNear + (camFar - camNear) * ratio;
+        splitDepths[i]  = splitLambda * splitLog + (1.0f - splitLambda) * splitUnif;
+    }
+
+    // For each cascade build a light-space ortho matrix fitted to the 8
+    // corners of the camera sub-frustum slice
+    std::array<glm::mat4, MAX_CASCADES> cascadeLightSpaceMatrices;
+    std::array<float,     MAX_CASCADES> cascadeSplitFar;   // far plane in view space for each cascade
+
+    // Light direction helpers (same for all cascades)
     glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
     if (fabs(glm::dot(lightDir, up)) > 0.99f)
-    {
-        // If nearly parallel, pick a different up vector to avoid singularity.
         up = glm::vec3(0.0f, 0.0f, 1.0f);
+
+    glm::mat4 invVP = glm::inverse(projection * view);
+
+    for (int ci = 0; ci < numCascades; ++ci)
+    {
+        float nearSlice = splitDepths[ci];
+        float farSlice  = splitDepths[ci + 1];
+        cascadeSplitFar[ci] = farSlice;
+
+        // 8 NDC corners of this frustum slice
+        glm::vec4 ndcCorners[8] = {
+            { -1, -1, -1, 1 }, {  1, -1, -1, 1 }, { -1,  1, -1, 1 }, {  1,  1, -1, 1 },
+            { -1, -1,  1, 1 }, {  1, -1,  1, 1 }, { -1,  1,  1, 1 }, {  1,  1,  1, 1 },
+        };
+
+        // Reconstruct world-space positions of the 8 frustum corners
+        // for the depth range [nearSlice, farSlice].
+        // We linearly interpolate along the view-space depth direction.
+        glm::mat4 invProj = glm::inverse(projection);
+        glm::mat4 invView = glm::inverse(view);
+
+        // Helper: NDC z for a given view-space depth d
+        auto viewDepthToNDC = [&](float d) -> float {
+            // The reverse: NDC_z such that view-space depth = d
+            // For perspective: NDC_z = (far+near)/(far-near) + 2*far*near/((far-near)*d)  -- but easier via projection
+            glm::vec4 clip = projection * glm::vec4(0.0f, 0.0f, -d, 1.0f);
+            return clip.z / clip.w;
+        };
+
+        float ndcNear = viewDepthToNDC(nearSlice);
+        float ndcFar  = viewDepthToNDC(farSlice);
+
+        glm::vec3 worldCorners[8];
+        for (int k = 0; k < 8; ++k)
+        {
+            float ndcZ = (k < 4) ? ndcNear : ndcFar;
+            glm::vec4 c = { ndcCorners[k].x, ndcCorners[k].y, ndcZ, 1.0f };
+            glm::vec4 w = invVP * c;
+            worldCorners[k] = glm::vec3(w) / w.w;
+        }
+
+        // Centroid in world space
+        glm::vec3 center(0.0f);
+        for (auto& wc : worldCorners) center += wc;
+        center /= 8.0f;
+
+        // Bounding sphere radius for the sub-frustum (stable across rotations)
+        float radius = 0.0f;
+        for (auto& wc : worldCorners)
+            radius = std::max(radius, glm::length(wc - center));
+        radius = std::ceil(radius * 16.0f) / 16.0f; // snap to texel grid
+
+        glm::mat4 lightView = glm::lookAt(center - lightDir * radius, center, up);
+
+        // Texel-snapping to eliminate shadow shimmering as the camera moves
+        float texelSize = (2.0f * radius) / static_cast<float>(m_Impl->shadowSize);
+        glm::mat4 lightViewSnap = lightView;
+        glm::vec3 shadowOrigin  = glm::vec3(lightView * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+        float snapX = std::round(shadowOrigin.x / texelSize) * texelSize - shadowOrigin.x;
+        float snapY = std::round(shadowOrigin.y / texelSize) * texelSize - shadowOrigin.y;
+        lightViewSnap = glm::translate(glm::mat4(1.0f), glm::vec3(snapX, snapY, 0.0f)) * lightView;
+
+        glm::mat4 lightProj = glm::ortho(-radius, radius, -radius, radius,
+                                          -radius * 6.0f,  radius * 6.0f);
+        cascadeLightSpaceMatrices[ci] = lightProj * lightViewSnap;
     }
-    glm::vec3 lightPos = -lightDir * 20.0f;
-    glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f), up);
-    glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 
-    // Prepare frustum cullers: one for the light (depth pass) and one for the
-    // camera (main pass). Using the light frustum for the depth pass avoids
-    // accidentally skipping objects that are visible to the light but not to
-    // the camera.
-    MyEngine::FrustumCuller lightCuller;
-    glm::mat4 lightVP = lightProjection * lightView;
-    lightCuller.Update(lightVP);
-
+    // Frustum cullers (camera only; cascades use their own matrices)
+    MyEngine::FrustumCuller lightCuller;  // kept for depth pass per cascade
     MyEngine::FrustumCuller cameraCuller;
     glm::mat4 cameraVP = projection * view;
     cameraCuller.Update(cameraVP);
 
-    // Extract the camera's world-space position from the inverse view matrix
-    // for view-dependent lighting terms (specular half-vector, etc.).
+    // Extract camera world position
     glm::vec3 viewPos = glm::vec3(glm::inverse(view)[3]);
 
-    // Capture whatever framebuffer the caller had bound (e.g. the HDR
-    // post-process target) so we can restore it after the shadow depth
-    // pass, which binds its own FBO and would otherwise leave the default
-    // framebuffer (0) bound for the main color pass.
+    // Save caller's FBO and viewport
     GLint callerFBO = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &callerFBO);
-
-    // 1) Render depth of scene from light's perspective
     GLint lastViewport[4];
     glGetIntegerv(GL_VIEWPORT, lastViewport);
+
+    // 0) SSAO geometry pre-pass: render view-space positions + normals into g-buffer
+    if (m_Impl && m_Impl->ssaoEnabled && m_Impl->ssaoPass.GetOcclusionTexture() != 0)
+    {
+        MyEngine::Shader* gbufShader = m_Impl->ssaoPass.GetGBufferShader();
+        if (gbufShader)
+        {
+            m_Impl->ssaoPass.BeginGeometryPass();
+            glEnable(GL_DEPTH_TEST);
+            gbufShader->Use();
+            for (const auto& entity : scene.GetEntities())
+            {
+                if (!entity) continue;
+                if (!entity->HasComponent<TransformComponent>()) continue;
+                if (!entity->HasComponent<MeshComponent>())      continue;
+                if (!entity->HasComponent<MeshRendererComponent>()) continue;
+                auto& mr = entity->GetComponent<MeshRendererComponent>();
+                if (!mr.visible) continue;
+                auto& mc = entity->GetComponent<MeshComponent>();
+                if (!mc.mesh) continue;
+                glm::mat4 wm = TransformHierarchy::GetWorldMatrix(scene, *entity);
+                gbufShader->SetMat4("u_Model",      wm);
+                gbufShader->SetMat4("u_View",       view);
+                gbufShader->SetMat4("u_Projection", projection);
+                mc.mesh->Draw();
+            }
+            m_Impl->ssaoPass.EndGeometryPass();
+            // Run the SSAO + blur passes
+            m_Impl->ssaoPass.Compute(projection, view);
+            // Restore viewport/FBO for subsequent passes
+            glBindFramebuffer(GL_FRAMEBUFFER, callerFBO);
+            glViewport(lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3]);
+        }
+    }
+
+    // 1) CSM: Render a depth pass for each cascade from the light's perspective
     if (m_Impl && m_Impl->shadowsEnabled)
     {
-        m_Impl->shadowMap.BindForWriting();
-
-        // For the shadow depth pass we render both sides (disable face culling)
-        // so planar geometry (like the ground) is recorded in the depth map
-        // regardless of triangle winding. We still use polygon offset to reduce
-        // shadow acne.
         glDisable(GL_CULL_FACE);
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(2.0f, 4.0f);
-        depthShader->Use();
-        MyEngine::Shader* activeDepthShader = depthShader.get();
-        for (const auto& entity : scene.GetEntities())
+
+        MyEngine::Shader* activeDepthShader = nullptr;
+
+        for (int ci = 0; ci < numCascades; ++ci)
         {
-            if (!entity)
-                continue;
+            m_Impl->cascadeMaps[ci].BindForWriting();
 
-            if (!entity->HasComponent<TransformComponent>())
-                continue;
+            lightCuller.Update(cascadeLightSpaceMatrices[ci]);
 
-            // Frustum culling against the light frustum: if entity has a bounding
-            // sphere, test it against the light's frustum so we only render what
-            // the light can see into the shadow map.
-            glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
-            if (entity->HasComponent<BoundingSphereComponent>())
+            depthShader->Use();
+            activeDepthShader = depthShader.get();
+
+            for (const auto& entity : scene.GetEntities())
             {
-                auto& bs = entity->GetComponent<BoundingSphereComponent>();
-                glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(bs.center, 1.0f));
-                float maxScale = glm::compMax(entity->GetComponent<TransformComponent>().scale);
-                float worldRadius = bs.radius * maxScale;
-                if (!lightCuller.IsSphereVisible(worldCenter, worldRadius))
+                if (!entity)
                     continue;
-            }
+                if (!entity->HasComponent<TransformComponent>())
+                    continue;
 
-            if (!entity->HasComponent<MeshComponent>())
-                continue;
-
-            if (!entity->HasComponent<MeshRendererComponent>())
-                continue;
-
-            auto& meshComponent = entity->GetComponent<MeshComponent>();
-
-            if (!meshComponent.mesh)
-                continue;
-
-            // Skinned meshes need their current animated pose baked into the
-            // shadow depth map too, otherwise the shadow is cast from the
-            // static bind pose and appears detached from the visible mesh.
-            bool isAnimated = entity->HasComponent<AnimationComponent>();
-            MyEngine::Shader* shaderToUse = isAnimated ? depthSkinnedShader.get() : depthShader.get();
-            if (shaderToUse != activeDepthShader)
-            {
-                shaderToUse->Use();
-                activeDepthShader = shaderToUse;
-            }
-
-            shaderToUse->SetMat4("u_LightSpace", lightSpaceMatrix);
-            shaderToUse->SetMat4("u_Model", worldMatrix);
-
-            if (isAnimated)
-            {
-                auto& anim = entity->GetComponent<AnimationComponent>();
-                int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
-                for (int b = 0; b < boneCount; ++b)
+                glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
+                if (entity->HasComponent<BoundingSphereComponent>())
                 {
-                    shaderToUse->SetMat4("u_BoneMatrices[" + std::to_string(b) + "]", anim.boneMatrices[b]);
+                    auto& bs = entity->GetComponent<BoundingSphereComponent>();
+                    glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(bs.center, 1.0f));
+                    float maxScale = glm::compMax(entity->GetComponent<TransformComponent>().scale);
+                    float worldRadius = bs.radius * maxScale;
+                    if (!lightCuller.IsSphereVisible(worldCenter, worldRadius))
+                        continue;
                 }
+
+                if (!entity->HasComponent<MeshComponent>())
+                    continue;
+                if (!entity->HasComponent<MeshRendererComponent>())
+                    continue;
+
+                auto& meshComponent = entity->GetComponent<MeshComponent>();
+                if (!meshComponent.mesh)
+                    continue;
+
+                bool isAnimated = entity->HasComponent<AnimationComponent>();
+                MyEngine::Shader* shaderToUse = isAnimated ? depthSkinnedShader.get() : depthShader.get();
+                if (shaderToUse != activeDepthShader)
+                {
+                    shaderToUse->Use();
+                    activeDepthShader = shaderToUse;
+                }
+
+                shaderToUse->SetMat4("u_LightSpace", cascadeLightSpaceMatrices[ci]);
+                shaderToUse->SetMat4("u_Model", worldMatrix);
+
+                if (isAnimated)
+                {
+                    auto& anim = entity->GetComponent<AnimationComponent>();
+                    int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
+                    for (int b = 0; b < boneCount; ++b)
+                        shaderToUse->SetMat4("u_BoneMatrices[" + std::to_string(b) + "]", anim.boneMatrices[b]);
+                }
+
+                meshComponent.mesh->Draw();
             }
 
-            meshComponent.mesh->Draw();
+            m_Impl->cascadeMaps[ci].Unbind();
         }
 
-        m_Impl->shadowMap.Unbind();
-        // Restore the previous viewport (window size)
         glViewport(lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3]);
     }
 
@@ -413,21 +619,36 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
 
 
+    // Sort renderable entities by material renderQueue (opaque first, then
+    // transparent) so alpha-blended objects composite correctly over opaque ones.
+    std::vector<std::shared_ptr<Entity>> sortedEntities;
     for (const auto& entity : scene.GetEntities())
     {
-        if (!entity)
-            continue;
+        if (!entity) continue;
+        if (!entity->HasComponent<TransformComponent>()) continue;
+        if (!entity->HasComponent<MeshComponent>())      continue;
+        if (!entity->HasComponent<MeshRendererComponent>()) continue;
+        sortedEntities.push_back(entity);
+    }
+    std::stable_sort(sortedEntities.begin(), sortedEntities.end(),
+        [](const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b)
+        {
+            int qa = 2000, qb = 2000;
+            if (a->HasComponent<MeshRendererComponent>())
+            {
+                const auto& ra = a->GetComponent<MeshRendererComponent>();
+                if (ra.material) qa = ra.material->renderQueue;
+            }
+            if (b->HasComponent<MeshRendererComponent>())
+            {
+                const auto& rb = b->GetComponent<MeshRendererComponent>();
+                if (rb.material) qb = rb.material->renderQueue;
+            }
+            return qa < qb;
+        });
 
-        if (!entity->HasComponent<TransformComponent>())
-            continue;
-
-        if (!entity->HasComponent<MeshComponent>())
-            continue;
-
-        if (!entity->HasComponent<MeshRendererComponent>())
-            continue;
-
-        auto& transform = entity->GetComponent<TransformComponent>();
+    for (const auto& entity : sortedEntities)
+    {
         auto& meshComponent = entity->GetComponent<MeshComponent>();
         auto& renderer = entity->GetComponent<MeshRendererComponent>();
 
@@ -436,6 +657,32 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
         if (!meshComponent.mesh)
             continue;
+
+        // LOD: pick the best mesh level based on camera distance
+        if (entity->HasComponent<LODComponent>())
+        {
+            auto& lod = entity->GetComponent<LODComponent>();
+            if (lod.enabled && !lod.levels.empty())
+            {
+                auto& tc = entity->GetComponent<TransformComponent>();
+                float dist = glm::length(viewPos - tc.position);
+
+                int chosen = -1;
+                for (int li = 0; li < static_cast<int>(lod.levels.size()); ++li)
+                {
+                    if (dist <= lod.levels[li].distanceThreshold)
+                    {
+                        chosen = li;
+                        break;
+                    }
+                }
+                if (chosen >= 0 && lod.levels[chosen].mesh)
+                {
+                    lod.activeLevel = chosen;
+                    meshComponent.mesh = lod.levels[chosen].mesh;
+                }
+            }
+        }
 
         auto activeMaterial = renderer.material;
         auto activeShader = (activeMaterial && activeMaterial->shader) ? activeMaterial->shader : renderer.shader;
@@ -509,6 +756,23 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             bindOptionalMap(metallicRoughnessMap, "u_UseMetallicRoughnessMap", "u_MetallicRoughnessMap");
             bindOptionalMap(aoMap, "u_UseAOMap", "u_AOMap");
             bindOptionalMap(emissiveMap, "u_UseEmissiveMap", "u_EmissiveMap");
+
+            // IBL environment lighting
+            if (s_IBLProbe.IsReady() && m_Impl && m_Impl->iblEnabled)
+            {
+                int iblBase = nextTextureUnit;
+                nextTextureUnit = s_IBLProbe.BindForPBR(iblBase);
+                activeShader->SetInt("u_IrradianceMap", iblBase);
+                activeShader->SetInt("u_PrefilterMap",  iblBase + 1);
+                activeShader->SetInt("u_BrdfLUT",       iblBase + 2);
+                activeShader->SetBool("u_UseIBL",       true);
+                activeShader->SetFloat("u_IBLIntensity", m_Impl->iblIntensity);
+            }
+            else
+            {
+                activeShader->SetBool("u_UseIBL", false);
+                activeShader->SetFloat("u_IBLIntensity", 1.0f);
+            }
         }
         else
         {
@@ -577,18 +841,98 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             activeShader->SetFloat("u_SpotLightOuterCos[" + idx + "]", spotLights[i].outerCos);
         }
 
-        // Shadow uniforms
-        activeShader->SetMat4("u_LightSpace", lightSpaceMatrix);
+        // CSM shadow uniforms
         activeShader->SetBool("u_DirectionalShadowsEnabled", m_Impl && m_Impl->shadowsEnabled);
+        activeShader->SetInt("u_NumCascades", numCascades);
         if (m_Impl && m_Impl->shadowsEnabled)
         {
-            int shadowUnit = nextTextureUnit;
-            m_Impl->shadowMap.BindForReading(shadowUnit);
-            activeShader->SetInt("u_ShadowMap", shadowUnit);
             activeShader->SetFloat("u_ShadowBias", m_Impl->shadowBias);
+            for (int ci = 0; ci < numCascades; ++ci)
+            {
+                std::string idx = std::to_string(ci);
+                activeShader->SetMat4("u_CascadeLightSpace[" + idx + "]", cascadeLightSpaceMatrices[ci]);
+                activeShader->SetFloat("u_CascadeSplitFar[" + idx + "]", cascadeSplitFar[ci]);
+                int shadowUnit = nextTextureUnit + ci;
+                m_Impl->cascadeMaps[ci].BindForReading(shadowUnit);
+                activeShader->SetInt("u_CascadeShadowMap[" + idx + "]", shadowUnit);
+            }
+            nextTextureUnit += numCascades;
+        }
+
+        // SSAO uniform
+        bool ssaoActive = m_Impl && m_Impl->ssaoEnabled && m_Impl->ssaoPass.GetOcclusionTexture() != 0;
+        activeShader->SetBool("u_SSAOEnabled", ssaoActive);
+        activeShader->SetVec2("u_ScreenSize",
+            glm::vec2(static_cast<float>(lastViewport[2]), static_cast<float>(lastViewport[3])));
+        if (ssaoActive)
+        {
+            int ssaoUnit = nextTextureUnit++;
+            glActiveTexture(GL_TEXTURE0 + ssaoUnit);
+            glBindTexture(GL_TEXTURE_2D, m_Impl->ssaoPass.GetOcclusionTexture());
+            activeShader->SetInt("u_SSAOTexture", ssaoUnit);
+        }
+        if (activeMaterial)
+        {
+            // Blend mode
+            switch (activeMaterial->blendMode)
+            {
+            case MyEngine::BlendMode::AlphaBlend:
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                break;
+            case MyEngine::BlendMode::Additive:
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+                break;
+            default: // Opaque
+                glDisable(GL_BLEND);
+                break;
+            }
+            // Cull mode (only override when NOT in wireframe, which already disables culling)
+            if (!wireframe)
+            {
+                switch (activeMaterial->cullMode)
+                {
+                case MyEngine::CullMode::Off:
+                    glDisable(GL_CULL_FACE);
+                    break;
+                case MyEngine::CullMode::Front:
+                    glEnable(GL_CULL_FACE);
+                    glCullFace(GL_FRONT);
+                    break;
+                default: // Back
+                    glEnable(GL_CULL_FACE);
+                    glCullFace(GL_BACK);
+                    break;
+                }
+            }
+            // Depth write / test
+            glDepthMask(activeMaterial->depthWrite ? GL_TRUE : GL_FALSE);
+            if (activeMaterial->depthTest)
+                glEnable(GL_DEPTH_TEST);
+            else
+                glDisable(GL_DEPTH_TEST);
         }
 
         meshComponent.mesh->Draw();
+
+        // Restore default GL render state changed by per-material flags
+        if (activeMaterial)
+        {
+            if (activeMaterial->blendMode != MyEngine::BlendMode::Opaque)
+            {
+                glDisable(GL_BLEND);
+            }
+            if (activeMaterial->cullMode != MyEngine::CullMode::Back)
+            {
+                glEnable(GL_CULL_FACE);
+                glCullFace(GL_BACK);
+            }
+            if (!activeMaterial->depthWrite)
+                glDepthMask(GL_TRUE);
+            if (!activeMaterial->depthTest)
+                glEnable(GL_DEPTH_TEST);
+        }
     }
 
     // Restore fill mode and back-face culling so wireframe never leaks into

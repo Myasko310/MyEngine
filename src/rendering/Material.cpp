@@ -81,6 +81,12 @@ namespace MyEngine
 		WriteTexturePath(writer, "aoMapPath", aoMap);
 		WriteTexturePath(writer, "emissiveMapPath", emissiveMap);
 
+		writer.Key("blendMode");    writer.Int(static_cast<int>(blendMode));
+		writer.Key("cullMode");     writer.Int(static_cast<int>(cullMode));
+		writer.Key("depthWrite");   writer.Bool(depthWrite);
+		writer.Key("depthTest");    writer.Bool(depthTest);
+		writer.Key("renderQueue");  writer.Int(renderQueue);
+
 		writer.EndObject();
 
 		std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -142,6 +148,17 @@ namespace MyEngine
 		loadTextureIfPresent("metallicRoughnessMapPath", metallicRoughnessMap);
 		loadTextureIfPresent("aoMapPath", aoMap);
 		loadTextureIfPresent("emissiveMapPath", emissiveMap);
+
+		if (doc.HasMember("blendMode")   && doc["blendMode"].IsInt())
+			blendMode   = static_cast<BlendMode>(doc["blendMode"].GetInt());
+		if (doc.HasMember("cullMode")    && doc["cullMode"].IsInt())
+			cullMode    = static_cast<CullMode>(doc["cullMode"].GetInt());
+		if (doc.HasMember("depthWrite")  && doc["depthWrite"].IsBool())
+			depthWrite  = doc["depthWrite"].GetBool();
+		if (doc.HasMember("depthTest")   && doc["depthTest"].IsBool())
+			depthTest   = doc["depthTest"].GetBool();
+		if (doc.HasMember("renderQueue") && doc["renderQueue"].IsInt())
+			renderQueue = doc["renderQueue"].GetInt();
 
 		return true;
 	}

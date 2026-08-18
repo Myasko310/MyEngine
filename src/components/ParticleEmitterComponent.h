@@ -22,9 +22,31 @@ struct Particle
 // Attach to any entity that also has a TransformComponent.
 struct ParticleEmitterComponent
 {
+	enum class EmissionShape
+	{
+		Point = 0,
+		Sphere,
+		Box,
+		Cone
+	};
+
 	// ---------- Spawn settings ----------
 	int   maxParticles  = 200;   // pool size (resize triggers pool rebuild)
 	float spawnRate     = 30.0f; // particles per second
+	bool  emitting      = true;  // whether the emitter is currently spawning new particles
+
+	enum class BlendMode
+	{
+		Alpha = 0,
+		Additive
+	};
+
+	// ---------- Emission / render shape ----------
+	EmissionShape shape = EmissionShape::Point;
+	BlendMode blendMode = BlendMode::Alpha;
+	float shapeRadius = 0.5f;          // sphere radius or cone base radius
+	glm::vec3 shapeExtents{ 0.5f };    // box half-extents
+	float shapeHeight = 1.0f;          // cone height
 
 	// ---------- Particle appearance ----------
 	glm::vec4 colorStart{ 1.0f, 0.6f, 0.1f, 1.0f }; // birth color (RGBA)
@@ -33,12 +55,12 @@ struct ParticleEmitterComponent
 	float     sizeEnd   { 0.0f };
 
 	// ---------- Particle motion ----------
-	float     lifetime       { 1.5f };          // seconds each particle lives
-	float     lifetimeVariance{ 0.5f };         // ±random added to lifetime
+	float     lifetime       { 1.5f };            // seconds each particle lives
+	float     lifetimeVariance{ 0.5f };           // ±random added to lifetime
 	glm::vec3 emitDirection  { 0.0f, 1.0f, 0.0f }; // base velocity direction
-	float     emitSpeed      { 2.0f };          // base speed (m/s)
-	float     emitSpeedVariance{ 0.5f };        // ±random spread on speed
-	float     spreadAngle    { 25.0f };         // cone half-angle in degrees
+	float     emitSpeed      { 2.0f };            // base speed (m/s)
+	float     emitSpeedVariance{ 0.5f };          // ±random spread on speed
+	float     spreadAngle    { 25.0f };           // cone half-angle in degrees
 	glm::vec3 gravity        { 0.0f, -2.0f, 0.0f }; // per-particle gravity
 
 	// ---------- Texture ----------
@@ -47,11 +69,8 @@ struct ParticleEmitterComponent
 	std::string texturePath;
 
 	// ---------- Runtime state (managed by ParticleSystem, not serialized) ----------
-	std::vector<Particle> particles;    // live pool
+	std::vector<Particle> particles;        // live pool
 	float                 spawnAccum = 0.0f; // fractional particle debt
 	unsigned int          textureID  = 0;    // GL texture handle (0 = none)
 	bool                  poolDirty  = true; // true → rebuild pool next Update
-
-	// Whether the emitter is currently spawning new particles.
-	bool emitting = true;
 };

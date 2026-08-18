@@ -135,9 +135,7 @@ namespace MyEngine
     {
         GLint location = glGetUniformLocation(m_ID, name.c_str());
         if (location == -1)
-        {
-            std::cerr << "[Shader] Warning: Uniform '" << name << "' not found in shader program " << m_ID << std::endl;
-        }
+            return;
         glUniform1i(location, static_cast<int>(value));
     }
 
@@ -145,85 +143,72 @@ namespace MyEngine
     {
         GLint location = glGetUniformLocation(m_ID, name.c_str());
         if (location == -1)
-        {
-            std::cerr << "[Shader] Warning: Uniform '" << name << "' not found in shader program " << m_ID << std::endl;
-        }
+            return;
         glUniform1i(location, value);
     }
 
     void Shader::SetFloat(const std::string& name, float value) const
     {
-        glUniform1f(
-            glGetUniformLocation(m_ID, name.c_str()),
-            value
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+            return;
+        glUniform1f(location, value);
     }
 
     void Shader::SetVec2(const std::string& name, float x, float y) const
     {
-        glUniform2f(
-            glGetUniformLocation(m_ID, name.c_str()),
-            x,
-            y
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+            return;
+        glUniform2f(location, x, y);
     }
 
     void Shader::SetVec3(const std::string& name, float x, float y, float z) const
     {
-        glUniform3f(
-            glGetUniformLocation(m_ID, name.c_str()),
-            x,
-            y,
-            z
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+            return;
+        glUniform3f(location, x, y, z);
     }
 
     void Shader::SetVec4(const std::string& name, float x, float y, float z, float w) const
     {
-        glUniform4f(
-            glGetUniformLocation(m_ID, name.c_str()),
-            x,
-            y,
-            z,
-            w
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+            return;
+        glUniform4f(location, x, y, z, w);
     }
 
     void Shader::SetVec2(const std::string& name, const glm::vec2& value) const
     {
-        glUniform2fv(
-            glGetUniformLocation(m_ID, name.c_str()),
-            1,
-            glm::value_ptr(value)
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+            return;
+        glUniform2fv(location, 1, glm::value_ptr(value));
     }
 
     void Shader::SetVec3(const std::string& name, const glm::vec3& value) const
     {
-        glUniform3fv(
-            glGetUniformLocation(m_ID, name.c_str()),
-            1,
-            glm::value_ptr(value)
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+            return;
+        glUniform3fv(location, 1, glm::value_ptr(value));
     }
 
     void Shader::SetVec4(const std::string& name, const glm::vec4& value) const
     {
-        glUniform4fv(
-            glGetUniformLocation(m_ID, name.c_str()),
-            1,
-            glm::value_ptr(value)
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+            return;
+        glUniform4fv(location, 1, glm::value_ptr(value));
     }
 
     void Shader::SetMat4(const std::string& name, const glm::mat4& mat) const
     {
-        glUniformMatrix4fv(
-            glGetUniformLocation(m_ID, name.c_str()),
-            1,
-            GL_FALSE,
-            glm::value_ptr(mat)
-        );
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+            return;
+        glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(mat));
     }
 
     std::string Shader::LoadFile(const std::string& path) const

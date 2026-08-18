@@ -66,6 +66,7 @@ public:
     // Expose cascade GL textures for UI preview
     unsigned int GetCascadeTexture(int cascade) const;
     unsigned int GetShadowTexture() const; // compat: returns cascade 0
+    unsigned int GetPointShadowTexture(int lightIndex) const;
 
 private:
     struct Impl;

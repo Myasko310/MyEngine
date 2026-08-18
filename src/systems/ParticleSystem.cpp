@@ -68,6 +68,35 @@ namespace
 			axis  * z
 		);
 	}
+
+	glm::vec3 RandomPointInEmitterShape(std::mt19937& rng, const ParticleEmitterComponent& emitter)
+	{
+		switch (emitter.shape)
+		{
+		case ParticleEmitterComponent::EmissionShape::Sphere:
+		{
+			glm::vec3 dir = glm::normalize(glm::vec3(
+				RandFloat(rng, -1.0f, 1.0f),
+				RandFloat(rng, -1.0f, 1.0f),
+				RandFloat(rng, -1.0f, 1.0f)));
+			float r = emitter.shapeRadius * std::cbrt(RandFloat(rng, 0.0f, 1.0f));
+			return dir * r;
+		}
+		case ParticleEmitterComponent::EmissionShape::Box:
+			return glm::vec3(
+				RandFloat(rng, -emitter.shapeExtents.x, emitter.shapeExtents.x),
+				RandFloat(rng, -emitter.shapeExtents.y, emitter.shapeExtents.y),
+				RandFloat(rng, -emitter.shapeExtents.z, emitter.shapeExtents.z));
+		case ParticleEmitterComponent::EmissionShape::Cone:
+			return glm::vec3(
+				RandFloat(rng, -emitter.shapeRadius, emitter.shapeRadius),
+				RandFloat(rng, 0.0f, std::max(emitter.shapeHeight, 0.0f)),
+				RandFloat(rng, -emitter.shapeRadius, emitter.shapeRadius));
+		case ParticleEmitterComponent::EmissionShape::Point:
+		default:
+			return glm::vec3(0.0f);
+		}
+	}
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -192,6 +221,8 @@ namespace MyEngine
 			}
 
 			glm::vec3 emitterPos = transform.position;
+			glm::vec3 spawnOffset = RandomPointInEmitterShape(m_Impl->rng, emitter);
+			glm::vec3 spawnPos = emitterPos + spawnOffset;
 
 			// --- Simulate existing particles ---
 			for (auto& p : emitter.particles)
@@ -228,7 +259,7 @@ namespace MyEngine
 
 					slot->alive      = true;
 					slot->age        = 0.0f;
-					slot->position   = emitterPos;
+					slot->position   = spawnPos;
 					slot->colorStart = emitter.colorStart;
 					slot->colorEnd   = emitter.colorEnd;
 					slot->sizeStart  = emitter.sizeStart;
@@ -271,7 +302,6 @@ namespace MyEngine
 
 		// Alpha blending + depth test (read-only so particles don't occlude each other)
 		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glDepthMask(GL_FALSE);
 
 		glBindVertexArray(m_Impl->quadVAO);
@@ -311,6 +341,12 @@ namespace MyEngine
 			}
 			m_Impl->shader->SetInt("u_Texture", 0);
 
+			// Blend mode per emitter
+			if (emitter.blendMode == ParticleEmitterComponent::BlendMode::Additive)
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+			else
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
 			// Build instance buffer for alive particles
 			m_Impl->instanceBuffer.clear();
 			for (const auto& p : emitter.particles)
@@ -342,6 +378,7 @@ namespace MyEngine
 
 		glBindVertexArray(0);
 		glDepthMask(GL_TRUE);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glDisable(GL_BLEND);
 	}
 } // namespace MyEngine

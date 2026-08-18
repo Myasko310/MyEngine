@@ -19,6 +19,12 @@ namespace MyEngine
 		static void SetListenerOrientation(const glm::vec3& forward, const glm::vec3& up);
 		static void SetListenerGain(float gain);
 
+		// Simple master audio controls (applied on top of listener gain)
+		static void SetMasterVolume(float volume);
+		static float GetMasterVolume();
+		static void SetMuted(bool muted);
+		static bool IsMuted();
+
 	private:
 		static bool s_Initialized;
 	};

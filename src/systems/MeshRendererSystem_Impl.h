@@ -19,7 +19,7 @@ struct MeshRendererSystem::Impl
 	// Cascaded shadow maps (one FBO+texture per cascade)
 	std::array<MyEngine::ShadowMap, MAX_CASCADES> cascadeMaps;
 	unsigned int shadowSize   = 2048;
-	float        shadowBias   = 0.005f;
+	float        shadowBias   = 0.001f;
 	bool         shadowsEnabled = true;
 
 	// CSM settings

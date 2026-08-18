@@ -22,6 +22,7 @@
 #include "components/LODComponent.h"
 #include "components/TerrainComponent.h"
 #include "components/NavigationAgentComponent.h"
+#include "components/ParticleEmitterComponent.h"
 #include "core/LayerMask.h"
 #include "rendering/MeshPrimitives.h"
 #include "rendering/Texture.h"
@@ -55,6 +56,16 @@ namespace MyEngine
 			writer.EndArray();
 		}
 
+		static void SerializeVec4(PrettyWriter<StringBuffer>& writer, const glm::vec4& v)
+		{
+			writer.StartArray();
+			writer.Double(v.x);
+			writer.Double(v.y);
+			writer.Double(v.z);
+			writer.Double(v.w);
+			writer.EndArray();
+		}
+
 		static glm::vec3 DeserializeVec3(const Value& a)
 		{
 			glm::vec3 v(0.0f);
@@ -63,6 +74,19 @@ namespace MyEngine
 				v.x = static_cast<float>(a[0].GetDouble());
 				v.y = static_cast<float>(a[1].GetDouble());
 				v.z = static_cast<float>(a[2].GetDouble());
+			}
+			return v;
+		}
+
+		static glm::vec4 DeserializeVec4(const Value& a)
+		{
+			glm::vec4 v(0.0f);
+			if (a.IsArray() && a.Size() >= 4)
+			{
+				v.x = static_cast<float>(a[0].GetDouble());
+				v.y = static_cast<float>(a[1].GetDouble());
+				v.z = static_cast<float>(a[2].GetDouble());
+				v.w = static_cast<float>(a[3].GetDouble());
 			}
 			return v;
 		}
@@ -363,6 +387,37 @@ namespace MyEngine
 					writer.StartObject();
 					writer.Key("isPrimary"); writer.Bool(al.isPrimary);
 					writer.Key("gain"); writer.Double(al.gain);
+					writer.EndObject();
+				}
+
+				// Particle Emitter
+				if (e->HasComponent<ParticleEmitterComponent>())
+				{
+					auto& pe = e->GetComponent<ParticleEmitterComponent>();
+					writer.Key("ParticleEmitter");
+					writer.StartObject();
+					writer.Key("maxParticles"); writer.Int(pe.maxParticles);
+					writer.Key("spawnRate"); writer.Double(pe.spawnRate);
+					writer.Key("emitting"); writer.Bool(pe.emitting);
+					writer.Key("shape"); writer.Int(static_cast<int>(pe.shape));
+					writer.Key("shapeRadius"); writer.Double(pe.shapeRadius);
+					writer.Key("shapeExtents"); SerializeVec3(writer, pe.shapeExtents);
+					writer.Key("shapeHeight"); writer.Double(pe.shapeHeight);
+					writer.Key("colorStart"); SerializeVec4(writer, pe.colorStart);
+					writer.Key("colorEnd"); SerializeVec4(writer, pe.colorEnd);
+					writer.Key("sizeStart"); writer.Double(pe.sizeStart);
+					writer.Key("sizeEnd"); writer.Double(pe.sizeEnd);
+					writer.Key("lifetime"); writer.Double(pe.lifetime);
+					writer.Key("lifetimeVariance"); writer.Double(pe.lifetimeVariance);
+					writer.Key("emitDirection"); SerializeVec3(writer, pe.emitDirection);
+					writer.Key("emitSpeed"); writer.Double(pe.emitSpeed);
+					writer.Key("emitSpeedVariance"); writer.Double(pe.emitSpeedVariance);
+					writer.Key("spreadAngle"); writer.Double(pe.spreadAngle);
+					writer.Key("gravity"); SerializeVec3(writer, pe.gravity);
+					if (!pe.texturePath.empty())
+					{
+						writer.Key("texturePath"); writer.String(pe.texturePath.c_str());
+					}
 					writer.EndObject();
 				}
 
@@ -871,6 +926,34 @@ namespace MyEngine
 					if (ao.HasMember("spatial")) as.spatial = ao["spatial"].GetBool();
 					if (ao.HasMember("minDistance")) as.minDistance = static_cast<float>(ao["minDistance"].GetDouble());
 					if (ao.HasMember("maxDistance")) as.maxDistance = static_cast<float>(ao["maxDistance"].GetDouble());
+				}
+
+				// Particle Emitter
+				if (v.HasMember("ParticleEmitter") && v["ParticleEmitter"].IsObject())
+				{
+					auto& pe = ent->AddComponent<ParticleEmitterComponent>();
+					const auto& po = v["ParticleEmitter"];
+					if (po.HasMember("maxParticles")) pe.maxParticles = po["maxParticles"].GetInt();
+					if (po.HasMember("spawnRate")) pe.spawnRate = static_cast<float>(po["spawnRate"].GetDouble());
+					if (po.HasMember("emitting")) pe.emitting = po["emitting"].GetBool();
+					if (po.HasMember("shape")) pe.shape = static_cast<ParticleEmitterComponent::EmissionShape>(po["shape"].GetInt());
+					if (po.HasMember("shapeRadius")) pe.shapeRadius = static_cast<float>(po["shapeRadius"].GetDouble());
+					if (po.HasMember("shapeExtents")) pe.shapeExtents = DeserializeVec3(po["shapeExtents"]);
+					if (po.HasMember("shapeHeight")) pe.shapeHeight = static_cast<float>(po["shapeHeight"].GetDouble());
+					if (po.HasMember("colorStart")) pe.colorStart = DeserializeVec4(po["colorStart"]);
+					if (po.HasMember("colorEnd")) pe.colorEnd = DeserializeVec4(po["colorEnd"]);
+					if (po.HasMember("sizeStart")) pe.sizeStart = static_cast<float>(po["sizeStart"].GetDouble());
+					if (po.HasMember("sizeEnd")) pe.sizeEnd = static_cast<float>(po["sizeEnd"].GetDouble());
+					if (po.HasMember("lifetime")) pe.lifetime = static_cast<float>(po["lifetime"].GetDouble());
+					if (po.HasMember("lifetimeVariance")) pe.lifetimeVariance = static_cast<float>(po["lifetimeVariance"].GetDouble());
+					if (po.HasMember("emitDirection")) pe.emitDirection = DeserializeVec3(po["emitDirection"]);
+					if (po.HasMember("emitSpeed")) pe.emitSpeed = static_cast<float>(po["emitSpeed"].GetDouble());
+					if (po.HasMember("emitSpeedVariance")) pe.emitSpeedVariance = static_cast<float>(po["emitSpeedVariance"].GetDouble());
+					if (po.HasMember("spreadAngle")) pe.spreadAngle = static_cast<float>(po["spreadAngle"].GetDouble());
+					if (po.HasMember("gravity")) pe.gravity = DeserializeVec3(po["gravity"]);
+					if (po.HasMember("texturePath") && po["texturePath"].IsString())
+						pe.texturePath = po["texturePath"].GetString();
+					pe.poolDirty = true;
 				}
 
 				// Audio Listener

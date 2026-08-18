@@ -134,6 +134,13 @@ unsigned int MeshRendererSystem::GetShadowTexture() const
     return GetCascadeTexture(0);
 }
 
+unsigned int MeshRendererSystem::GetPointShadowTexture(int lightIndex) const
+{
+    if (!m_Impl || lightIndex < 0 || lightIndex >= static_cast<int>(m_Impl->pointShadowMaps.size()))
+        return 0;
+    return m_Impl->pointShadowMaps[lightIndex].GetDepthCubemap();
+}
+
 void MeshRendererSystem::SetNumCascades(int n)
 {
     if (!m_Impl) m_Impl = std::make_unique<Impl>();
@@ -272,6 +279,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     std::array<float, kMaxPointLights> pointShadowFarPlanes;
     pointShadowFarPlanes.fill(1.0f);
     bool foundDirectional = false;
+    bool directionalCastShadows = false;
 
     for (const auto& e : scene.GetEntities())
     {
@@ -288,6 +296,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             {
                 lightDir = L.direction;
                 lightColor = L.color * L.intensity;
+                directionalCastShadows = L.castShadows;
                 foundDirectional = true;
             }
         }
@@ -458,7 +467,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     }
 
     // 1) CSM: Render a depth pass for each cascade from the light's perspective
-    if (m_Impl && m_Impl->shadowsEnabled)
+    if (m_Impl && m_Impl->shadowsEnabled && foundDirectional && directionalCastShadows)
     {
         glDisable(GL_CULL_FACE);
         glEnable(GL_POLYGON_OFFSET_FILL);
@@ -842,7 +851,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         }
 
         // CSM shadow uniforms
-        activeShader->SetBool("u_DirectionalShadowsEnabled", m_Impl && m_Impl->shadowsEnabled);
+        activeShader->SetBool("u_DirectionalShadowsEnabled", m_Impl && m_Impl->shadowsEnabled && foundDirectional && directionalCastShadows);
         activeShader->SetInt("u_NumCascades", numCascades);
         if (m_Impl && m_Impl->shadowsEnabled)
         {

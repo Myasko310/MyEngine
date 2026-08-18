@@ -3,6 +3,7 @@
 #include <AL/al.h>
 #include <AL/alc.h>
 
+#include <algorithm>
 #include <iostream>
 
 namespace MyEngine
@@ -11,6 +12,8 @@ namespace MyEngine
 	{
 		ALCdevice* s_Device = nullptr;
 		ALCcontext* s_Context = nullptr;
+		float s_MasterVolume = 1.0f;
+		bool  s_Muted = false;
 	}
 
 	bool AudioEngine::s_Initialized = false;
@@ -106,6 +109,29 @@ namespace MyEngine
 	{
 		if (!s_Initialized)
 			return;
-		alListenerf(AL_GAIN, gain);
+		float effectiveGain = s_Muted ? 0.0f : gain * s_MasterVolume;
+		alListenerf(AL_GAIN, effectiveGain);
+	}
+
+	void AudioEngine::SetMasterVolume(float volume)
+	{
+		s_MasterVolume = std::clamp(volume, 0.0f, 1.0f);
+		if (s_Initialized)
+			alGetError(); // clear any stale error before setting gain
+	}
+
+	float AudioEngine::GetMasterVolume()
+	{
+		return s_MasterVolume;
+	}
+
+	void AudioEngine::SetMuted(bool muted)
+	{
+		s_Muted = muted;
+	}
+
+	bool AudioEngine::IsMuted()
+	{
+		return s_Muted;
 	}
 }

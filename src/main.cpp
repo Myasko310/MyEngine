@@ -792,7 +792,7 @@ int main()
         light.direction = glm::vec3(-0.2f, -1.0f, -0.3f);
         light.color = glm::vec3(1.0f);
         light.intensity = 1.0f;
-        light.castShadows = false;
+        light.castShadows = true;
         // store pointer to the light entity as the first light in scene
     }
 
@@ -1556,7 +1556,7 @@ int main()
                         light.color = glm::vec3(1.0f);
                         light.intensity = 1.0f;
                         light.range = 10.0f;
-                        light.castShadows = false;
+                        light.castShadows = true;
                         selectedEntity = ent.get();
                     }
                     if (ImGui::MenuItem("Spot Light"))
@@ -1573,7 +1573,7 @@ int main()
                         light.range = 10.0f;
                         light.innerCone = 12.5f;
                         light.outerCone = 17.5f;
-                        light.castShadows = false;
+                        light.castShadows = true;
                         selectedEntity = ent.get();
                     }
                     ImGui::EndMenu();
@@ -2465,9 +2465,9 @@ int main()
                             auto& transform = selectedEntity->GetComponent<TransformComponent>();
                             TransformComponent beforeEdit = transform;
                             bool edited = false;
-                            edited |= ImGui::DragFloat3("Position", &transform.position.x, 0.1f);
-                            edited |= ImGui::DragFloat3("Rotation", &transform.rotation.x, 1.0f);
-                            edited |= ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f, 0.01f, 100.0f);
+                            edited |= ImGui::DragFloat3("Position##transform", &transform.position.x, 0.1f);
+                            edited |= ImGui::DragFloat3("Rotation##transform", &transform.rotation.x, 1.0f);
+                            edited |= ImGui::DragFloat3("Scale##transform", &transform.scale.x, 0.1f, 0.01f, 100.0f);
                             // Commit a single undo command when the drag/edit finishes.
                             if (edited && ImGui::IsItemDeactivatedAfterEdit())
                             {
@@ -2551,14 +2551,14 @@ int main()
 
                             if (light.type == LightComponent::Type::Directional)
                             {
-                                ImGui::DragFloat3("Direction", &light.direction.x, 0.1f);
-                                ImGui::Checkbox("Cast Shadows", &light.castShadows);
+                                ImGui::DragFloat3("Direction##light", &light.direction.x, 0.1f);
+                                ImGui::Checkbox("Cast Shadows##light", &light.castShadows);
                             }
                             else if (light.type == LightComponent::Type::Point || light.type == LightComponent::Type::Spot)
                             {
-                                ImGui::DragFloat3("Position", &light.position.x, 0.1f);
-                                ImGui::DragFloat("Range", &light.range, 0.1f, 0.1f, 1000.0f);
-                                ImGui::Checkbox("Cast Shadows", &light.castShadows);
+                                ImGui::DragFloat3("Position##light", &light.position.x, 0.1f);
+                                ImGui::DragFloat("Range##light", &light.range, 0.1f, 0.1f, 1000.0f);
+                                ImGui::Checkbox("Cast Shadows##light", &light.castShadows);
 
                                 if (light.type == LightComponent::Type::Spot)
                                 {
@@ -2792,22 +2792,52 @@ int main()
                             ImGui::Separator();
                             ImGui::Text("PBR Material");
                             ImGui::Checkbox("Use PBR##usePbr", &editableUsePBR);
-
-                            if (editableUsePBR)
+                            if (!editableUsePBR)
                             {
+                                auto ensureLitShader = [](std::shared_ptr<MyEngine::Shader>& shaderRef)
+                                {
+                                    if (shaderRef && shaderRef->GetVertexPath() == "shaders/pbr.vert" && shaderRef->GetFragmentPath() == "shaders/pbr.frag")
+                                    {
+                                        shaderRef = MyEngine::AssetManager::LoadShader("shaders/lit.vert", "shaders/lit.frag");
+                                    }
+                                };
+
                                 if (material)
                                 {
-                                    if (!material->shader)
+                                    ensureLitShader(material->shader);
+                                    if (material->shader)
                                     {
-                                        material->shader = MyEngine::AssetManager::LoadShader("shaders/pbr.vert", "shaders/pbr.frag");
-                                        material->shaderVertexPath = "shaders/pbr.vert";
-                                        material->shaderFragmentPath = "shaders/pbr.frag";
+                                        material->shaderVertexPath = material->shader->GetVertexPath();
+                                        material->shaderFragmentPath = material->shader->GetFragmentPath();
                                     }
                                     renderer.shader = material->shader;
                                 }
-                                else if (!renderer.shader)
+                                else
                                 {
-                                    renderer.shader = MyEngine::AssetManager::LoadShader("shaders/pbr.vert", "shaders/pbr.frag");
+                                    ensureLitShader(renderer.shader);
+                                }
+                            }
+
+                            if (editableUsePBR)
+                            {
+                                auto ensurePBRShader = [](std::shared_ptr<MyEngine::Shader>& shaderRef)
+                                {
+                                    if (!shaderRef || shaderRef->GetVertexPath() != "shaders/pbr.vert" || shaderRef->GetFragmentPath() != "shaders/pbr.frag")
+                                    {
+                                        shaderRef = MyEngine::AssetManager::LoadShader("shaders/pbr.vert", "shaders/pbr.frag");
+                                    }
+                                };
+
+                                if (material)
+                                {
+                                    ensurePBRShader(material->shader);
+                                    material->shaderVertexPath = "shaders/pbr.vert";
+                                    material->shaderFragmentPath = "shaders/pbr.frag";
+                                    renderer.shader = material->shader;
+                                }
+                                else
+                                {
+                                    ensurePBRShader(renderer.shader);
                                 }
 
                                 ImGui::SliderFloat("Metallic", &editableMetallic, 0.0f, 1.0f);
@@ -3439,6 +3469,15 @@ int main()
                             ImGui::Checkbox("Primary Listener", &listener.isPrimary);
                             ImGui::SliderFloat("Gain", &listener.gain, 0.0f, 2.0f);
 
+                            ImGui::Separator();
+                            ImGui::Text("Master Audio");
+                            float masterVolume = MyEngine::AudioEngine::GetMasterVolume();
+                            if (ImGui::SliderFloat("Master Volume", &masterVolume, 0.0f, 1.0f))
+                                MyEngine::AudioEngine::SetMasterVolume(masterVolume);
+                            bool muted = MyEngine::AudioEngine::IsMuted();
+                            if (ImGui::Checkbox("Mute", &muted))
+                                MyEngine::AudioEngine::SetMuted(muted);
+
                             if (ImGui::Button("Remove Audio Listener"))
                             {
                                 selectedEntity->RemoveComponent<AudioListenerComponent>();
@@ -3460,7 +3499,12 @@ int main()
                         {
                             auto& emitter = selectedEntity->GetComponent<ParticleEmitterComponent>();
 
-                            ImGui::Checkbox("Emitting", &emitter.emitting);
+                            bool emitting = emitter.emitting;
+                            if (ImGui::Checkbox("Preview Emission", &emitting))
+                                emitter.emitting = emitting;
+
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("(toggle live particle spawning)");
 
                             if (ImGui::SliderInt("Max Particles", &emitter.maxParticles, 1, 10000))
                                 emitter.poolDirty = true;
@@ -3468,6 +3512,39 @@ int main()
                             ImGui::SliderFloat("Spawn Rate", &emitter.spawnRate, 0.0f, 500.0f);
                             ImGui::SliderFloat("Lifetime", &emitter.lifetime, 0.05f, 20.0f);
                             ImGui::SliderFloat("Lifetime Variance", &emitter.lifetimeVariance, 0.0f, 5.0f);
+
+                            ImGui::Separator();
+                            ImGui::Text("Emission Shape");
+                            int shape = static_cast<int>(emitter.shape);
+                            const char* shapeNames[] = { "Point", "Sphere", "Box", "Cone" };
+                            if (ImGui::Combo("Shape", &shape, shapeNames, IM_ARRAYSIZE(shapeNames)))
+                            {
+                                emitter.shape = static_cast<ParticleEmitterComponent::EmissionShape>(shape);
+                            }
+                            switch (emitter.shape)
+                            {
+                            case ParticleEmitterComponent::EmissionShape::Sphere:
+                                ImGui::SliderFloat("Radius##shape", &emitter.shapeRadius, 0.0f, 10.0f);
+                                break;
+                            case ParticleEmitterComponent::EmissionShape::Box:
+                                ImGui::SliderFloat3("Box Extents##shape", &emitter.shapeExtents.x, 0.0f, 10.0f);
+                                break;
+                            case ParticleEmitterComponent::EmissionShape::Cone:
+                                ImGui::SliderFloat("Cone Radius##shape", &emitter.shapeRadius, 0.0f, 10.0f);
+                                ImGui::SliderFloat("Cone Height##shape", &emitter.shapeHeight, 0.0f, 20.0f);
+                                break;
+                            case ParticleEmitterComponent::EmissionShape::Point:
+                            default:
+                                ImGui::TextDisabled("Using emitter origin");
+                                break;
+                            }
+
+                            ImGui::Separator();
+                            ImGui::Text("Render");
+                            int blendMode = static_cast<int>(emitter.blendMode);
+                            const char* blendNames[] = { "Alpha", "Additive" };
+                            if (ImGui::Combo("Blend Mode", &blendMode, blendNames, IM_ARRAYSIZE(blendNames)))
+                                emitter.blendMode = static_cast<ParticleEmitterComponent::BlendMode>(blendMode);
 
                             ImGui::Separator();
                             ImGui::Text("Emission");
@@ -3483,6 +3560,105 @@ int main()
                             ImGui::ColorEdit4("Color End",   &emitter.colorEnd.r);
                             ImGui::SliderFloat("Size Start", &emitter.sizeStart, 0.0f, 5.0f);
                             ImGui::SliderFloat("Size End",   &emitter.sizeEnd,   0.0f, 5.0f);
+
+                            ImGui::Separator();
+                            ImGui::Text("Presets");
+                            if (ImGui::Button("Fire"))
+                            {
+                                emitter.emitting = true;
+                                emitter.shape = ParticleEmitterComponent::EmissionShape::Cone;
+                                emitter.shapeRadius = 0.35f;
+                                emitter.shapeHeight = 0.6f;
+                                emitter.spawnRate = 80.0f;
+                                emitter.lifetime = 1.0f;
+                                emitter.lifetimeVariance = 0.3f;
+                                emitter.emitDirection = glm::vec3(0.0f, 1.0f, 0.0f);
+                                emitter.emitSpeed = 3.5f;
+                                emitter.emitSpeedVariance = 1.0f;
+                                emitter.spreadAngle = 18.0f;
+                                emitter.colorStart = glm::vec4(1.0f, 0.75f, 0.2f, 1.0f);
+                                emitter.colorEnd = glm::vec4(0.9f, 0.1f, 0.0f, 0.0f);
+                                emitter.sizeStart = 0.25f;
+                                emitter.sizeEnd = 0.0f;
+                                emitter.gravity = glm::vec3(0.0f, 1.0f, 0.0f);
+                                emitter.poolDirty = true;
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Smoke"))
+                            {
+                                emitter.emitting = true;
+                                emitter.shape = ParticleEmitterComponent::EmissionShape::Sphere;
+                                emitter.shapeRadius = 0.4f;
+                                emitter.spawnRate = 20.0f;
+                                emitter.lifetime = 4.0f;
+                                emitter.lifetimeVariance = 1.5f;
+                                emitter.emitDirection = glm::vec3(0.0f, 1.0f, 0.0f);
+                                emitter.emitSpeed = 0.8f;
+                                emitter.emitSpeedVariance = 0.4f;
+                                emitter.spreadAngle = 55.0f;
+                                emitter.colorStart = glm::vec4(0.35f, 0.35f, 0.35f, 0.7f);
+                                emitter.colorEnd = glm::vec4(0.1f, 0.1f, 0.1f, 0.0f);
+                                emitter.sizeStart = 0.35f;
+                                emitter.sizeEnd = 1.2f;
+                                emitter.gravity = glm::vec3(0.0f, 0.3f, 0.0f);
+                                emitter.poolDirty = true;
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Sparks"))
+                            {
+                                emitter.emitting = true;
+                                emitter.shape = ParticleEmitterComponent::EmissionShape::Point;
+                                emitter.spawnRate = 150.0f;
+                                emitter.lifetime = 0.6f;
+                                emitter.lifetimeVariance = 0.2f;
+                                emitter.emitDirection = glm::vec3(0.0f, 1.0f, 0.0f);
+                                emitter.emitSpeed = 8.0f;
+                                emitter.emitSpeedVariance = 3.0f;
+                                emitter.spreadAngle = 65.0f;
+                                emitter.colorStart = glm::vec4(1.0f, 0.9f, 0.3f, 1.0f);
+                                emitter.colorEnd = glm::vec4(1.0f, 0.2f, 0.0f, 0.0f);
+                                emitter.sizeStart = 0.08f;
+                                emitter.sizeEnd = 0.0f;
+                                emitter.gravity = glm::vec3(0.0f, -8.0f, 0.0f);
+                                emitter.poolDirty = true;
+                            }
+
+                            ImGui::Separator();
+                            ImGui::Text("Texture");
+                            ImGui::Separator();
+                            ImGui::Text("Texture");
+                            static char particleTexturePathBuf[256] = "";
+                            if (particleTexturePathBuf[0] == '\0' && !emitter.texturePath.empty())
+                            {
+                                std::snprintf(particleTexturePathBuf, sizeof(particleTexturePathBuf), "%s", emitter.texturePath.c_str());
+                            }
+                            if (ImGui::InputText("Texture Path", particleTexturePathBuf, sizeof(particleTexturePathBuf)))
+                            {
+                                emitter.texturePath = particleTexturePathBuf;
+                                emitter.poolDirty = true;
+                            }
+                            if (ImGui::Button("Browse Texture"))
+                            {
+                                std::string picked = MyEngine::FileDialog::OpenImageFile();
+                                if (!picked.empty())
+                                {
+                                    emitter.texturePath = picked;
+                                    std::snprintf(particleTexturePathBuf, sizeof(particleTexturePathBuf), "%s", picked.c_str());
+                                    emitter.poolDirty = true;
+                                }
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Clear Texture"))
+                            {
+                                emitter.texturePath.clear();
+                                particleTexturePathBuf[0] = '\0';
+                                emitter.poolDirty = true;
+                            }
+
+                            if (!emitter.texturePath.empty())
+                            {
+                                ImGui::TextWrapped("%s", emitter.texturePath.c_str());
+                            }
 
                             // Count alive particles for debug info
                             int alive = 0;
@@ -3556,6 +3732,10 @@ int main()
                 if (ImGui::Checkbox("Directional Shadows", &dirShadowsEnabled))
                     renderSystem.SetShadowsEnabled(dirShadowsEnabled);
 
+                float shadowBias = renderSystem.GetShadowBias();
+                if (ImGui::SliderFloat("Directional Shadow Bias", &shadowBias, 0.0001f, 0.02f, "%.4f"))
+                    renderSystem.SetShadowBias(shadowBias);
+
                 bool pointShadowsEnabled = renderSystem.GetPointShadowsEnabled();
                 if (ImGui::Checkbox("Point Light Shadows", &pointShadowsEnabled))
                     renderSystem.SetPointShadowsEnabled(pointShadowsEnabled);
@@ -3575,6 +3755,41 @@ int main()
                 float pointShadowBias = renderSystem.GetPointShadowBias();
                 if (ImGui::SliderFloat("Point Shadow Bias", &pointShadowBias, 0.001f, 0.1f, "%.4f"))
                     renderSystem.SetPointShadowBias(pointShadowBias);
+
+                if (ImGui::TreeNode("Shadow Debug View"))
+                {
+                    const float previewSize = 96.0f;
+                    ImVec2 previewDim(previewSize, previewSize);
+
+                    ImGui::Text("Directional Cascades");
+                    for (int cascade = 0; cascade < renderSystem.GetNumCascades(); ++cascade)
+                    {
+                        ImGui::PushID(cascade);
+                        unsigned int tex = renderSystem.GetCascadeTexture(cascade);
+                        ImGui::Text("Cascade %d", cascade);
+                        if (tex != 0)
+                            ImGui::Image((ImTextureID)(intptr_t)tex, previewDim, ImVec2(0, 1), ImVec2(1, 0));
+                        else
+                            ImGui::TextDisabled("Unavailable");
+                        ImGui::PopID();
+                    }
+
+                    ImGui::Separator();
+                    ImGui::Text("Point Shadow Cubemaps");
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        ImGui::PushID(i);
+                        unsigned int tex = renderSystem.GetPointShadowTexture(i);
+                        ImGui::Text("Point Light %d", i);
+                        if (tex != 0)
+                            ImGui::Image((ImTextureID)(intptr_t)tex, previewDim, ImVec2(0, 1), ImVec2(1, 0));
+                        else
+                            ImGui::TextDisabled("Unavailable");
+                        ImGui::PopID();
+                    }
+
+                    ImGui::TreePop();
+                }
 
                 ImGui::Separator();
                 ImGui::Text("Scene Lights:");

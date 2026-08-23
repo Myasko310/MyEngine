@@ -38,6 +38,18 @@ namespace MyEngine
 		// may contain bone weights/animations you want to preserve.
 		static SkinnedModelData LoadSkinnedModel(const std::string& path);
 
+		// Load animation clips from a model file (glTF/GLB/FBX, etc.). This is a
+		// lightweight convenience wrapper over LoadSkinnedModel for attaching
+		// external animation clips to an existing animated entity.
+		static std::shared_ptr<std::vector<AnimationClip>> LoadAnimationClips(const std::string& path);
+
+		// Returns true if a clip has enough track overlap with the given skeleton
+		// to be considered compatible for import/runtime playback.
+		static bool IsAnimationClipCompatible(const AnimationClip& clip, const std::shared_ptr<Skeleton>& skeleton, float minimumTrackMatchRatio = 0.35f);
+
+		// Counts how many tracks in the clip resolve to bones on the skeleton.
+		static int CountMatchingAnimationTracks(const AnimationClip& clip, const std::shared_ptr<Skeleton>& skeleton);
+
 		// Load texture (cached)
 		static std::shared_ptr<Texture> LoadTexture(const std::string& path, bool generateMipmaps = true);
 

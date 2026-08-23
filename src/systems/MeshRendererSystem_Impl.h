@@ -24,11 +24,13 @@ struct MeshRendererSystem::Impl
 
 	// CSM settings
 	int   numCascades  = 4;      // active cascade count (1-4)
-	float splitLambda  = 0.75f;  // blend between log (1.0) and uniform (0.0) splits
+	float splitLambda  = 0.99f;  // blend between log (1.0) and uniform (0.0) splits
 
 	std::array<MyEngine::PointShadowMap, 4> pointShadowMaps;
 	unsigned int pointShadowSize = 1024;
-	float pointShadowBias = 0.02f;
+	// Global multiplier anchor for point-light shadow bias. 0.005f is neutral
+	// (matches LightComponent::shadowBias default).
+	float pointShadowBias = 0.005f;
 	bool pointShadowsEnabled = true;
 
 	bool wireframe = false;

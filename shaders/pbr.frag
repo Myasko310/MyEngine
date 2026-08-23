@@ -68,7 +68,7 @@ uniform float u_PointLightRange[MAX_POINT_LIGHTS];
 uniform bool u_PointLightCastShadows[MAX_POINT_LIGHTS];
 uniform samplerCube u_PointShadowMap[MAX_POINT_LIGHTS];
 uniform float u_PointShadowFarPlane[MAX_POINT_LIGHTS];
-uniform float u_PointShadowBias;
+uniform float u_PointShadowBias[MAX_POINT_LIGHTS];
 
 uniform int u_NumSpotLights;
 uniform vec3 u_SpotLightPos[MAX_SPOT_LIGHTS];
@@ -111,20 +111,45 @@ float ShadowCalculation(vec3 worldPos, vec3 N)
 	if (!u_DirectionalShadowsEnabled)
 		return 0.0;
 
-	int cascade = u_NumCascades - 1;
+	int preferredCascade = u_NumCascades - 1;
 	for (int i = 0; i < u_NumCascades; ++i)
 	{
 		if (v_ViewSpaceDepth < u_CascadeSplitFar[i])
 		{
-			cascade = i;
+			preferredCascade = i;
 			break;
 		}
 	}
 
-	vec4 fragPosLightSpace = u_CascadeLightSpace[cascade] * vec4(worldPos, 1.0);
-	float bias = max(u_ShadowBias * 5.0 * (1.0 - dot(normalize(N), normalize(-u_LightDirection))), u_ShadowBias);
-	vec2 texelSize = 1.0 / vec2(textureSize(u_CascadeShadowMap[cascade], 0));
-	return ShadowPCF(u_CascadeShadowMap[cascade], fragPosLightSpace, bias, texelSize);
+	// Fallback to wider cascades when the preferred cascade does not cover
+	// this fragment in XY. This reduces camera-distance shadow dropouts.
+	for (int cascade = preferredCascade; cascade < u_NumCascades; ++cascade)
+	{
+		vec4 fragPosLightSpace = u_CascadeLightSpace[cascade] * vec4(worldPos, 1.0);
+		vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+		projCoords = projCoords * 0.5 + 0.5;
+
+		if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
+			projCoords.y < 0.0 || projCoords.y > 1.0 ||
+			projCoords.z < 0.0 || projCoords.z > 1.0)
+		{
+			continue;
+		}
+
+		// Convert user bias from world-ish units into normalized depth for this
+		// specific cascade. This keeps bias stable as cascade depth ranges grow.
+		float depthScale = max(abs(u_CascadeLightSpace[cascade][2][2]) * 0.5, 0.000001);
+		float cascadeBaseBias = u_ShadowBias * depthScale;
+		float bias = max(
+			cascadeBaseBias * 5.0 * (1.0 - dot(normalize(N), normalize(-u_LightDirection))),
+			cascadeBaseBias
+		);
+
+		vec2 texelSize = 1.0 / vec2(textureSize(u_CascadeShadowMap[cascade], 0));
+		return ShadowPCF(u_CascadeShadowMap[cascade], fragPosLightSpace, bias, texelSize);
+	}
+
+	return 0.0;
 }
 
 float PointShadowCalculation(int lightIndex, vec3 lightPos, vec3 normal)
@@ -144,7 +169,7 @@ float PointShadowCalculation(int lightIndex, vec3 lightPos, vec3 normal)
 
 	vec3 lightDir = normalize(lightPos - v_Position);
 	float angularBias = max(0.02 * (1.0 - max(dot(normalize(normal), lightDir), 0.0)), 0.002);
-	float bias = max(u_PointShadowBias, angularBias);
+	float bias = max(u_PointShadowBias[lightIndex], angularBias);
 	return (currentDepth - bias > closestDepth) ? 1.0 : 0.0;
 }
 

@@ -23,7 +23,7 @@ void main()
 		int boneID = a_BoneIDs[i];
 		float weight = a_BoneWeights[i];
 
-		if (boneID < 0 || weight <= 0.0)
+		if (boneID < 0 || boneID >= MAX_BONES || weight <= 0.0)
 			continue;
 
 		skinMatrix = skinMatrix + u_BoneMatrices[boneID] * weight;
@@ -31,7 +31,13 @@ void main()
 	}
 
 	if (totalWeight <= 0.0001)
+	{
 		skinMatrix = mat4(1.0);
+	}
+	else
+	{
+		skinMatrix = skinMatrix / totalWeight;
+	}
 
 	vec4 skinnedPosition = skinMatrix * vec4(a_Position, 1.0);
 	gl_Position = u_LightSpace * u_Model * skinnedPosition;

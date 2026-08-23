@@ -15,8 +15,23 @@ public:
 
     std::shared_ptr<Entity> CreateEntity(const std::string& name = "")
     {
-        auto entity = std::make_shared<Entity>(m_NextEntityID++, name);
+        return CreateEntityWithID(m_NextEntityID++, name);
+    }
+
+    std::shared_ptr<Entity> CreateEntityWithID(uint32_t id, const std::string& name = "")
+    {
+        if (id == 0)
+            return nullptr;
+
+        if (auto existing = GetEntitySharedByID(id))
+            return existing;
+
+        auto entity = std::make_shared<Entity>(id, name);
         m_Entities.push_back(entity);
+
+        if (id >= m_NextEntityID)
+            m_NextEntityID = id + 1;
+
         return entity;
     }
 
@@ -33,6 +48,46 @@ public:
             ),
             m_Entities.end()
         );
+    }
+
+    void Clear()
+    {
+        m_Entities.clear();
+        m_NextEntityID = 1;
+    }
+
+    Entity* GetEntityByID(uint32_t entityID)
+    {
+        auto entity = GetEntitySharedByID(entityID);
+        return entity ? entity.get() : nullptr;
+    }
+
+    const Entity* GetEntityByID(uint32_t entityID) const
+    {
+        auto entity = GetEntitySharedByID(entityID);
+        return entity ? entity.get() : nullptr;
+    }
+
+    std::shared_ptr<Entity> GetEntitySharedByID(uint32_t entityID)
+    {
+        for (auto& entity : m_Entities)
+        {
+            if (entity && entity->GetID() == entityID)
+                return entity;
+        }
+
+        return nullptr;
+    }
+
+    std::shared_ptr<const Entity> GetEntitySharedByID(uint32_t entityID) const
+    {
+        for (const auto& entity : m_Entities)
+        {
+            if (entity && entity->GetID() == entityID)
+                return entity;
+        }
+
+        return nullptr;
     }
 
     const std::vector<std::shared_ptr<Entity>>& GetEntities() const

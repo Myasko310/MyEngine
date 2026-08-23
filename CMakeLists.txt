@@ -125,6 +125,7 @@ set(SOURCES
     src/rendering/PointShadowMap.cpp
     src/rendering/Material.cpp
     src/rendering/IBLProbe.cpp
+    src/animation/AnimationStateMachine.cpp
     src/systems/TerrainSystem.cpp
     src/systems/NavMeshSystem.cpp
     src/renderer/FrustumCuller.cpp

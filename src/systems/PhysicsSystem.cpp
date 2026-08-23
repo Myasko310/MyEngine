@@ -21,6 +21,16 @@
 
 namespace MyEngine
 {
+	static glm::vec3 ExtractWorldScale(const Scene& scene, const Entity& entity)
+	{
+		glm::mat4 world = TransformHierarchy::GetWorldMatrix(scene, entity);
+		return glm::vec3(
+			glm::length(glm::vec3(world[0])),
+			glm::length(glm::vec3(world[1])),
+			glm::length(glm::vec3(world[2]))
+		);
+	}
+
 	PhysicsSystem::PhysicsSystem()
 	{
 		std::cout << "[PhysicsSystem] Initialized with gravity: ("
@@ -267,31 +277,45 @@ namespace MyEngine
 	// Shared response logic for a dynamic body resting/colliding against a static plane.
 	static void ResolvePlaneContact(RigidbodyComponent& rb, glm::vec3& position, const glm::vec3& normal, float penetration)
 	{
-		// Only apply position correction if there's significant penetration
-		// Small threshold prevents constant micro-corrections when resting
-		const float penetrationThreshold = 0.005f;
-		if (penetration > penetrationThreshold)
+		// Use slop + partial correction to avoid over-correcting at rest, which
+		// is a common source of visible micro-jitter on flat ground.
+		const float penetrationSlop = 0.002f;
+		const float correctionPercent = 0.8f;
+		if (penetration > penetrationSlop)
 		{
-			position += normal * penetration;
+			float correction = (penetration - penetrationSlop) * correctionPercent;
+			position += normal * correction;
 		}
 
-		// Reflect velocity with bounciness
 		float velAlongNormal = glm::dot(rb.velocity, normal);
 		if (velAlongNormal < 0.0f)
 		{
-			rb.velocity -= (1.0f + rb.bounciness) * velAlongNormal * normal;
+			float impactSpeed = -velAlongNormal;
+			const float restImpactThreshold = 0.25f;
+			const bool lowBounce = rb.bounciness < 0.05f;
 
-			// Apply resting contact threshold to prevent micro-bouncing
-			// Increased threshold to catch slow-falling objects
-			if (glm::length(rb.velocity) < 0.5f && rb.bounciness < 0.01f)
+			// For low-speed contacts on non-bouncy bodies, kill normal velocity
+			// instead of reflecting; this keeps bodies stable on the plane.
+			if (impactSpeed < restImpactThreshold && lowBounce)
 			{
-				rb.velocity = glm::vec3(0.0f);
+				rb.velocity -= velAlongNormal * normal;
+
+				// Light tangential damping while grounded to remove tiny residual
+				// shaking without making collisions feel sticky.
+				glm::vec3 tangentVel = rb.velocity - glm::dot(rb.velocity, normal) * normal;
+				rb.velocity -= tangentVel * 0.15f;
 			}
+			else
+			{
+				rb.velocity -= (1.0f + rb.bounciness) * velAlongNormal * normal;
+			}
+
+			if (glm::length(rb.velocity) < 0.05f && lowBounce)
+				rb.velocity = glm::vec3(0.0f);
 		}
-		// If object is resting on ground (minimal velocity), zero out any remaining drift
-		else if (std::abs(velAlongNormal) < 0.01f && penetration <= penetrationThreshold)
+		else if (std::abs(velAlongNormal) < 0.01f)
 		{
-			// Remove velocity component along normal to prevent drift
+			// Already separating or nearly at rest: remove normal drift.
 			rb.velocity -= velAlongNormal * normal;
 		}
 	}
@@ -313,6 +337,7 @@ namespace MyEngine
 
 			auto& rb = dynamicEntity->GetComponent<RigidbodyComponent>();
 			auto& transform = dynamicEntity->GetComponent<TransformComponent>();
+			glm::vec3 worldScale = ExtractWorldScale(scene, *dynamicEntity);
 
 			// Skip kinematic objects (they don't collide with planes)
 			if (rb.isKinematic)
@@ -345,26 +370,26 @@ namespace MyEngine
 				if (hasBox)
 				{
 					auto& box = dynamicEntity->GetComponent<BoxColliderComponent>();
-					glm::vec3 boxCenter = transform.position + box.center * transform.scale;
-					glm::vec3 boxHalfExtents = box.halfExtents * transform.scale;
+					glm::vec3 boxCenter = transform.position + box.center * worldScale;
+					glm::vec3 boxHalfExtents = box.halfExtents * worldScale;
 					isTriggerPair = isTriggerPair || box.isTrigger;
 					hit = CheckBoxPlaneCollision(boxCenter, boxHalfExtents, plane.normal, plane.distance, normal, penetration);
 				}
 				else if (hasCapsule)
 				{
 					auto& capsule = dynamicEntity->GetComponent<CapsuleColliderComponent>();
-					glm::vec3 segA = transform.position + capsule.pointA * transform.scale;
-					glm::vec3 segB = transform.position + capsule.pointB * transform.scale;
-					float capsuleRadius = capsule.radius * glm::compMax(glm::vec2(transform.scale.x, transform.scale.z));
+					glm::vec3 segA = transform.position + capsule.pointA * worldScale;
+					glm::vec3 segB = transform.position + capsule.pointB * worldScale;
+					float capsuleRadius = capsule.radius * glm::compMax(glm::vec2(worldScale.x, worldScale.z));
 					isTriggerPair = isTriggerPair || capsule.isTrigger;
 					hit = CheckCapsulePlaneCollision(segA, segB, capsuleRadius, plane.normal, plane.distance, normal, penetration);
 				}
 				else if (hasSphere)
 				{
 					auto& bs = dynamicEntity->GetComponent<BoundingSphereComponent>();
-					float sphereRadius = bs.radius * glm::compMax(transform.scale);
+					float sphereRadius = bs.radius * glm::compMax(worldScale);
 					isTriggerPair = isTriggerPair || bs.isTrigger;
-					hit = CheckSpherePlaneCollision(transform.position + bs.center * transform.scale, sphereRadius, plane.normal, plane.distance, normal, penetration);
+					hit = CheckSpherePlaneCollision(transform.position + bs.center * worldScale, sphereRadius, plane.normal, plane.distance, normal, penetration);
 				}
 
 				if (hit)
@@ -412,11 +437,11 @@ namespace MyEngine
 		for (const auto& entity : pairwiseEntities)
 		{
 			glm::vec3 aabbMin, aabbMax;
-			if (ComputeColliderAABB(entity, aabbMin, aabbMax))
+			if (ComputeColliderAABB(scene, entity, aabbMin, aabbMax))
 				broadphaseGrid.InsertAABB(entity, aabbMin, aabbMax);
 		}
 
-		auto dispatchNarrowPhase = [this, &newCollisionPairs, &newTriggerPairs, &pairEntities](const std::shared_ptr<Entity>& entityA, const std::shared_ptr<Entity>& entityB)
+		auto dispatchNarrowPhase = [this, &scene, &newCollisionPairs, &newTriggerPairs, &pairEntities](const std::shared_ptr<Entity>& entityA, const std::shared_ptr<Entity>& entityB)
 		{
 			auto& rbA = entityA->GetComponent<RigidbodyComponent>();
 			auto& rbB = entityB->GetComponent<RigidbodyComponent>();
@@ -429,6 +454,8 @@ namespace MyEngine
 
 			auto& transformA = entityA->GetComponent<TransformComponent>();
 			auto& transformB = entityB->GetComponent<TransformComponent>();
+			glm::vec3 worldScaleA = ExtractWorldScale(scene, *entityA);
+			glm::vec3 worldScaleB = ExtractWorldScale(scene, *entityB);
 
 			bool boxA = entityA->HasComponent<BoxColliderComponent>();
 			bool capsuleA = !boxA && entityA->HasComponent<CapsuleColliderComponent>();
@@ -455,8 +482,8 @@ namespace MyEngine
 				auto& a = entityA->GetComponent<BoxColliderComponent>();
 				auto& b = entityB->GetComponent<BoxColliderComponent>();
 				hit = CheckBoxBoxCollision(
-					transformA.position + a.center * transformA.scale, a.halfExtents * transformA.scale,
-					transformB.position + b.center * transformB.scale, b.halfExtents * transformB.scale,
+					transformA.position + a.center * worldScaleA, a.halfExtents * worldScaleA,
+					transformB.position + b.center * worldScaleB, b.halfExtents * worldScaleB,
 					normal, penetration);
 			}
 			else if (boxA && sphereB)
@@ -464,8 +491,8 @@ namespace MyEngine
 				auto& a = entityA->GetComponent<BoxColliderComponent>();
 				auto& b = entityB->GetComponent<BoundingSphereComponent>();
 				hit = CheckBoxSphereCollision(
-					transformA.position + a.center * transformA.scale, a.halfExtents * transformA.scale,
-					transformB.position + b.center * transformB.scale, b.radius * glm::compMax(transformB.scale),
+					transformA.position + a.center * worldScaleA, a.halfExtents * worldScaleA,
+					transformB.position + b.center * worldScaleB, b.radius * glm::compMax(worldScaleB),
 					normal, penetration);
 			}
 			else if (sphereA && boxB)
@@ -475,8 +502,8 @@ namespace MyEngine
 				// Normal must point from A to B; box-sphere returns normal from box toward sphere,
 				// so swap operands (box = A-role) then flip the resulting normal.
 				hit = CheckBoxSphereCollision(
-					transformB.position + b.center * transformB.scale, b.halfExtents * transformB.scale,
-					transformA.position + a.center * transformA.scale, a.radius * glm::compMax(transformA.scale),
+					transformB.position + b.center * worldScaleB, b.halfExtents * worldScaleB,
+					transformA.position + a.center * worldScaleA, a.radius * glm::compMax(worldScaleA),
 					normal, penetration);
 				if (hit) normal = -normal;
 			}
@@ -485,8 +512,8 @@ namespace MyEngine
 				auto& a = entityA->GetComponent<BoundingSphereComponent>();
 				auto& b = entityB->GetComponent<BoundingSphereComponent>();
 				hit = CheckSphereSphereCollision(
-					transformA.position + a.center * transformA.scale, a.radius * glm::compMax(transformA.scale),
-					transformB.position + b.center * transformB.scale, b.radius * glm::compMax(transformB.scale),
+					transformA.position + a.center * worldScaleA, a.radius * glm::compMax(worldScaleA),
+					transformB.position + b.center * worldScaleB, b.radius * glm::compMax(worldScaleB),
 					normal, penetration);
 			}
 			else if (capsuleA && capsuleB)
@@ -494,8 +521,8 @@ namespace MyEngine
 				auto& a = entityA->GetComponent<CapsuleColliderComponent>();
 				auto& b = entityB->GetComponent<CapsuleColliderComponent>();
 				hit = CheckCapsuleCapsuleCollision(
-					transformA.position + a.pointA * transformA.scale, transformA.position + a.pointB * transformA.scale, a.radius * glm::compMax(glm::vec2(transformA.scale.x, transformA.scale.z)),
-					transformB.position + b.pointA * transformB.scale, transformB.position + b.pointB * transformB.scale, b.radius * glm::compMax(glm::vec2(transformB.scale.x, transformB.scale.z)),
+					transformA.position + a.pointA * worldScaleA, transformA.position + a.pointB * worldScaleA, a.radius * glm::compMax(glm::vec2(worldScaleA.x, worldScaleA.z)),
+					transformB.position + b.pointA * worldScaleB, transformB.position + b.pointB * worldScaleB, b.radius * glm::compMax(glm::vec2(worldScaleB.x, worldScaleB.z)),
 					normal, penetration);
 			}
 			else if (capsuleA && sphereB)
@@ -503,8 +530,8 @@ namespace MyEngine
 				auto& a = entityA->GetComponent<CapsuleColliderComponent>();
 				auto& b = entityB->GetComponent<BoundingSphereComponent>();
 				hit = CheckCapsuleSphereCollision(
-					transformA.position + a.pointA * transformA.scale, transformA.position + a.pointB * transformA.scale, a.radius * glm::compMax(glm::vec2(transformA.scale.x, transformA.scale.z)),
-					transformB.position + b.center * transformB.scale, b.radius * glm::compMax(transformB.scale),
+					transformA.position + a.pointA * worldScaleA, transformA.position + a.pointB * worldScaleA, a.radius * glm::compMax(glm::vec2(worldScaleA.x, worldScaleA.z)),
+					transformB.position + b.center * worldScaleB, b.radius * glm::compMax(worldScaleB),
 					normal, penetration);
 			}
 			else if (sphereA && capsuleB)
@@ -512,8 +539,8 @@ namespace MyEngine
 				auto& a = entityA->GetComponent<BoundingSphereComponent>();
 				auto& b = entityB->GetComponent<CapsuleColliderComponent>();
 				hit = CheckCapsuleSphereCollision(
-					transformB.position + b.pointA * transformB.scale, transformB.position + b.pointB * transformB.scale, b.radius * glm::compMax(glm::vec2(transformB.scale.x, transformB.scale.z)),
-					transformA.position + a.center * transformA.scale, a.radius * glm::compMax(transformA.scale),
+					transformB.position + b.pointA * worldScaleB, transformB.position + b.pointB * worldScaleB, b.radius * glm::compMax(glm::vec2(worldScaleB.x, worldScaleB.z)),
+					transformA.position + a.center * worldScaleA, a.radius * glm::compMax(worldScaleA),
 					normal, penetration);
 				if (hit) normal = -normal;
 			}
@@ -522,8 +549,8 @@ namespace MyEngine
 				auto& a = entityA->GetComponent<CapsuleColliderComponent>();
 				auto& b = entityB->GetComponent<BoxColliderComponent>();
 				hit = CheckCapsuleBoxCollision(
-					transformA.position + a.pointA * transformA.scale, transformA.position + a.pointB * transformA.scale, a.radius * glm::compMax(glm::vec2(transformA.scale.x, transformA.scale.z)),
-					transformB.position + b.center * transformB.scale, b.halfExtents * transformB.scale,
+					transformA.position + a.pointA * worldScaleA, transformA.position + a.pointB * worldScaleA, a.radius * glm::compMax(glm::vec2(worldScaleA.x, worldScaleA.z)),
+					transformB.position + b.center * worldScaleB, b.halfExtents * worldScaleB,
 					normal, penetration);
 			}
 			else if (boxA && capsuleB)
@@ -531,8 +558,8 @@ namespace MyEngine
 				auto& a = entityA->GetComponent<BoxColliderComponent>();
 				auto& b = entityB->GetComponent<CapsuleColliderComponent>();
 				hit = CheckCapsuleBoxCollision(
-					transformB.position + b.pointA * transformB.scale, transformB.position + b.pointB * transformB.scale, b.radius * glm::compMax(glm::vec2(transformB.scale.x, transformB.scale.z)),
-					transformA.position + a.center * transformA.scale, a.halfExtents * transformA.scale,
+					transformB.position + b.pointA * worldScaleB, transformB.position + b.pointB * worldScaleB, b.radius * glm::compMax(glm::vec2(worldScaleB.x, worldScaleB.z)),
+					transformA.position + a.center * worldScaleA, a.halfExtents * worldScaleA,
 					normal, penetration);
 				if (hit) normal = -normal;
 			}
@@ -1191,18 +1218,19 @@ namespace MyEngine
 		}
 	}
 
-	bool PhysicsSystem::ComputeColliderAABB(const std::shared_ptr<Entity>& entity, glm::vec3& outMin, glm::vec3& outMax) const
+	bool PhysicsSystem::ComputeColliderAABB(const Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outMin, glm::vec3& outMax) const
 	{
 		if (!entity || !entity->HasComponent<TransformComponent>())
 			return false;
 
 		auto& transform = entity->GetComponent<TransformComponent>();
+		glm::vec3 worldScale = ExtractWorldScale(scene, *entity);
 
 		if (entity->HasComponent<BoxColliderComponent>())
 		{
 			auto& box = entity->GetComponent<BoxColliderComponent>();
-			glm::vec3 center = transform.position + box.center * transform.scale;
-			glm::vec3 halfExtents = box.halfExtents * transform.scale;
+			glm::vec3 center = transform.position + box.center * worldScale;
+			glm::vec3 halfExtents = box.halfExtents * worldScale;
 			outMin = center - halfExtents;
 			outMax = center + halfExtents;
 			return true;
@@ -1211,9 +1239,9 @@ namespace MyEngine
 		if (entity->HasComponent<CapsuleColliderComponent>())
 		{
 			auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
-			glm::vec3 a = transform.position + capsule.pointA * transform.scale;
-			glm::vec3 b = transform.position + capsule.pointB * transform.scale;
-			float scaledRadius = capsule.radius * glm::compMax(glm::vec2(transform.scale.x, transform.scale.z));
+			glm::vec3 a = transform.position + capsule.pointA * worldScale;
+			glm::vec3 b = transform.position + capsule.pointB * worldScale;
+			float scaledRadius = capsule.radius * glm::compMax(glm::vec2(worldScale.x, worldScale.z));
 			glm::vec3 r(scaledRadius);
 			outMin = glm::min(a, b) - r;
 			outMax = glm::max(a, b) + r;
@@ -1223,8 +1251,8 @@ namespace MyEngine
 		if (entity->HasComponent<BoundingSphereComponent>())
 		{
 			auto& sphere = entity->GetComponent<BoundingSphereComponent>();
-			glm::vec3 center = transform.position + sphere.center * transform.scale;
-			float scaledRadius = sphere.radius * glm::compMax(transform.scale);
+			glm::vec3 center = transform.position + sphere.center * worldScale;
+			float scaledRadius = sphere.radius * glm::compMax(worldScale);
 			glm::vec3 r(scaledRadius);
 			outMin = center - r;
 			outMax = center + r;

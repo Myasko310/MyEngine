@@ -5,7 +5,9 @@
 #include <assimp/postprocess.h>
 #include <assimp/material.h>
 
+#include <cctype>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <unordered_map>
 
@@ -31,6 +33,65 @@ namespace MyEngine
 	static glm::quat ToGlmQuat(const aiQuaternion& q)
 	{
 		return glm::quat(q.w, q.x, q.y, q.z);
+	}
+
+	static std::string ResolveMaterialTexturePath(
+		const aiScene* scene,
+		const std::filesystem::path& modelPath,
+		const aiString& sourcePath)
+	{
+		if (!scene)
+			return "";
+
+		std::string tp = sourcePath.C_Str();
+		if (tp.empty())
+			return "";
+
+		// Embedded texture reference (e.g. "*0" in GLB/FBX).
+		if (!tp.empty() && tp[0] == '*')
+		{
+			const aiTexture* embedded = scene->GetEmbeddedTexture(tp.c_str());
+			if (!embedded)
+				return "";
+
+			// Handle compressed embedded textures (common in GLB).
+			if (embedded->mHeight == 0 && embedded->pcData && embedded->mWidth > 0)
+			{
+				std::string ext = embedded->achFormatHint;
+				if (ext.empty()) ext = "bin";
+				for (char& c : ext)
+					c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+				std::filesystem::path outDir = std::filesystem::path("assets") / "imported" / "embedded_textures";
+				std::error_code ec;
+				std::filesystem::create_directories(outDir, ec);
+
+				std::string modelStem = modelPath.stem().string();
+				if (modelStem.empty()) modelStem = "model";
+				std::string embeddedName = tp.substr(1);
+				if (embeddedName.empty()) embeddedName = "0";
+
+				std::filesystem::path outPath = outDir / (modelStem + "_embedded_" + embeddedName + "." + ext);
+				std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
+				if (!out)
+					return "";
+
+				out.write(reinterpret_cast<const char*>(embedded->pcData), static_cast<std::streamsize>(embedded->mWidth));
+				if (!out.good())
+					return "";
+
+				return outPath.generic_string();
+			}
+
+			return "";
+		}
+
+		std::filesystem::path texturePath(tp);
+		if (texturePath.is_absolute())
+			return texturePath.lexically_normal().generic_string();
+
+		std::filesystem::path resolved = (modelPath.parent_path() / texturePath).lexically_normal();
+		return resolved.generic_string();
 	}
 
 	// Adds a weight/index influence to a vertex's least-significant free
@@ -120,14 +181,7 @@ namespace MyEngine
 		m_Skeleton.reset();
 		m_AnimationClips.clear();
 
-		// Build directory prefix for resolving relative texture paths
-		std::string modelDir;
-		{
-			std::filesystem::path p(path);
-			modelDir = p.parent_path().generic_string();
-			if (!modelDir.empty() && modelDir.back() != '/')
-				modelDir += '/';
-		}
+		const std::filesystem::path modelPath(path);
 
 		// Collect bone offset matrices across all meshes first, so the node
 		// tree walk below (CollectBones) knows which nodes are bones.
@@ -275,26 +329,21 @@ namespace MyEngine
 				if (aiMat->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS && shininess > 0.0f)
 					matData.shininess = shininess;
 
-				// First diffuse texture path
+				// Base color / diffuse texture (prefer glTF PBR slot, then classic diffuse).
 				aiString texPath;
-				if (aiMat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
+				if (aiMat->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) == AI_SUCCESS ||
+					aiMat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
 				{
-					std::string tp = texPath.C_Str();
-					// If the path is relative, make it relative to the model directory
-					if (!tp.empty() && tp[0] != '/' && tp.find(':') == std::string::npos)
-						tp = modelDir + tp;
-					matData.diffuseTexturePath = tp;
+					matData.diffuseTexturePath = ResolveMaterialTexturePath(scene, modelPath, texPath);
 				}
 
-				// First normal map path (try NORMALS, fall back to HEIGHT)
+				// Normal map path (try glTF normal slot first, then legacy slots).
 				aiString nrmPath;
-				if (aiMat->GetTexture(aiTextureType_NORMALS, 0, &nrmPath) == AI_SUCCESS ||
+				if (aiMat->GetTexture(aiTextureType_NORMAL_CAMERA, 0, &nrmPath) == AI_SUCCESS ||
+					aiMat->GetTexture(aiTextureType_NORMALS, 0, &nrmPath) == AI_SUCCESS ||
 					aiMat->GetTexture(aiTextureType_HEIGHT,  0, &nrmPath) == AI_SUCCESS)
 				{
-					std::string np = nrmPath.C_Str();
-					if (!np.empty() && np[0] != '/' && np.find(':') == std::string::npos)
-						np = modelDir + np;
-					matData.normalTexturePath = np;
+					matData.normalTexturePath = ResolveMaterialTexturePath(scene, modelPath, nrmPath);
 				}
 			}
 			m_MeshMaterials.push_back(std::move(matData));

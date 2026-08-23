@@ -41,5 +41,11 @@ namespace MyEngine
 
 		// Opens a native "Save File" dialog filtered to *.prefab.json files.
 		std::string SavePrefabFile();
+
+		// Opens a native "Open File" dialog filtered to *.animstate.json files.
+		std::string OpenAnimationStateMachineFile();
+
+		// Opens a native "Save File" dialog filtered to *.animstate.json files.
+		std::string SaveAnimationStateMachineFile();
 	}
 }

@@ -9,14 +9,149 @@
 #include "components/MeshComponent.h"
 #include "components/MeshRendererComponent.h"
 #include "components/BoundingSphereComponent.h"
+#include "components/CapsuleColliderComponent.h"
 #include "components/SkeletonComponent.h"
 #include "components/AnimationComponent.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <vector>
 
 namespace MyEngine
 {
+	static bool ComputeSkeletonBindBounds(
+		const std::shared_ptr<Skeleton>& skeleton,
+		glm::vec3& outCenter,
+		float& outRadius,
+		glm::vec3* outMin = nullptr,
+		glm::vec3* outMax = nullptr)
+	{
+		if (!skeleton || skeleton->GetBoneCount() == 0)
+			return false;
+
+		const auto& bones = skeleton->GetBones();
+		std::vector<glm::mat4> globalBind(bones.size(), glm::mat4(1.0f));
+
+		glm::vec3 minV(std::numeric_limits<float>::max());
+		glm::vec3 maxV(std::numeric_limits<float>::lowest());
+		bool hasPoint = false;
+
+		for (size_t i = 0; i < bones.size(); ++i)
+		{
+			const auto& bone = bones[i];
+			glm::mat4 parent = (bone.parentIndex >= 0 && bone.parentIndex < static_cast<int>(globalBind.size()))
+				? globalBind[bone.parentIndex]
+				: glm::mat4(1.0f);
+			globalBind[i] = parent * bone.localBindTransform;
+
+			glm::vec3 p = glm::vec3(globalBind[i][3]);
+			minV = glm::min(minV, p);
+			maxV = glm::max(maxV, p);
+			hasPoint = true;
+		}
+
+		if (!hasPoint)
+			return false;
+
+		outCenter = (minV + maxV) * 0.5f;
+		outRadius = 0.0f;
+		for (size_t i = 0; i < bones.size(); ++i)
+		{
+			glm::vec3 p = glm::vec3(globalBind[i][3]);
+			outRadius = std::max(outRadius, glm::length(p - outCenter));
+		}
+
+		if (outMin) *outMin = minV;
+		if (outMax) *outMax = maxV;
+
+		// Small padding so hands/feet don't clip outside the bounds.
+		outRadius = std::max(outRadius * 1.15f, 0.05f);
+		return true;
+	}
+
+	static bool ComputeSkeletonCharacterCapsule(
+		const std::shared_ptr<Skeleton>& skeleton,
+		glm::vec3& outPointA,
+		glm::vec3& outPointB,
+		float& outRadius)
+	{
+		if (!skeleton || skeleton->GetBoneCount() == 0)
+			return false;
+
+		const auto& bones = skeleton->GetBones();
+		std::vector<glm::mat4> globalBind(bones.size(), glm::mat4(1.0f));
+		std::vector<glm::vec3> positions;
+		positions.reserve(bones.size());
+
+		for (size_t i = 0; i < bones.size(); ++i)
+		{
+			const auto& bone = bones[i];
+			glm::mat4 parent = (bone.parentIndex >= 0 && bone.parentIndex < static_cast<int>(globalBind.size()))
+				? globalBind[bone.parentIndex]
+				: glm::mat4(1.0f);
+			globalBind[i] = parent * bone.localBindTransform;
+			positions.push_back(glm::vec3(globalBind[i][3]));
+		}
+
+		if (positions.size() < 3)
+			return false;
+
+		auto quantile = [](std::vector<float>& values, float t) -> float
+		{
+			if (values.empty())
+				return 0.0f;
+			t = std::clamp(t, 0.0f, 1.0f);
+			std::sort(values.begin(), values.end());
+			float idx = t * static_cast<float>(values.size() - 1);
+			size_t lo = static_cast<size_t>(idx);
+			size_t hi = std::min(lo + 1, values.size() - 1);
+			float f = idx - static_cast<float>(lo);
+			return values[lo] * (1.0f - f) + values[hi] * f;
+		};
+
+		std::vector<float> xs, ys, zs;
+		xs.reserve(positions.size());
+		ys.reserve(positions.size());
+		zs.reserve(positions.size());
+		for (const auto& p : positions)
+		{
+			xs.push_back(p.x);
+			ys.push_back(p.y);
+			zs.push_back(p.z);
+		}
+
+		float centerX = quantile(xs, 0.5f);
+		float centerZ = quantile(zs, 0.5f);
+		float yMin = quantile(ys, 0.01f);
+		float yMax = quantile(ys, 0.90f);
+		if (yMax - yMin < 0.1f)
+		{
+			yMin = quantile(ys, 0.0f);
+			yMax = quantile(ys, 1.0f);
+		}
+
+		std::vector<float> radial;
+		radial.reserve(positions.size());
+		for (const auto& p : positions)
+		{
+			glm::vec2 d(p.x - centerX, p.z - centerZ);
+			radial.push_back(glm::length(d));
+		}
+		float rCore = quantile(radial, 0.65f);
+
+		float height = std::max(yMax - yMin, 0.1f);
+		float maxBodyRadius = height * 0.30f;
+		outRadius = std::clamp(rCore * 1.20f, 0.05f, maxBodyRadius);
+
+		float centerY = (yMin + yMax) * 0.5f;
+		float halfSegment = std::max(0.0f, 0.5f * height - outRadius);
+		outPointA = glm::vec3(centerX, centerY - halfSegment, centerZ);
+		outPointB = glm::vec3(centerX, centerY + halfSegment, centerZ);
+		return true;
+	}
+
 	std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> AssetManager::s_ModelCache;
 	std::unordered_map<std::string, SkinnedModelData> AssetManager::s_SkinnedModelCache;
 	std::unordered_map<std::string, std::shared_ptr<Texture>> AssetManager::s_TextureCache;
@@ -62,11 +197,55 @@ namespace MyEngine
 		return data;
 	}
 
+	std::shared_ptr<std::vector<AnimationClip>> AssetManager::LoadAnimationClips(const std::string& path)
+	{
+		SkinnedModelData data = LoadSkinnedModel(path);
+		if (!data.clips || data.clips->empty())
+			return nullptr;
+		return data.clips;
+	}
+
+	int AssetManager::CountMatchingAnimationTracks(const AnimationClip& clip, const std::shared_ptr<Skeleton>& skeleton)
+	{
+		if (!skeleton)
+			return static_cast<int>(clip.tracks.size());
+
+		int matches = 0;
+		for (const auto& track : clip.tracks)
+		{
+			if (skeleton->GetBoneIndex(track.boneName) >= 0)
+				++matches;
+		}
+		return matches;
+	}
+
+	bool AssetManager::IsAnimationClipCompatible(const AnimationClip& clip, const std::shared_ptr<Skeleton>& skeleton, float minimumTrackMatchRatio)
+	{
+		if (!skeleton)
+			return !clip.tracks.empty();
+		if (clip.tracks.empty())
+			return false;
+
+		int matchingTracks = CountMatchingAnimationTracks(clip, skeleton);
+		if (matchingTracks <= 0)
+			return false;
+
+		float matchRatio = static_cast<float>(matchingTracks) / static_cast<float>(clip.tracks.size());
+		return matchRatio >= std::clamp(minimumTrackMatchRatio, 0.0f, 1.0f);
+	}
+
 	std::shared_ptr<Texture> AssetManager::LoadTexture(const std::string& path, bool generateMipmaps)
 	{
+		if (path.empty())
+			return nullptr;
+
 		auto it = s_TextureCache.find(path);
 		if (it != s_TextureCache.end())
 			return it->second;
+
+		std::error_code ec;
+		if (!std::filesystem::exists(path, ec))
+			return nullptr;
 
 		auto texture = std::make_shared<Texture>(path, generateMipmaps);
 		s_TextureCache[path] = texture;
@@ -252,6 +431,57 @@ namespace MyEngine
 			ac.time = 0.0f;
 			ac.playing = true;
 			ac.looping = true;
+
+			// Skinned meshes can have bind-pose vertex bounds that are much larger
+			// than the visually deformed character. Prefer a skeleton-derived
+			// bound for physics/culling so collider/shadow sizing better matches
+			// the rendered character.
+			glm::vec3 skinnedCenter(0.0f);
+			float skinnedRadius = 0.0f;
+			glm::vec3 skinnedMin(0.0f), skinnedMax(0.0f);
+			if (ComputeSkeletonBindBounds(data.skeleton, skinnedCenter, skinnedRadius, &skinnedMin, &skinnedMax) && entity->HasComponent<BoundingSphereComponent>())
+			{
+				auto& bs = entity->GetComponent<BoundingSphereComponent>();
+
+				// Skeleton-space bounds can be in a different scale/origin depending
+				// on source rig conventions. Only adopt them when they're reasonably
+				// close to the mesh-derived bounds; otherwise keep mesh bounds.
+				const float meshRadius = bs.radius;
+				const float minAllowedRadius = meshRadius * 0.15f;
+				const float maxAllowedRadius = meshRadius * 2.5f;
+				const bool radiusReasonable = skinnedRadius >= minAllowedRadius && skinnedRadius <= maxAllowedRadius;
+				const bool centerReasonable = glm::length(skinnedCenter - bs.center) <= (meshRadius * 1.5f);
+
+				if (radiusReasonable && centerReasonable)
+				{
+					bs.center = skinnedCenter;
+					bs.radius = skinnedRadius;
+				}
+
+				// Physics should use a tighter body-shaped collider to avoid the
+				// "invisible force field" feel around characters.
+				auto& capsule = entity->AddComponent<CapsuleColliderComponent>();
+				glm::vec3 fitA(0.0f), fitB(0.0f);
+				float fitRadius = 0.0f;
+				if (ComputeSkeletonCharacterCapsule(data.skeleton, fitA, fitB, fitRadius))
+				{
+					capsule.pointA = fitA;
+					capsule.pointB = fitB;
+					capsule.radius = fitRadius;
+				}
+				else
+				{
+					glm::vec3 extents = glm::max(skinnedMax - skinnedMin, glm::vec3(0.001f));
+					float height = std::max(extents.y, 0.1f);
+					float radiusFromHorizontal = 0.5f * std::max(extents.x, extents.z) * 0.4f;
+					float radiusFromHeight = height * 0.16f;
+					capsule.radius = std::max(0.05f, std::min(radiusFromHorizontal, radiusFromHeight));
+
+					float halfSegment = std::max(0.0f, 0.5f * height - capsule.radius);
+					capsule.pointA = skinnedCenter + glm::vec3(0.0f, -halfSegment, 0.0f);
+					capsule.pointB = skinnedCenter + glm::vec3(0.0f,  halfSegment, 0.0f);
+				}
+			}
 		}
 	}
 }

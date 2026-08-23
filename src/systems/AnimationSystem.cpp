@@ -1,6 +1,7 @@
 #include "systems/AnimationSystem.h"
 
 #include "components/AnimationComponent.h"
+#include "components/AnimationStateMachineComponent.h"
 #include "components/SkeletonComponent.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
@@ -14,6 +15,169 @@
 
 namespace MyEngine
 {
+	static void EnsureStateMachineParameterDefaults(AnimationStateMachineComponent& stateMachineComponent)
+	{
+		if (!stateMachineComponent.stateMachine)
+			return;
+
+		auto& runtimeValues = stateMachineComponent.parameterValues;
+		const auto& parameters = stateMachineComponent.stateMachine->parameters;
+		const size_t previousSize = runtimeValues.size();
+		if (previousSize != parameters.size())
+			runtimeValues.resize(parameters.size());
+
+		for (size_t i = previousSize; i < parameters.size(); ++i)
+		{
+			runtimeValues[i].floatValue = parameters[i].defaultFloatValue;
+			runtimeValues[i].boolValue = parameters[i].defaultBoolValue;
+			runtimeValues[i].triggerValue = false;
+		}
+	}
+
+	static bool EvaluateTransitionCondition(
+		const AnimationStateMachine& stateMachine,
+		AnimationStateMachineComponent& stateMachineComponent,
+		const AnimationStateMachineCondition& condition)
+	{
+		int parameterIndex = stateMachine.FindParameterIndex(condition.parameterName);
+		if (parameterIndex < 0 || parameterIndex >= static_cast<int>(stateMachineComponent.parameterValues.size()))
+			return false;
+
+		const auto& parameter = stateMachine.parameters[parameterIndex];
+		auto& value = stateMachineComponent.parameterValues[parameterIndex];
+		switch (condition.op)
+		{
+		case AnimationStateMachineConditionOperator::IfTrue:
+			return value.boolValue;
+		case AnimationStateMachineConditionOperator::IfFalse:
+			return !value.boolValue;
+		case AnimationStateMachineConditionOperator::Greater:
+			return value.floatValue > condition.threshold;
+		case AnimationStateMachineConditionOperator::Less:
+			return value.floatValue < condition.threshold;
+		case AnimationStateMachineConditionOperator::Trigger:
+			return parameter.type == AnimationStateMachineParameterType::Trigger && value.triggerValue;
+		default:
+			return false;
+		}
+	}
+
+	static bool ShouldTakeTransition(
+		const AnimationStateMachine& stateMachine,
+		AnimationStateMachineComponent& stateMachineComponent,
+		const AnimationStateMachineTransition& transition,
+		const AnimationComponent& anim,
+		const AnimationStateMachineState& currentState,
+		const AnimationClip* currentClip)
+	{
+		if (!stateMachine.IsValidStateIndex(transition.targetStateIndex))
+			return false;
+
+		if (transition.requiresExitTime && currentClip)
+		{
+			float durationSeconds = currentClip->GetDurationSeconds();
+			if (durationSeconds > 0.0001f)
+			{
+				float normalizedTime = std::clamp(anim.time / durationSeconds, 0.0f, 1.0f);
+				if (normalizedTime < std::clamp(transition.exitTimeNormalized, 0.0f, 1.0f))
+					return false;
+			}
+		}
+
+		for (const auto& condition : transition.conditions)
+		{
+			if (!EvaluateTransitionCondition(stateMachine, stateMachineComponent, condition))
+				return false;
+		}
+
+		(void)currentState;
+		return true;
+	}
+
+	static void ConsumeTriggeredParameters(
+		const AnimationStateMachine& stateMachine,
+		AnimationStateMachineComponent& stateMachineComponent,
+		const AnimationStateMachineTransition& transition)
+	{
+		for (const auto& condition : transition.conditions)
+		{
+			if (condition.op != AnimationStateMachineConditionOperator::Trigger)
+				continue;
+
+			int parameterIndex = stateMachine.FindParameterIndex(condition.parameterName);
+			if (parameterIndex < 0 || parameterIndex >= static_cast<int>(stateMachineComponent.parameterValues.size()))
+				continue;
+
+			stateMachineComponent.parameterValues[parameterIndex].triggerValue = false;
+		}
+	}
+
+	static void UpdateAnimationStateMachine(AnimationComponent& anim, AnimationStateMachineComponent& stateMachineComponent)
+	{
+		if (!stateMachineComponent.stateMachine || !anim.clips || anim.clips->empty())
+			return;
+
+		EnsureStateMachineParameterDefaults(stateMachineComponent);
+		AnimationStateMachine& stateMachine = *stateMachineComponent.stateMachine;
+		if (stateMachine.states.empty())
+			return;
+
+		if (!stateMachine.IsValidStateIndex(stateMachineComponent.currentStateIndex))
+		{
+			stateMachineComponent.currentStateIndex = stateMachine.defaultStateIndex;
+			stateMachineComponent.currentStateTime = 0.0f;
+		}
+		if (!stateMachine.IsValidStateIndex(stateMachineComponent.currentStateIndex))
+			return;
+
+		const AnimationStateMachineState& currentState = stateMachine.states[stateMachineComponent.currentStateIndex];
+		int resolvedClipIndex = stateMachine.ResolveClipIndex(*anim.clips, currentState);
+		if (resolvedClipIndex >= 0 && resolvedClipIndex != anim.activeClipIndex)
+		{
+			anim.TransitionTo(resolvedClipIndex, 0.15f);
+			anim.looping = currentState.loop;
+			anim.playbackSpeed = currentState.playbackSpeed;
+			stateMachineComponent.currentStateTime = 0.0f;
+		}
+		else
+		{
+			anim.looping = currentState.loop;
+			anim.playbackSpeed = currentState.playbackSpeed;
+		}
+
+		if (stateMachineComponent.debugPauseTransitions)
+			return;
+
+		const AnimationClip* currentClip = (resolvedClipIndex >= 0 && resolvedClipIndex < static_cast<int>(anim.clips->size()))
+			? &(*anim.clips)[resolvedClipIndex]
+			: nullptr;
+		for (const auto& transition : currentState.transitions)
+		{
+			if (!ShouldTakeTransition(stateMachine, stateMachineComponent, transition, anim, currentState, currentClip))
+				continue;
+
+			stateMachineComponent.pendingStateIndex = transition.targetStateIndex;
+			stateMachineComponent.currentStateIndex = transition.targetStateIndex;
+			stateMachineComponent.currentStateTime = transition.resetTimeOnEnter ? 0.0f : anim.time;
+
+			if (stateMachine.IsValidStateIndex(stateMachineComponent.currentStateIndex))
+			{
+				const auto& nextState = stateMachine.states[stateMachineComponent.currentStateIndex];
+				int nextClipIndex = stateMachine.ResolveClipIndex(*anim.clips, nextState);
+				if (nextClipIndex >= 0)
+				{
+					anim.looping = nextState.loop;
+					anim.playbackSpeed = nextState.playbackSpeed;
+					anim.TransitionTo(nextClipIndex, transition.blendDuration);
+					if (!transition.resetTimeOnEnter)
+						anim.time = stateMachineComponent.currentStateTime;
+				}
+			}
+
+			ConsumeTriggeredParameters(stateMachine, stateMachineComponent, transition);
+			break;
+		}
+	}
 	// Samples a single bone's local transform (translate * rotate * scale)
 	// from a clip's track at the given time, falling back to the bind-pose
 	// local transform if the clip doesn't animate this bone.
@@ -150,6 +314,15 @@ namespace MyEngine
 
 			auto& anim = entity->GetComponent<AnimationComponent>();
 			auto& skel = entity->GetComponent<SkeletonComponent>();
+			AnimationStateMachineComponent* stateMachineComponent = entity->HasComponent<AnimationStateMachineComponent>()
+				? &entity->GetComponent<AnimationStateMachineComponent>()
+				: nullptr;
+
+			if (stateMachineComponent)
+			{
+				UpdateAnimationStateMachine(anim, *stateMachineComponent);
+				stateMachineComponent->currentStateTime = anim.time;
+			}
 
 			if (!skel.skeleton || !anim.clips || anim.clips->empty())
 				continue;

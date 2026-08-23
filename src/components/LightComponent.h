@@ -28,6 +28,8 @@ namespace MyEngine
 		float innerCone = 12.5f;
 		float outerCone = 17.5f;
 
+		// Shadow quality
+		float shadowBias = 0.005f;
 		bool castShadows = false;
 	};
 }

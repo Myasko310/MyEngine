@@ -18,6 +18,7 @@
 #include "components/JointComponent.h"
 #include "components/SkeletonComponent.h"
 #include "components/AnimationComponent.h"
+#include "components/AnimationStateMachineComponent.h"
 #include "components/ScriptComponent.h"
 #include "components/LODComponent.h"
 #include "components/TerrainComponent.h"
@@ -37,7 +38,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -179,6 +179,12 @@ namespace MyEngine
 					writer.Key("color"); SerializeVec3(writer, l.color);
 					writer.Key("intensity"); writer.Double(l.intensity);
 					writer.Key("direction"); SerializeVec3(writer, l.direction);
+					writer.Key("position"); SerializeVec3(writer, l.position);
+					writer.Key("range"); writer.Double(l.range);
+					writer.Key("innerCone"); writer.Double(l.innerCone);
+					writer.Key("outerCone"); writer.Double(l.outerCone);
+					writer.Key("shadowBias"); writer.Double(l.shadowBias);
+					writer.Key("castShadows"); writer.Bool(l.castShadows);
 					writer.EndObject();
 				}
 
@@ -249,6 +255,31 @@ namespace MyEngine
 					writer.Key("playbackSpeed"); writer.Double(ac.playbackSpeed);
 					writer.Key("playing"); writer.Bool(ac.playing);
 					writer.Key("looping"); writer.Bool(ac.looping);
+					writer.EndObject();
+				}
+
+				if (e->HasComponent<AnimationStateMachineComponent>())
+				{
+					auto& sm = e->GetComponent<AnimationStateMachineComponent>();
+					writer.Key("AnimationStateMachineComponent");
+					writer.StartObject();
+					writer.Key("assetPath"); writer.String(sm.assetPath.c_str());
+					writer.Key("currentStateIndex"); writer.Int(sm.currentStateIndex);
+					writer.Key("pendingStateIndex"); writer.Int(sm.pendingStateIndex);
+					writer.Key("currentStateTime"); writer.Double(sm.currentStateTime);
+					writer.Key("autoInitialize"); writer.Bool(sm.autoInitialize);
+					writer.Key("debugPauseTransitions"); writer.Bool(sm.debugPauseTransitions);
+					writer.Key("parameterValues");
+					writer.StartArray();
+					for (const auto& value : sm.parameterValues)
+					{
+						writer.StartObject();
+						writer.Key("floatValue"); writer.Double(value.floatValue);
+						writer.Key("boolValue"); writer.Bool(value.boolValue);
+						writer.Key("triggerValue"); writer.Bool(value.triggerValue);
+						writer.EndObject();
+					}
+					writer.EndArray();
 					writer.EndObject();
 				}
 
@@ -578,6 +609,9 @@ namespace MyEngine
 			if (!doc.HasMember("entities") || !doc["entities"].IsArray())
 				return false;
 
+			// Full scene load replaces current scene content.
+			scene.Clear();
+
 			// Restore layer name registry if present
 			if (doc.HasMember("layerNames") && doc["layerNames"].IsArray())
 			{
@@ -629,9 +663,6 @@ namespace MyEngine
 				}
 			}
 
-			// Entity IDs are reassigned on load; remember the saved id for each
-			// loaded entity so parent references can be remapped afterwards.
-			std::unordered_map<uint32_t, uint32_t> savedToNewID;
 			std::vector<std::pair<std::shared_ptr<::Entity>, uint32_t>> pendingParents;
 			std::vector<std::pair<std::shared_ptr<::Entity>, uint32_t>> pendingJoints;
 
@@ -641,10 +672,14 @@ namespace MyEngine
 				if (v.HasMember("name") && v["name"].IsString())
 					name = v["name"].GetString();
 
-				auto ent = scene.CreateEntity(name);
-
+				std::shared_ptr<::Entity> ent;
 				if (v.HasMember("id") && v["id"].IsUint())
-					savedToNewID[v["id"].GetUint()] = ent->GetID();
+					ent = scene.CreateEntityWithID(v["id"].GetUint(), name);
+				else
+					ent = scene.CreateEntity(name);
+
+				if (!ent)
+					continue;
 
 				if (v.HasMember("tag")   && v["tag"].IsString())   ent->SetTag(v["tag"].GetString());
 				if (v.HasMember("layer") && v["layer"].IsUint())   ent->SetLayer(v["layer"].GetUint());
@@ -678,6 +713,12 @@ namespace MyEngine
 					if (lo.HasMember("color")) l.color = DeserializeVec3(lo["color"]);
 					if (lo.HasMember("intensity")) l.intensity = static_cast<float>(lo["intensity"].GetDouble());
 					if (lo.HasMember("direction")) l.direction = DeserializeVec3(lo["direction"]);
+					if (lo.HasMember("position")) l.position = DeserializeVec3(lo["position"]);
+					if (lo.HasMember("range")) l.range = static_cast<float>(lo["range"].GetDouble());
+					if (lo.HasMember("innerCone")) l.innerCone = static_cast<float>(lo["innerCone"].GetDouble());
+					if (lo.HasMember("outerCone")) l.outerCone = static_cast<float>(lo["outerCone"].GetDouble());
+					if (lo.HasMember("shadowBias")) l.shadowBias = static_cast<float>(lo["shadowBias"].GetDouble());
+					if (lo.HasMember("castShadows")) l.castShadows = lo["castShadows"].GetBool();
 				}
 
 				if (v.HasMember("MeshComponent") && v["MeshComponent"].IsObject())
@@ -811,7 +852,7 @@ namespace MyEngine
 					{
 						mr.materialPath = mo["materialPath"].GetString();
 						mr.material = MyEngine::AssetManager::LoadMaterial(mr.materialPath);
-						if (mr.material && mr.material->shader)
+						if (mr.material && mr.material->shader && !ent->HasComponent<AnimationComponent>())
 						{
 							mr.shader = mr.material->shader;
 						}
@@ -837,9 +878,50 @@ namespace MyEngine
 					if (aco.HasMember("playbackSpeed")) ac.playbackSpeed = static_cast<float>(aco["playbackSpeed"].GetDouble());
 					if (aco.HasMember("playing")) ac.playing = aco["playing"].GetBool();
 					if (aco.HasMember("looping")) ac.looping = aco["looping"].GetBool();
-					}
+				}
 
-					// NavigationAgentComponent
+				if (v.HasMember("AnimationStateMachineComponent") && v["AnimationStateMachineComponent"].IsObject())
+				{
+					auto& sm = ent->AddComponent<AnimationStateMachineComponent>();
+					const auto& smo = v["AnimationStateMachineComponent"];
+					if (smo.HasMember("assetPath") && smo["assetPath"].IsString())
+					{
+						sm.assetPath = smo["assetPath"].GetString();
+						if (!sm.assetPath.empty())
+						{
+							sm.stateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
+							if (!sm.stateMachine->LoadFromFile(sm.assetPath))
+							{
+								sm.stateMachine.reset();
+								sm.assetPath.clear();
+							}
+						}
+					}
+					if (smo.HasMember("currentStateIndex")) sm.currentStateIndex = smo["currentStateIndex"].GetInt();
+					if (smo.HasMember("pendingStateIndex")) sm.pendingStateIndex = smo["pendingStateIndex"].GetInt();
+					if (smo.HasMember("currentStateTime")) sm.currentStateTime = static_cast<float>(smo["currentStateTime"].GetDouble());
+					if (smo.HasMember("autoInitialize")) sm.autoInitialize = smo["autoInitialize"].GetBool();
+					if (smo.HasMember("debugPauseTransitions")) sm.debugPauseTransitions = smo["debugPauseTransitions"].GetBool();
+					if (smo.HasMember("parameterValues") && smo["parameterValues"].IsArray())
+					{
+						sm.parameterValues.clear();
+						for (const auto& valueObject : smo["parameterValues"].GetArray())
+						{
+							if (!valueObject.IsObject())
+								continue;
+							AnimationStateMachineParameterValue value;
+							if (valueObject.HasMember("floatValue") && valueObject["floatValue"].IsNumber())
+								value.floatValue = valueObject["floatValue"].GetFloat();
+							if (valueObject.HasMember("boolValue") && valueObject["boolValue"].IsBool())
+								value.boolValue = valueObject["boolValue"].GetBool();
+							if (valueObject.HasMember("triggerValue") && valueObject["triggerValue"].IsBool())
+								value.triggerValue = valueObject["triggerValue"].GetBool();
+							sm.parameterValues.push_back(value);
+						}
+					}
+				}
+
+				// NavigationAgentComponent
 					if (v.HasMember("NavAgent") && v["NavAgent"].IsObject())
 					{
 						auto& nav = ent->AddComponent<NavigationAgentComponent>();
@@ -965,9 +1047,8 @@ namespace MyEngine
 					if (alo.HasMember("gain")) al.gain = static_cast<float>(alo["gain"].GetDouble());
 				}
 
-				// Joint - connectedEntityID stores the *saved* ID here; it is remapped to
-				// the newly assigned entity ID once all entities have been created (see
-				// pendingJoints below).
+				// Joint reference IDs can be restored directly because scene loading
+				// now preserves serialized entity IDs.
 				if (v.HasMember("Joint") && v["Joint"].IsObject())
 				{
 					auto& joint = ent->AddComponent<JointComponent>();
@@ -994,20 +1075,22 @@ namespace MyEngine
 				}
 			}
 
-			// Remap parent references from saved IDs to newly assigned IDs.
 			for (auto& [ent, savedParentID] : pendingParents)
 			{
-				auto it = savedToNewID.find(savedParentID);
-				if (it != savedToNewID.end() && ent->HasComponent<TransformComponent>())
-					ent->GetComponent<TransformComponent>().parentID = it->second;
+				if (!ent || !ent->HasComponent<TransformComponent>())
+					continue;
+
+				ent->GetComponent<TransformComponent>().parentID =
+					scene.GetEntityByID(savedParentID) ? savedParentID : 0;
 			}
 
-			// Remap joint connectedEntityID from saved IDs to newly assigned IDs.
 			for (auto& [ent, savedConnectedID] : pendingJoints)
 			{
-				auto it = savedToNewID.find(savedConnectedID);
-				if (it != savedToNewID.end() && ent->HasComponent<JointComponent>())
-					ent->GetComponent<JointComponent>().connectedEntityID = it->second;
+				if (!ent || !ent->HasComponent<JointComponent>())
+					continue;
+
+				ent->GetComponent<JointComponent>().connectedEntityID =
+					scene.GetEntityByID(savedConnectedID) ? savedConnectedID : 0;
 			}
 
 					return true;
@@ -1057,24 +1140,62 @@ namespace MyEngine
 								return SaveScene(tmp, path);
 							}
 
-					// SpawnPrefab loads a prefab file (which is just a single-entity scene
-					// file), creates the entity in the target scene and returns it.
+					// SpawnPrefab loads a prefab into a temporary scene, then clones the
+					// entity into the destination scene so full scene-load semantics
+					// (replace-on-load) do not affect prefab instancing.
 					::Entity* SpawnPrefab(
 						::Scene& scene,
 						const std::string& path,
 						const std::shared_ptr<MyEngine::Shader>& defaultShader
 					)
 					{
-						size_t before = scene.GetEntities().size();
-
-						if (!LoadScene(scene, path, defaultShader))
+						::Scene prefabScene;
+						if (!LoadScene(prefabScene, path, defaultShader))
 							return nullptr;
 
-						auto& entities = scene.GetEntities();
-						if (entities.size() <= before)
+						auto& prefabEntities = prefabScene.GetEntities();
+						if (prefabEntities.empty() || !prefabEntities.front())
 							return nullptr;
 
-						return entities.back().get();
+						auto source = prefabEntities.front();
+						auto spawned = scene.CreateEntity(source->GetName());
+						if (!spawned)
+							return nullptr;
+
+						spawned->SetTag(source->GetTag());
+						spawned->SetLayer(source->GetLayer());
+
+					#define COPY_COMPONENT(T) \
+						if (source->HasComponent<T>()) spawned->AddComponent<T>() = source->GetComponent<T>()
+
+						COPY_COMPONENT(TransformComponent);
+						COPY_COMPONENT(CameraComponent);
+						COPY_COMPONENT(LightComponent);
+						COPY_COMPONENT(MeshComponent);
+						COPY_COMPONENT(MeshRendererComponent);
+						COPY_COMPONENT(BoundingSphereComponent);
+						COPY_COMPONENT(RigidbodyComponent);
+						COPY_COMPONENT(BoxColliderComponent);
+						COPY_COMPONENT(CapsuleColliderComponent);
+						COPY_COMPONENT(PlaneColliderComponent);
+						COPY_COMPONENT(AudioSourceComponent);
+						COPY_COMPONENT(AudioListenerComponent);
+						COPY_COMPONENT(JointComponent);
+						COPY_COMPONENT(SkeletonComponent);
+						COPY_COMPONENT(AnimationComponent);
+						COPY_COMPONENT(ScriptComponent);
+						COPY_COMPONENT(LODComponent);
+						COPY_COMPONENT(TerrainComponent);
+						COPY_COMPONENT(NavigationAgentComponent);
+						COPY_COMPONENT(ParticleEmitterComponent);
+					#undef COPY_COMPONENT
+
+						if (spawned->HasComponent<TransformComponent>())
+							spawned->GetComponent<TransformComponent>().parentID = 0;
+						if (spawned->HasComponent<JointComponent>())
+							spawned->GetComponent<JointComponent>().connectedEntityID = 0;
+
+						return spawned.get();
 					}
 				}
 			}

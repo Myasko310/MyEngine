@@ -170,6 +170,37 @@ namespace MyEngine
 				return std::string(fileName);
 			return std::string();
 		}
+
+		std::string OpenAnimationStateMachineFile()
+		{
+			char fileName[MAX_PATH] = "";
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "Animation State Machine Files (*.animstate.json)\0*.animstate.json\0JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+			if (GetOpenFileNameA(&ofn))
+				return std::string(fileName);
+			return std::string();
+		}
+
+		std::string SaveAnimationStateMachineFile()
+		{
+			char fileName[MAX_PATH] = "new_state_machine.animstate.json";
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "Animation State Machine Files (*.animstate.json)\0*.animstate.json\0JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.lpstrDefExt = "json";
+			ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+			if (GetSaveFileNameA(&ofn))
+				return std::string(fileName);
+			return std::string();
+		}
 #else
 		std::string OpenSceneFile()
 		{
@@ -212,6 +243,16 @@ namespace MyEngine
 		}
 
 		std::string SavePrefabFile()
+		{
+			return std::string();
+		}
+
+		std::string OpenAnimationStateMachineFile()
+		{
+			return std::string();
+		}
+
+		std::string SaveAnimationStateMachineFile()
 		{
 			return std::string();
 		}

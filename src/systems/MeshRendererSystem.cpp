@@ -8,6 +8,7 @@
 #include "components/TransformComponent.h"
 #include "components/LightComponent.h"
 #include "components/AnimationComponent.h"
+#include "core/AssetManager.h"
 #include "ecs/Scene.h"
 #include "ecs/TransformHierarchy.h"
 #include "components/BoundingSphereComponent.h"
@@ -160,7 +161,7 @@ void MeshRendererSystem::SetSplitLambda(float lambda)
 
 float MeshRendererSystem::GetSplitLambda() const
 {
-    return m_Impl ? m_Impl->splitLambda : 0.75f;
+    return m_Impl ? m_Impl->splitLambda : 0.99f;
 }
 
 void MeshRendererSystem::InitIBL(unsigned int skyboxCubemap)
@@ -269,7 +270,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     constexpr int kMaxPointLights = 4;
     constexpr int kMaxSpotLights = 4;
 
-    struct PointLightData { glm::vec3 pos; glm::vec3 color; float range; bool castShadows; };
+    struct PointLightData { glm::vec3 pos; glm::vec3 color; float range; float shadowBias; bool castShadows; };
     struct SpotLightData { glm::vec3 pos; glm::vec3 dir; glm::vec3 color; float range; float innerCos; float outerCos; };
 
     std::vector<PointLightData> pointLights;
@@ -294,16 +295,22 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         {
             if (!foundDirectional)
             {
-                lightDir = L.direction;
+                float dirLen = glm::length(L.direction);
+                if (dirLen > 0.0001f)
+                    lightDir = L.direction / dirLen;
+                else
+                    lightDir = glm::vec3(0.0f, -1.0f, 0.0f);
+
                 lightColor = L.color * L.intensity;
                 directionalCastShadows = L.castShadows;
+                m_Impl->shadowBias = L.shadowBias;
                 foundDirectional = true;
             }
         }
         else if (L.type == MyEngine::LightComponent::Type::Point)
         {
             if (static_cast<int>(pointLights.size()) < kMaxPointLights)
-                pointLights.push_back({ L.position, L.color * L.intensity, L.range, L.castShadows });
+                pointLights.push_back({ L.position, L.color * L.intensity, L.range, L.shadowBias, L.castShadows });
         }
         else if (L.type == MyEngine::LightComponent::Type::Spot)
         {
@@ -496,8 +503,12 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 {
                     auto& bs = entity->GetComponent<BoundingSphereComponent>();
                     glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(bs.center, 1.0f));
-                    float maxScale = glm::compMax(entity->GetComponent<TransformComponent>().scale);
-                    float worldRadius = bs.radius * maxScale;
+                    glm::vec3 worldScale(
+                        glm::length(glm::vec3(worldMatrix[0])),
+                        glm::length(glm::vec3(worldMatrix[1])),
+                        glm::length(glm::vec3(worldMatrix[2]))
+                    );
+                    float worldRadius = bs.radius * glm::compMax(worldScale);
                     if (!lightCuller.IsSphereVisible(worldCenter, worldRadius))
                         continue;
                 }
@@ -694,7 +705,27 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         }
 
         auto activeMaterial = renderer.material;
-        auto activeShader = (activeMaterial && activeMaterial->shader) ? activeMaterial->shader : renderer.shader;
+        const bool isAnimated = entity->HasComponent<AnimationComponent>();
+
+        std::shared_ptr<MyEngine::Shader> activeShader = renderer.shader;
+        if (!isAnimated && activeMaterial && activeMaterial->shader)
+            activeShader = activeMaterial->shader;
+        if (!activeShader && activeMaterial && activeMaterial->shader)
+            activeShader = activeMaterial->shader;
+
+        if (isAnimated && activeShader)
+        {
+            const std::string& vertexPath = activeShader->GetVertexPath();
+            if (vertexPath.find("skinned") == std::string::npos)
+            {
+                std::string fragmentPath = activeShader->GetFragmentPath();
+                if (fragmentPath.empty())
+                    fragmentPath = "shaders/lit.frag";
+                activeShader = MyEngine::AssetManager::LoadShader("shaders/lit_skinned.vert", fragmentPath);
+                renderer.shader = activeShader;
+            }
+        }
+
         if (!activeShader)
             continue;
 
@@ -815,7 +846,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         activeShader->SetVec3("u_LightColor", lightColor.x, lightColor.y, lightColor.z);
         activeShader->SetVec3("u_AmbientColor", ambientColor.x, ambientColor.y, ambientColor.z);
         activeShader->SetVec3("u_ViewPos", viewPos);
-        activeShader->SetFloat("u_PointShadowBias", m_Impl ? m_Impl->pointShadowBias : 0.02f);
+        activeShader->SetFloat("u_ShadowBias", m_Impl ? m_Impl->shadowBias : 0.005f);
 
         // Point lights
         activeShader->SetInt("u_NumPointLights", static_cast<int>(pointLights.size()));
@@ -827,6 +858,13 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             activeShader->SetFloat("u_PointLightRange[" + idx + "]", pointLights[i].range);
             activeShader->SetBool("u_PointLightCastShadows[" + idx + "]", pointShadowMapIndices[i] >= 0);
             activeShader->SetFloat("u_PointShadowFarPlane[" + idx + "]", pointShadowFarPlanes[i]);
+
+            // Per-light bias from LightComponent, scaled by global point-shadow
+            // bias control. Global 0.005f is neutral (x1.0 scale).
+            float globalPointBias = m_Impl ? m_Impl->pointShadowBias : 0.005f;
+            float biasScale = globalPointBias / 0.005f;
+            float effectivePointBias = std::max(pointLights[i].shadowBias * biasScale, 0.0001f);
+            activeShader->SetFloat("u_PointShadowBias[" + idx + "]", effectivePointBias);
 
             int pointShadowUnit = std::max(nextTextureUnit, 1);
             activeShader->SetInt("u_PointShadowMap[" + idx + "]", pointShadowUnit);

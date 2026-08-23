@@ -20,6 +20,7 @@ out vec3 v_Color;
 out vec3 v_Normal;
 out vec2 v_TexCoords;
 out vec4 v_FragPosLightSpace;
+out float v_ViewSpaceDepth;
 
 void main()
 {
@@ -31,7 +32,7 @@ void main()
 		int boneID = a_BoneIDs[i];
 		float weight = a_BoneWeights[i];
 
-		if (boneID < 0 || weight <= 0.0)
+		if (boneID < 0 || boneID >= MAX_BONES || weight <= 0.0)
 			continue;
 
 		skinMatrix = skinMatrix + u_BoneMatrices[boneID] * weight;
@@ -39,7 +40,13 @@ void main()
 	}
 
 	if (totalWeight <= 0.0001)
+	{
 		skinMatrix = mat4(1.0);
+	}
+	else
+	{
+		skinMatrix = skinMatrix / totalWeight;
+	}
 
 	vec4 skinnedPosition = skinMatrix * vec4(a_Position, 1.0);
 	vec3 skinnedNormal = mat3(skinMatrix) * a_Normal;
@@ -49,5 +56,7 @@ void main()
 	v_Color = a_Color;
 	v_TexCoords = a_TexCoords;
 	v_FragPosLightSpace = u_LightSpace * vec4(v_Position, 1.0);
-	gl_Position = u_Projection * u_View * vec4(v_Position, 1.0);
+	vec4 viewPos = u_View * vec4(v_Position, 1.0);
+	v_ViewSpaceDepth = -viewPos.z;
+	gl_Position = u_Projection * viewPos;
 }

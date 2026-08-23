@@ -158,6 +158,6 @@ namespace MyEngine
 
 						private:
 							// Computes a world-space AABB for an entity's collider (sphere, box, or capsule).
-							bool ComputeColliderAABB(const std::shared_ptr<Entity>& entity, glm::vec3& outMin, glm::vec3& outMax) const;
+							bool ComputeColliderAABB(const Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outMin, glm::vec3& outMax) const;
 						};
 					}

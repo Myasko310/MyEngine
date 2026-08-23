@@ -24,8 +24,13 @@ namespace
 	bool SerializerSmokeTest()
 	{
 		Scene scene;
-		auto entity = scene.CreateEntity("SerializerEntity");
-		entity->AddComponent<TransformComponent>();
+		auto parent = scene.CreateEntity("SerializerParent");
+		auto& parentTransform = parent->AddComponent<TransformComponent>();
+		parentTransform.position = { 1.0f, 2.0f, 3.0f };
+
+		auto child = scene.CreateEntity("SerializerChild");
+		auto& childTransform = child->AddComponent<TransformComponent>();
+		childTransform.parentID = parent->GetID();
 
 		std::vector<MyEngine::ScriptSystem::GlobalScriptConfig> globalScripts;
 		globalScripts.push_back({"assets/scripts/a.lua", true, true, false});
@@ -49,6 +54,8 @@ namespace
 		}
 
 		Scene loaded;
+		loaded.CreateEntity("ShouldBeReplaced");
+
 		std::vector<MyEngine::ScriptSystem::GlobalScriptConfig> loadedGlobals;
 		if (!MyEngine::Serialization::LoadScene(loaded, tempPath.string(), nullptr, &loadedGlobals))
 		{
@@ -66,6 +73,37 @@ namespace
 			loadedGlobals[1].scriptPath != "assets/scripts/b.lua")
 		{
 			std::cerr << "SerializerSmokeTest: global script order/path mismatch" << std::endl;
+			return false;
+		}
+
+		if (loaded.GetEntities().size() != 2)
+		{
+			std::cerr << "SerializerSmokeTest: expected loaded scene to replace old entities" << std::endl;
+			return false;
+		}
+
+		Entity* loadedParent = nullptr;
+		Entity* loadedChild = nullptr;
+		for (const auto& e : loaded.GetEntities())
+		{
+			if (!e)
+				continue;
+
+			if (e->GetName() == "SerializerParent")
+				loadedParent = e.get();
+			else if (e->GetName() == "SerializerChild")
+				loadedChild = e.get();
+		}
+
+		if (!loadedParent || !loadedChild || !loadedChild->HasComponent<TransformComponent>())
+		{
+			std::cerr << "SerializerSmokeTest: loaded entities missing" << std::endl;
+			return false;
+		}
+
+		if (loadedChild->GetComponent<TransformComponent>().parentID != loadedParent->GetID())
+		{
+			std::cerr << "SerializerSmokeTest: parent relationship was not preserved" << std::endl;
 			return false;
 		}
 

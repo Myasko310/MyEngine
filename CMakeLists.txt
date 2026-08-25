@@ -134,6 +134,7 @@ set(SOURCES
     src/core/Raycast.cpp
     src/core/FileDialog.cpp
     src/core/LayerMask.cpp
+    src/core/CollisionMatrix.cpp
 
     src/rendering/SSAOPass.cpp
 

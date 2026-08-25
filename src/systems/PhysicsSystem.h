@@ -80,9 +80,10 @@ namespace MyEngine
 			static void FireExitEvent(const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b, bool isTrigger);
 
 			// Physics pipeline methods
-			void FixedUpdate(Scene& scene, float dt);
-			void ApplyForces(Scene& scene, float dt);
-			void IntegrateVelocity(Scene& scene, float dt);
+				void FixedUpdate(Scene& scene, float dt);
+				void ApplyForces(Scene& scene, float dt);
+				void IntegrateVelocity(Scene& scene, float dt);
+				void SweepCCDBody(Scene& scene, const std::shared_ptr<Entity>& entity, float dt);
 			void UpdateCharacterControllers(Scene& scene, float dt);
 			void CollectCharacterControllerInput(Scene& scene, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight);
 			void DetectAndResolveCollisions(Scene& scene);
@@ -155,6 +156,22 @@ namespace MyEngine
 
 					// Closest point on a segment to a given point
 					static glm::vec3 ClosestPointOnSegment(const glm::vec3& point, const glm::vec3& segA, const glm::vec3& segB);
+
+					// Closest point on a triangle to a given point
+					static glm::vec3 ClosestPointOnTriangle(const glm::vec3& p, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c);
+
+					// --- Mesh collider (sphere-vs-triangle, capsule-vs-triangle) ---
+					bool CheckSphereMeshCollision(
+						const glm::vec3& sphereCenter, float sphereRadius,
+						const glm::vec3& triA, const glm::vec3& triB, const glm::vec3& triC,
+						glm::vec3& outNormal, float& outPenetration
+					) const;
+
+					bool CheckCapsuleMeshCollision(
+						const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
+						const glm::vec3& triA, const glm::vec3& triB, const glm::vec3& triC,
+						glm::vec3& outNormal, float& outPenetration
+					) const;
 
 					// Collision response
 					void ResolveSphereCollision(

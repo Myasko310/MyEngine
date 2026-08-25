@@ -17,7 +17,9 @@
 #include "components/AudioSourceComponent.h"
 #include "components/AudioListenerComponent.h"
 #include "components/JointComponent.h"
+#include "components/MeshColliderComponent.h"
 #include "components/SkeletonComponent.h"
+#include "core/CollisionMatrix.h"
 #include "components/AnimationComponent.h"
 #include "components/AnimationStateMachineComponent.h"
 #include "components/ScriptComponent.h"
@@ -124,10 +126,16 @@ namespace MyEngine
 			writer.Key("sceneVersion"); writer.Int(3);
 
 			// Layer name registry
-			writer.Key("layerNames"); writer.StartArray();
-			for (int i = 0; i < MyEngine::MAX_LAYERS; ++i)
-				writer.String(MyEngine::LayerMask::GetName(i).c_str());
-			writer.EndArray();
+				writer.Key("layerNames"); writer.StartArray();
+				for (int i = 0; i < MyEngine::MAX_LAYERS; ++i)
+					writer.String(MyEngine::LayerMask::GetName(i).c_str());
+				writer.EndArray();
+
+				// Collision layer matrix (32 rows, each a uint32 bitmask)
+				writer.Key("collisionMatrix"); writer.StartArray();
+				for (int i = 0; i < MyEngine::CollisionMatrix::NUM_LAYERS; ++i)
+					writer.Uint(MyEngine::CollisionMatrix::GetRows()[i]);
+				writer.EndArray();
 
 			writer.Key("entities");
 			writer.StartArray();
@@ -340,9 +348,10 @@ namespace MyEngine
 					writer.Key("gravityScale"); writer.Double(rb.gravityScale);
 					writer.Key("isKinematic"); writer.Bool(rb.isKinematic);
 					writer.Key("freezePositionX"); writer.Bool(rb.freezePositionX);
-					writer.Key("freezePositionY"); writer.Bool(rb.freezePositionY);
-					writer.Key("freezePositionZ"); writer.Bool(rb.freezePositionZ);
-					writer.EndObject();
+						writer.Key("freezePositionY"); writer.Bool(rb.freezePositionY);
+						writer.Key("freezePositionZ"); writer.Bool(rb.freezePositionZ);
+						writer.Key("useCCD"); writer.Bool(rb.useCCD);
+						writer.EndObject();
 				}
 
 				// Box Collider
@@ -416,6 +425,29 @@ namespace MyEngine
 					writer.Key("center"); SerializeVec3(writer, sphere.center);
 					writer.Key("radius"); writer.Double(sphere.radius);
 					writer.Key("isTrigger"); writer.Bool(sphere.isTrigger);
+					writer.EndObject();
+				}
+
+				// Mesh Collider
+				if (e->HasComponent<MeshColliderComponent>())
+				{
+					auto& mesh = e->GetComponent<MeshColliderComponent>();
+					writer.Key("MeshCollider");
+					writer.StartObject();
+					writer.Key("modelPath"); writer.String(mesh.modelPath.c_str());
+					writer.Key("isTrigger"); writer.Bool(mesh.isTrigger);
+					// Serialize each triangle as 9 floats [ax,ay,az, bx,by,bz, cx,cy,cz]
+					writer.Key("triangles"); writer.StartArray();
+					for (const auto& tri : mesh.triangles)
+					{
+						for (const auto& v : tri)
+						{
+							writer.Double(v.x);
+							writer.Double(v.y);
+							writer.Double(v.z);
+						}
+					}
+					writer.EndArray();
 					writer.EndObject();
 				}
 
@@ -554,12 +586,21 @@ namespace MyEngine
 			if (doc.HasMember("layerNames") && doc["layerNames"].IsArray())
 			{
 				const auto& ln = doc["layerNames"].GetArray();
-				for (int i = 0; i < MyEngine::MAX_LAYERS && i < static_cast<int>(ln.Size()); ++i)
-					if (ln[i].IsString())
-						MyEngine::LayerMask::SetName(i, ln[i].GetString());
-			}
+					for (int i = 0; i < MyEngine::MAX_LAYERS && i < static_cast<int>(ln.Size()); ++i)
+						if (ln[i].IsString())
+							MyEngine::LayerMask::SetName(i, ln[i].GetString());
+				}
 
-			// Re-use LoadScene by writing to a temp in-memory path trick — 
+				// Restore collision layer matrix if present
+				if (doc.HasMember("collisionMatrix") && doc["collisionMatrix"].IsArray())
+				{
+					const auto& cm = doc["collisionMatrix"].GetArray();
+					for (int i = 0; i < MyEngine::CollisionMatrix::NUM_LAYERS && i < static_cast<int>(cm.Size()); ++i)
+						if (cm[i].IsUint())
+							MyEngine::CollisionMatrix::SetRow(i, cm[i].GetUint());
+				}
+
+				// Re-use LoadScene by writing to a temp in-memory path trick
 			// actually delegate by passing json as if from a stream.
 			// We do this by writing to a temp file path and delegating, but
 			// to avoid disk I/O we directly duplicate the parse+load body.
@@ -642,12 +683,21 @@ namespace MyEngine
 			if (doc.HasMember("layerNames") && doc["layerNames"].IsArray())
 			{
 				const auto& ln = doc["layerNames"].GetArray();
-				for (int i = 0; i < MyEngine::MAX_LAYERS && i < static_cast<int>(ln.Size()); ++i)
-					if (ln[i].IsString())
-						MyEngine::LayerMask::SetName(i, ln[i].GetString());
-			}
+					for (int i = 0; i < MyEngine::MAX_LAYERS && i < static_cast<int>(ln.Size()); ++i)
+						if (ln[i].IsString())
+							MyEngine::LayerMask::SetName(i, ln[i].GetString());
+				}
 
-			if (outGlobalScripts)
+				// Restore collision layer matrix if present
+				if (doc.HasMember("collisionMatrix") && doc["collisionMatrix"].IsArray())
+				{
+					const auto& cm = doc["collisionMatrix"].GetArray();
+					for (int i = 0; i < MyEngine::CollisionMatrix::NUM_LAYERS && i < static_cast<int>(cm.Size()); ++i)
+						if (cm[i].IsUint())
+							MyEngine::CollisionMatrix::SetRow(i, cm[i].GetUint());
+				}
+
+				if (outGlobalScripts)
 			{
 				outGlobalScripts->clear();
 				if (doc.HasMember("globalScripts") && doc["globalScripts"].IsArray())
@@ -976,6 +1026,7 @@ namespace MyEngine
 					if (ro.HasMember("freezePositionX")) rb.freezePositionX = ro["freezePositionX"].GetBool();
 					if (ro.HasMember("freezePositionY")) rb.freezePositionY = ro["freezePositionY"].GetBool();
 					if (ro.HasMember("freezePositionZ")) rb.freezePositionZ = ro["freezePositionZ"].GetBool();
+					if (ro.HasMember("useCCD")) rb.useCCD = ro["useCCD"].GetBool();
 				}
 
 				// Box Collider
@@ -1041,6 +1092,37 @@ namespace MyEngine
 					if (so.HasMember("center")) sphere.center = DeserializeVec3(so["center"]);
 					if (so.HasMember("radius")) sphere.radius = static_cast<float>(so["radius"].GetDouble());
 					if (so.HasMember("isTrigger")) sphere.isTrigger = so["isTrigger"].GetBool();
+				}
+
+				// Mesh Collider
+				if (v.HasMember("MeshCollider") && v["MeshCollider"].IsObject())
+				{
+					auto& mesh = ent->AddComponent<MeshColliderComponent>();
+					const auto& mo = v["MeshCollider"];
+					if (mo.HasMember("modelPath") && mo["modelPath"].IsString())
+						mesh.modelPath = mo["modelPath"].GetString();
+					if (mo.HasMember("isTrigger")) mesh.isTrigger = mo["isTrigger"].GetBool();
+					if (mo.HasMember("triangles") && mo["triangles"].IsArray())
+					{
+						const auto& ta = mo["triangles"].GetArray();
+						// Each triangle is stored as 9 consecutive floats
+						const int stride = 9;
+						int count = static_cast<int>(ta.Size()) / stride;
+						mesh.triangles.reserve(static_cast<size_t>(count));
+						for (int ti = 0; ti < count; ++ti)
+						{
+							int base = ti * stride;
+							std::array<glm::vec3, 3> tri;
+							for (int vi = 0; vi < 3; ++vi)
+							{
+								tri[vi].x = static_cast<float>(ta[base + vi * 3 + 0].GetDouble());
+								tri[vi].y = static_cast<float>(ta[base + vi * 3 + 1].GetDouble());
+								tri[vi].z = static_cast<float>(ta[base + vi * 3 + 2].GetDouble());
+							}
+							mesh.triangles.push_back(tri);
+						}
+						mesh.RebuildAABB();
+					}
 				}
 
 				// Audio Source

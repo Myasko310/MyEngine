@@ -26,6 +26,11 @@ namespace MyEngine
 		bool freezePositionY = false;
 		bool freezePositionZ = false;
 
+		// Continuous Collision Detection: when true the integrator sub-steps this
+		// body's linear sweep each physics tick, preventing tunnel-through against
+		// plane colliders at high speeds.
+		bool useCCD = false;
+
 		RigidbodyComponent() = default;
 
 		RigidbodyComponent(float m, bool gravity = true)

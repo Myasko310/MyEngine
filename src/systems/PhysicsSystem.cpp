@@ -8,10 +8,12 @@
 #include "components/PlaneColliderComponent.h"
 #include "components/BoxColliderComponent.h"
 #include "components/CapsuleColliderComponent.h"
+#include "components/MeshColliderComponent.h"
 #include "components/CharacterControllerComponent.h"
 #include "components/CollisionEventsComponent.h"
 #include "components/JointComponent.h"
 #include "components/AnimationStateMachineComponent.h"
+#include "core/CollisionMatrix.h"
 #include "core/Input.h"
 
 #include <iostream>
@@ -131,14 +133,109 @@ namespace MyEngine
 			// v = v + a * dt
 			rb.velocity += rb.acceleration * dt;
 
-			// Apply position constraints
-			glm::vec3 deltaPosition = rb.velocity * dt;
-			if (rb.freezePositionX) deltaPosition.x = 0.0f;
-			if (rb.freezePositionY) deltaPosition.y = 0.0f;
-			if (rb.freezePositionZ) deltaPosition.z = 0.0f;
+			if (rb.useCCD)
+			{
+				// CCD: sub-step this body's sweep against plane colliders to prevent
+				// tunnel-through at high velocities.
+				SweepCCDBody(scene, entity, dt);
+			}
+			else
+			{
+				// Apply position constraints
+				glm::vec3 deltaPosition = rb.velocity * dt;
+				if (rb.freezePositionX) deltaPosition.x = 0.0f;
+				if (rb.freezePositionY) deltaPosition.y = 0.0f;
+				if (rb.freezePositionZ) deltaPosition.z = 0.0f;
 
-			// p = p + v * dt
-			transform.position += deltaPosition;
+				// p = p + v * dt
+				transform.position += deltaPosition;
+			}
+		}
+	}
+
+	void PhysicsSystem::SweepCCDBody(Scene& scene, const std::shared_ptr<Entity>& entity, float dt)
+	{
+		auto& rb        = entity->GetComponent<RigidbodyComponent>();
+		auto& transform = entity->GetComponent<TransformComponent>();
+
+		// Determine the sphere radius to sweep (prefer BoundingSphere, else use 0.1 fallback).
+		float sweepRadius = 0.1f;
+		glm::vec3 centerOffset(0.0f);
+		if (entity->HasComponent<BoundingSphereComponent>())
+		{
+			auto& bs   = entity->GetComponent<BoundingSphereComponent>();
+			sweepRadius = bs.radius;
+			centerOffset = bs.center;
+		}
+		else if (entity->HasComponent<CapsuleColliderComponent>())
+		{
+			auto& cap  = entity->GetComponent<CapsuleColliderComponent>();
+			sweepRadius = cap.radius;
+			centerOffset = (cap.pointA + cap.pointB) * 0.5f;
+		}
+		else if (entity->HasComponent<BoxColliderComponent>())
+		{
+			auto& box  = entity->GetComponent<BoxColliderComponent>();
+			sweepRadius = glm::length(box.halfExtents);
+			centerOffset = box.center;
+		}
+
+		// Break the motion into sub-steps of at most (sweepRadius * 0.5) each.
+		glm::vec3 totalDisplacement = rb.velocity * dt;
+		if (rb.freezePositionX) totalDisplacement.x = 0.0f;
+		if (rb.freezePositionY) totalDisplacement.y = 0.0f;
+		if (rb.freezePositionZ) totalDisplacement.z = 0.0f;
+
+		float totalDist = glm::length(totalDisplacement);
+		if (totalDist < 1e-6f)
+		{
+			transform.position += totalDisplacement;
+			return;
+		}
+
+		const float subStepSize = std::max(sweepRadius * 0.5f, 0.001f);
+		const int   numSubSteps = static_cast<int>(std::ceil(totalDist / subStepSize));
+		glm::vec3   stepDelta   = totalDisplacement / static_cast<float>(numSubSteps);
+
+		for (int s = 0; s < numSubSteps; ++s)
+		{
+			transform.position += stepDelta;
+			glm::vec3 sphereCenter = transform.position + centerOffset;
+
+			// Check against all plane colliders and push out immediately.
+			for (const auto& other : scene.GetEntities())
+			{
+				if (!other || !other->HasComponent<PlaneColliderComponent>())
+					continue;
+
+				auto& plane = other->GetComponent<PlaneColliderComponent>();
+				if (plane.isTrigger)
+					continue;
+
+				glm::vec3 normal;
+				float penetration;
+				if (CheckSpherePlaneCollision(sphereCenter, sweepRadius, plane.normal, plane.distance, normal, penetration))
+				{
+					transform.position += normal * penetration;
+					// Kill velocity component along normal
+					float vDotN = glm::dot(rb.velocity, normal);
+					if (vDotN < 0.0f)
+						rb.velocity -= normal * vDotN * (1.0f + rb.bounciness);
+
+					// Recompute sphere center after push-out for subsequent sub-steps.
+					sphereCenter = transform.position + centerOffset;
+					// Recompute stepDelta based on remaining velocity.
+					const int remaining = numSubSteps - s - 1;
+					if (remaining > 0)
+					{
+						glm::vec3 remainDisp = rb.velocity * (dt * static_cast<float>(remaining) / static_cast<float>(numSubSteps));
+						if (rb.freezePositionX) remainDisp.x = 0.0f;
+						if (rb.freezePositionY) remainDisp.y = 0.0f;
+						if (rb.freezePositionZ) remainDisp.z = 0.0f;
+						stepDelta = remainDisp / static_cast<float>(remaining);
+					}
+				}
+			}
 		}
 	}
 
@@ -824,13 +921,19 @@ namespace MyEngine
 				continue;
 
 			// Check against all plane colliders
-			for (const auto& planeEntity : scene.GetEntities())
-			{
-				if (!planeEntity || !planeEntity->HasComponent<PlaneColliderComponent>() ||
-					!planeEntity->HasComponent<TransformComponent>())
-					continue;
+				for (const auto& planeEntity : scene.GetEntities())
+				{
+					if (!planeEntity || !planeEntity->HasComponent<PlaneColliderComponent>() ||
+						!planeEntity->HasComponent<TransformComponent>())
+						continue;
 
-				auto& plane = planeEntity->GetComponent<PlaneColliderComponent>();
+					// Collision layer filter
+					if (!CollisionMatrix::CanCollide(
+						static_cast<int>(dynamicEntity->GetLayer()),
+						static_cast<int>(planeEntity->GetLayer())))
+						continue;
+
+					auto& plane = planeEntity->GetComponent<PlaneColliderComponent>();
 
 				collisionChecks++;
 
@@ -915,15 +1018,21 @@ namespace MyEngine
 		}
 
 		auto dispatchNarrowPhase = [this, &scene, &newCollisionPairs, &newTriggerPairs, &pairEntities](const std::shared_ptr<Entity>& entityA, const std::shared_ptr<Entity>& entityB)
-		{
-			auto& rbA = entityA->GetComponent<RigidbodyComponent>();
-			auto& rbB = entityB->GetComponent<RigidbodyComponent>();
+			{
+				auto& rbA = entityA->GetComponent<RigidbodyComponent>();
+				auto& rbB = entityB->GetComponent<RigidbodyComponent>();
 
-			collisionChecks++;
+				collisionChecks++;
 
-			// Skip if both are kinematic
-			if (rbA.isKinematic && rbB.isKinematic)
-				return;
+				// Skip if both are kinematic
+				if (rbA.isKinematic && rbB.isKinematic)
+					return;
+
+				// Collision layer filter
+				if (!CollisionMatrix::CanCollide(
+					static_cast<int>(entityA->GetLayer()),
+					static_cast<int>(entityB->GetLayer())))
+					return;
 
 			auto& transformA = entityA->GetComponent<TransformComponent>();
 			auto& transformB = entityB->GetComponent<TransformComponent>();
@@ -1075,7 +1184,95 @@ namespace MyEngine
 			}
 		}
 
-		// --- Diff this frame's pairs against last frame's to fire Enter/Exit events ---
+		// --- Dynamic bodies vs mesh colliders ---
+			// We iterate every entity with a RigidbodyComponent + a sphere or capsule
+			// collider against every static MeshColliderComponent entity.
+			for (const auto& dynamicEntity : scene.GetEntities())
+			{
+				if (!dynamicEntity || !dynamicEntity->HasComponent<RigidbodyComponent>() ||
+					!dynamicEntity->HasComponent<TransformComponent>())
+					continue;
+
+				auto& rb        = dynamicEntity->GetComponent<RigidbodyComponent>();
+				auto& transform = dynamicEntity->GetComponent<TransformComponent>();
+				if (rb.isKinematic)
+					continue;
+
+				glm::vec3 worldScale = ExtractWorldScale(scene, *dynamicEntity);
+
+				bool hasSphere  = dynamicEntity->HasComponent<BoundingSphereComponent>();
+				bool hasCapsule = dynamicEntity->HasComponent<CapsuleColliderComponent>();
+				if (!hasSphere && !hasCapsule)
+					continue;
+
+				for (const auto& meshEntity : scene.GetEntities())
+				{
+					if (!meshEntity || meshEntity.get() == dynamicEntity.get())
+						continue;
+					if (!meshEntity->HasComponent<MeshColliderComponent>() ||
+						!meshEntity->HasComponent<TransformComponent>())
+						continue;
+
+					// Layer filter
+					if (!CollisionMatrix::CanCollide(
+						static_cast<int>(dynamicEntity->GetLayer()),
+						static_cast<int>(meshEntity->GetLayer())))
+						continue;
+
+					auto& meshCol       = meshEntity->GetComponent<MeshColliderComponent>();
+					auto& meshTransform = meshEntity->GetComponent<TransformComponent>();
+					glm::vec3 meshScale = ExtractWorldScale(scene, *meshEntity);
+
+					collisionChecks++;
+
+					// Test against each triangle
+					for (const auto& tri : meshCol.triangles)
+					{
+						// Transform triangle vertices into world space
+						glm::vec3 tA = meshTransform.position + tri[0] * meshScale;
+						glm::vec3 tB = meshTransform.position + tri[1] * meshScale;
+						glm::vec3 tC = meshTransform.position + tri[2] * meshScale;
+
+						glm::vec3 normal;
+						float     penetration;
+						bool      hit = false;
+
+						if (hasCapsule)
+						{
+							auto& cap = dynamicEntity->GetComponent<CapsuleColliderComponent>();
+							glm::vec3 segA = transform.position + cap.pointA * worldScale;
+							glm::vec3 segB = transform.position + cap.pointB * worldScale;
+							float     r    = cap.radius * glm::compMax(glm::vec2(worldScale.x, worldScale.z));
+							hit = CheckCapsuleMeshCollision(segA, segB, r, tA, tB, tC, normal, penetration);
+						}
+						else
+						{
+							auto& bs = dynamicEntity->GetComponent<BoundingSphereComponent>();
+							float r  = bs.radius * glm::compMax(worldScale);
+							hit = CheckSphereMeshCollision(transform.position + bs.center * worldScale, r, tA, tB, tC, normal, penetration);
+						}
+
+						if (!hit)
+							continue;
+
+						uint64_t key = MakePairKey(dynamicEntity->GetID(), meshEntity->GetID());
+						pairEntities[key] = { dynamicEntity, meshEntity };
+
+						if (meshCol.isTrigger)
+						{
+							newTriggerPairs.insert(key);
+						}
+						else
+						{
+							newCollisionPairs.insert(key);
+							collisionsDetected++;
+							ResolvePlaneContact(rb, transform.position, normal, penetration);
+						}
+					}
+				}
+			}
+
+			// --- Diff this frame's pairs against last frame's to fire Enter/Exit events ---
 		for (const auto& key : newCollisionPairs)
 		{
 			if (activeCollisionPairs.find(key) == activeCollisionPairs.end())
@@ -1732,6 +1929,119 @@ namespace MyEngine
 			return true;
 		}
 
+		if (entity->HasComponent<MeshColliderComponent>())
+		{
+			auto& mesh = entity->GetComponent<MeshColliderComponent>();
+			if (mesh.triangles.empty())
+				return false;
+			outMin = transform.position + mesh.localAABBMin * worldScale;
+			outMax = transform.position + mesh.localAABBMax * worldScale;
+			// Ensure min <= max after scale sign flip
+			for (int i = 0; i < 3; ++i)
+			{
+				if (outMin[i] > outMax[i]) std::swap(outMin[i], outMax[i]);
+			}
+			return true;
+		}
+
 		return false;
+	}
+
+	// ------------------------------------------------------------
+	// Mesh collision helpers
+	// ------------------------------------------------------------
+
+	glm::vec3 PhysicsSystem::ClosestPointOnTriangle(const glm::vec3& p, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c)
+	{
+		// Christer Ericson "Real-Time Collision Detection" §5.1.5
+		glm::vec3 ab = b - a;
+		glm::vec3 ac = c - a;
+		glm::vec3 ap = p - a;
+
+		float d1 = glm::dot(ab, ap);
+		float d2 = glm::dot(ac, ap);
+		if (d1 <= 0.0f && d2 <= 0.0f)
+			return a;
+
+		glm::vec3 bp = p - b;
+		float d3 = glm::dot(ab, bp);
+		float d4 = glm::dot(ac, bp);
+		if (d3 >= 0.0f && d4 <= d3)
+			return b;
+
+		float vc = d1 * d4 - d3 * d2;
+		if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)
+		{
+			float v = d1 / (d1 - d3);
+			return a + v * ab;
+		}
+
+		glm::vec3 cp = p - c;
+		float d5 = glm::dot(ab, cp);
+		float d6 = glm::dot(ac, cp);
+		if (d6 >= 0.0f && d5 <= d6)
+			return c;
+
+		float vb = d5 * d2 - d1 * d6;
+		if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)
+		{
+			float w = d2 / (d2 - d6);
+			return a + w * ac;
+		}
+
+		float va = d3 * d6 - d5 * d4;
+		if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
+		{
+			float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+			return b + w * (c - b);
+		}
+
+		float denom = 1.0f / (va + vb + vc);
+		float v = vb * denom;
+		float w = vc * denom;
+		return a + v * ab + w * ac;
+	}
+
+	bool PhysicsSystem::CheckSphereMeshCollision(
+		const glm::vec3& sphereCenter, float sphereRadius,
+		const glm::vec3& triA, const glm::vec3& triB, const glm::vec3& triC,
+		glm::vec3& outNormal, float& outPenetration) const
+	{
+		glm::vec3 closest = ClosestPointOnTriangle(sphereCenter, triA, triB, triC);
+		glm::vec3 delta   = sphereCenter - closest;
+		float     dist2   = glm::dot(delta, delta);
+
+		if (dist2 >= sphereRadius * sphereRadius)
+			return false;
+
+		float dist = std::sqrt(dist2);
+		if (dist < 1e-6f)
+		{
+			// Sphere center is on the triangle — use triangle normal
+			glm::vec3 edge0 = triB - triA;
+			glm::vec3 edge1 = triC - triA;
+			glm::vec3 n     = glm::cross(edge0, edge1);
+			float     nLen  = glm::length(n);
+			outNormal       = (nLen > 1e-6f) ? n / nLen : glm::vec3(0.0f, 1.0f, 0.0f);
+			outPenetration  = sphereRadius;
+		}
+		else
+		{
+			outNormal      = delta / dist;
+			outPenetration = sphereRadius - dist;
+		}
+		return true;
+	}
+
+	bool PhysicsSystem::CheckCapsuleMeshCollision(
+		const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
+		const glm::vec3& triA, const glm::vec3& triB, const glm::vec3& triC,
+		glm::vec3& outNormal, float& outPenetration) const
+	{
+		// Find the point on the capsule segment closest to the triangle, then
+		// treat it as a sphere of radius capsuleRadius.
+		glm::vec3 triClosest = ClosestPointOnTriangle((segA + segB) * 0.5f, triA, triB, triC);
+		glm::vec3 segClosest = ClosestPointOnSegment(triClosest, segA, segB);
+		return CheckSphereMeshCollision(segClosest, capsuleRadius, triA, triB, triC, outNormal, outPenetration);
 	}
 }

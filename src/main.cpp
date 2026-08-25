@@ -35,6 +35,8 @@
 #include "components/RigidbodyComponent.h"
 #include "components/PlaneColliderComponent.h"
 #include "components/BoxColliderComponent.h"
+#include "components/MeshColliderComponent.h"
+#include "core/CollisionMatrix.h"
 #include "components/CapsuleColliderComponent.h"
 #include "components/CharacterControllerComponent.h"
 #include "components/AudioSourceComponent.h"
@@ -3596,6 +3598,10 @@ int main()
                             ImGui::Checkbox("Z##freezeZ", &rb.freezePositionZ);
 
                             ImGui::Separator();
+                            ImGui::Checkbox("CCD (Continuous Collision)", &rb.useCCD);
+                            ImGui::SetItemTooltip("Sub-steps this body's sweep each tick to prevent tunnelling at high speeds");
+
+                            ImGui::Separator();
                             ImGui::Text("Current Velocity:");
                             ImGui::Text("  (%.2f, %.2f, %.2f)", rb.velocity.x, rb.velocity.y, rb.velocity.z);
 
@@ -3720,6 +3726,58 @@ int main()
                         }
                     }
 
+                    // Mesh Collider Component
+                    if (selectedEntity->HasComponent<MeshColliderComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Mesh Collider", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            auto& mesh = selectedEntity->GetComponent<MeshColliderComponent>();
+                            ImGui::Checkbox("Is Trigger##meshcol", &mesh.isTrigger);
+                            ImGui::TextDisabled("Triangles: %d", static_cast<int>(mesh.triangles.size()));
+                            if (!mesh.modelPath.empty())
+                                ImGui::TextDisabled("Source: %s", mesh.modelPath.c_str());
+
+                            if (ImGui::Button("Build from Entity Mesh##meshcol"))
+                            {
+                                if (selectedEntity->HasComponent<MeshComponent>())
+                                {
+                                    auto& mc = selectedEntity->GetComponent<MeshComponent>();
+                                    mesh.triangles.clear();
+                                    mesh.modelPath = mc.assetPath;
+                                    if (mc.mesh)
+                                    {
+                                        const auto& verts   = mc.mesh->GetVertices();
+                                        const auto& indices = mc.mesh->GetIndices();
+                                        for (size_t ti = 0; ti + 2 < indices.size(); ti += 3)
+                                        {
+                                            std::array<glm::vec3, 3> tri;
+                                            tri[0] = verts[indices[ti + 0]].Position;
+                                            tri[1] = verts[indices[ti + 1]].Position;
+                                            tri[2] = verts[indices[ti + 2]].Position;
+                                            mesh.triangles.push_back(tri);
+                                        }
+                                    }
+                                    mesh.RebuildAABB();
+                                }
+                            }
+                            ImGui::SetItemTooltip("Extracts collision triangles from the entity's MeshComponent");
+
+                            if (ImGui::Button("Clear Triangles##meshcol"))
+                            {
+                                mesh.triangles.clear();
+                                mesh.RebuildAABB();
+                            }
+
+                            if (ImGui::Button("Remove Mesh Collider##meshcol"))
+                                selectedEntity->RemoveComponent<MeshColliderComponent>();
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Mesh Collider"))
+                            selectedEntity->AddComponent<MeshColliderComponent>();
+                    }
+
                     // Collision Events Component (trigger/collision callbacks for gameplay testing)
                     if (selectedEntity->HasComponent<CollisionEventsComponent>())
                     {
@@ -3809,6 +3867,40 @@ int main()
                             ImGui::DragFloat3("Anchor Offset", &joint.anchor.x, 0.05f);
                             ImGui::DragFloat3("Connected Anchor", &joint.connectedAnchor.x, 0.05f);
 
+                            // Snap anchor button: sets anchor to the current relative offset
+                            // between this entity and the connected entity (or world origin).
+                            if (ImGui::Button("Snap Anchors to Current Offset##snapAnchor"))
+                            {
+                                if (selectedEntity->HasComponent<TransformComponent>())
+                                {
+                                    joint.anchor = glm::vec3(0.0f);
+                                    if (joint.connectedEntityID != 0)
+                                    {
+                                        auto connected = TransformHierarchy::FindEntityByID(scene, joint.connectedEntityID);
+                                        if (connected && connected->HasComponent<TransformComponent>())
+                                        {
+                                            auto& selfTf  = selectedEntity->GetComponent<TransformComponent>();
+                                            auto& otherTf = connected->GetComponent<TransformComponent>();
+                                            joint.connectedAnchor = otherTf.position - selfTf.position;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        auto& selfTf = selectedEntity->GetComponent<TransformComponent>();
+                                        joint.connectedAnchor = selfTf.position;
+                                    }
+                                }
+                            }
+                            ImGui::SetItemTooltip("Computes connected anchor as the current relative offset between the two bodies");
+
+                            // Show computed world-space anchor positions (read-only)
+                            if (selectedEntity->HasComponent<TransformComponent>())
+                            {
+                                auto& selfTf   = selectedEntity->GetComponent<TransformComponent>();
+                                glm::vec3 worldAnchor = selfTf.position + joint.anchor;
+                                ImGui::TextDisabled("World Anchor: (%.2f, %.2f, %.2f)", worldAnchor.x, worldAnchor.y, worldAnchor.z);
+                            }
+
                             if (joint.type == JointType::Spring)
                             {
                                 ImGui::DragFloat("Rest Length", &joint.restLength, 0.05f, 0.0f, 100.0f);
@@ -3819,6 +3911,12 @@ int main()
                             {
                                 ImGui::DragFloat("Hinge Distance", &joint.hingeDistance, 0.05f, 0.0f, 100.0f);
                             }
+
+                            ImGui::Separator();
+                            ImGui::DragFloat("Break Force", &joint.breakForce, 0.5f, 0.0f, 10000.0f);
+                            ImGui::SetItemTooltip("Joint is removed when corrective force exceeds this value. 0 = unbreakable.");
+                            if (joint.breakForce > 0.0f)
+                                ImGui::TextDisabled("Joint will break above %.1f N", joint.breakForce);
 
                             if (ImGui::Button("Remove Joint"))
                             {
@@ -4675,6 +4773,56 @@ int main()
                     ImGui::Separator();
                     if (ImGui::Button("Reset to Defaults"))
                         MyEngine::LayerMask::Reset();
+
+                    // Collision Layer Matrix
+                    ImGui::Spacing();
+                    if (ImGui::CollapsingHeader("Collision Layer Matrix"))
+                    {
+                        ImGui::TextDisabled("Check a cell to allow those two layers to collide.");
+                        ImGui::Spacing();
+
+                        // Count how many layers have non-empty names to keep the grid compact.
+                        // We show only the first N named layers (max 16 for readability).
+                        const int displayLayers = std::min(MyEngine::CollisionMatrix::NUM_LAYERS, 16);
+
+                        // Column headers (short names / indices)
+                        ImGui::Indent(80.0f);
+                        for (int col = 0; col < displayLayers; ++col)
+                        {
+                            ImGui::PushID(col);
+                            const std::string& name = MyEngine::LayerMask::GetName(col);
+                            std::string label = name.empty() ? std::to_string(col) : name.substr(0, 3);
+                            ImGui::TextDisabled("%s", label.c_str());
+                            if (col < displayLayers - 1) ImGui::SameLine(0.0f, 4.0f);
+                            ImGui::PopID();
+                        }
+                        ImGui::Unindent(80.0f);
+
+                        for (int row = 0; row < displayLayers; ++row)
+                        {
+                            ImGui::PushID(row);
+                            const std::string& rowName = MyEngine::LayerMask::GetName(row);
+                            std::string rowLabel = rowName.empty() ? ("L" + std::to_string(row)) : rowName;
+                            ImGui::Text("%-8s", rowLabel.substr(0, 8).c_str());
+                            for (int col = row; col < displayLayers; ++col)
+                            {
+                                ImGui::SameLine(80.0f + col * 22.0f);
+                                ImGui::PushID(col);
+                                bool canCollide = MyEngine::CollisionMatrix::CanCollide(row, col);
+                                if (ImGui::Checkbox("##cm", &canCollide))
+                                    MyEngine::CollisionMatrix::SetCollision(row, col, canCollide);
+                                ImGui::SetItemTooltip("%s <-> %s", rowLabel.c_str(),
+                                    MyEngine::LayerMask::GetName(col).c_str());
+                                ImGui::PopID();
+                            }
+                            ImGui::PopID();
+                        }
+
+                        ImGui::Spacing();
+                        if (ImGui::Button("Reset Matrix"))
+                            MyEngine::CollisionMatrix::Reset();
+                        ImGui::SetItemTooltip("Re-enable all layer pairs");
+                    }
                 }
                 ImGui::End();
             }

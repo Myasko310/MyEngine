@@ -42,6 +42,11 @@ namespace MyEngine
         const glm::vec3& GetBoundingCenter() const { return m_BoundingCenter; }
         float GetBoundingRadius() const { return m_BoundingRadius; }
 
+        // CPU-side vertex/index data retained for collision mesh building and
+        // other tools that need raw geometry after GPU upload.
+        const std::vector<Vertex>&       GetVertices() const { return m_Vertices; }
+        const std::vector<unsigned int>& GetIndices()  const { return m_Indices; }
+
         Mesh(const Mesh&) = delete;
         Mesh& operator=(const Mesh&) = delete;
 
@@ -60,6 +65,8 @@ namespace MyEngine
         unsigned int m_IndexCount = 0;
         glm::vec3 m_BoundingCenter{0.0f};
         float m_BoundingRadius{0.0f};
+        std::vector<Vertex>       m_Vertices;
+        std::vector<unsigned int> m_Indices;
 
     private:
         void SetupMesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices);

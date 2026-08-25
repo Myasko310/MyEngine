@@ -18,7 +18,11 @@ namespace MyEngine
         m_VAO = other.m_VAO;
         m_VBO = other.m_VBO;
         m_EBO = other.m_EBO;
-        m_IndexCount = other.m_IndexCount;
+        m_IndexCount     = other.m_IndexCount;
+        m_BoundingCenter = other.m_BoundingCenter;
+        m_BoundingRadius = other.m_BoundingRadius;
+        m_Vertices       = std::move(other.m_Vertices);
+        m_Indices        = std::move(other.m_Indices);
 
         other.m_VAO = 0;
         other.m_VBO = 0;
@@ -35,7 +39,11 @@ namespace MyEngine
             m_VAO = other.m_VAO;
             m_VBO = other.m_VBO;
             m_EBO = other.m_EBO;
-            m_IndexCount = other.m_IndexCount;
+            m_IndexCount     = other.m_IndexCount;
+            m_BoundingCenter = other.m_BoundingCenter;
+            m_BoundingRadius = other.m_BoundingRadius;
+            m_Vertices       = std::move(other.m_Vertices);
+            m_Indices        = std::move(other.m_Indices);
 
             other.m_VAO = 0;
             other.m_VBO = 0;
@@ -48,6 +56,10 @@ namespace MyEngine
 
     void Mesh::SetupMesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices)
     {
+        // Retain CPU copies for collision mesh building and editor tools.
+        m_Vertices = vertices;
+        m_Indices  = indices;
+
         // Compute bounding sphere from vertex positions (AABB-based)
         if (!vertices.empty())
         {

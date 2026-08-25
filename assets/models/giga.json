@@ -1,0 +1,1210 @@
+{
+    "sceneVersion": 3,
+    "layerNames": [
+        "Default",
+        "TransparentFX",
+        "IgnoreRaycast",
+        "Water",
+        "UI",
+        "Layer 5",
+        "Layer 6",
+        "Layer 7",
+        "Layer 8",
+        "Layer 9",
+        "Layer 10",
+        "Layer 11",
+        "Layer 12",
+        "Layer 13",
+        "Layer 14",
+        "Layer 15",
+        "Layer 16",
+        "Layer 17",
+        "Layer 18",
+        "Layer 19",
+        "Layer 20",
+        "Layer 21",
+        "Layer 22",
+        "Layer 23",
+        "Layer 24",
+        "Layer 25",
+        "Layer 26",
+        "Layer 27",
+        "Layer 28",
+        "Layer 29",
+        "Layer 30",
+        "Layer 31"
+    ],
+    "entities": [
+        {
+            "id": 1,
+            "name": "Camera",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -5.831550598144531,
+                    1.8740882873535156,
+                    7.695416450500488
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "Camera": {
+                "isPrimary": true,
+                "fov": 60.0,
+                "nearPlane": 0.10000000149011612,
+                "farPlane": 1000.0
+            },
+            "AudioListener": {
+                "isPrimary": true,
+                "gain": 1.0
+            }
+        },
+        {
+            "id": 2,
+            "name": "AnimatedCharacter",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    3.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "assets/models/character_animated.gltf",
+                "isSkinned": true
+            },
+            "AnimationComponent": {
+                "activeClipIndex": 0,
+                "time": 0.29906338453292847,
+                "playbackSpeed": 1.0,
+                "playing": true,
+                "looping": true
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit_skinned.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "CapsuleCollider": {
+                "pointA": [
+                    0.0,
+                    0.06999999284744263,
+                    0.0
+                ],
+                "pointB": [
+                    0.0,
+                    1.75,
+                    0.0
+                ],
+                "radius": 0.05000000074505806,
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "radius": 1.149999976158142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 3,
+            "name": "Ground",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_plane",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false
+            },
+            "PlaneCollider": {
+                "normal": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "distance": 0.0,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 4,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -24.69827651977539,
+                    0.7204999923706055,
+                    -2.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.6000000238418579,
+                    0.30000001192092896,
+                    0.4000000059604645
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            },
+            "Script": {
+                "scriptPath": "assets/scripts/spin_and_bob.lua",
+                "enabled": true,
+                "autoStart": true
+            }
+        },
+        {
+            "id": 5,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -1.0,
+                    0.5,
+                    -3.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.7000000476837158,
+                    0.4000000059604645,
+                    0.4000000059604645
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 6,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    0.5,
+                    -4.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.800000011920929,
+                    0.5,
+                    0.4000000059604645
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 7,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    1.0,
+                    0.5,
+                    -5.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.9000000357627869,
+                    0.6000000238418579,
+                    0.4000000059604645
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 8,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    2.0,
+                    0.5,
+                    -6.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    0.7000000476837158,
+                    0.4000000059604645
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 9,
+            "name": "Player",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -0.7517369389533997,
+                    0.6070189476013184,
+                    0.25809353590011597
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.5,
+                    0.8999999761581421,
+                    0.5
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_sphere",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.20000000298023224,
+                    0.6000000238418579,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    -9.8100004196167,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": true,
+                "gravityScale": 1.0,
+                "isKinematic": false,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false
+            },
+            "CapsuleCollider": {
+                "pointA": [
+                    0.0,
+                    -0.4000000059604645,
+                    0.0
+                ],
+                "pointB": [
+                    0.0,
+                    0.4000000059604645,
+                    0.0
+                ],
+                "radius": 0.5,
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 10,
+            "name": "TriggerZone",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    1.7997137308120728,
+                    0.560271143913269,
+                    4.4248127937316895
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.1206151247024536,
+                    1.1206151247024536,
+                    1.1206151247024536
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    0.8500000238418579,
+                    0.20000000298023224
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "isTrigger": true
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 11,
+            "name": "SwingingBall",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    2.5,
+                    3.0,
+                    2.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.4000000059604645,
+                    0.4000000059604645,
+                    0.4000000059604645
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_sphere",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.8999999761581421,
+                    0.30000001192092896,
+                    0.30000001192092896
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    -1.7376100957627732e-43,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    3.363116314379561e-44,
+                    -9.8100004196167,
+                    0.0
+                ],
+                "mass": 0.5,
+                "drag": 0.10000000149011612,
+                "bounciness": 0.0,
+                "useGravity": true,
+                "gravityScale": 1.0,
+                "isKinematic": false,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            },
+            "Joint": {
+                "type": 2,
+                "connectedEntityID": 0,
+                "anchor": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "connectedAnchor": [
+                    2.5,
+                    4.0,
+                    2.0
+                ],
+                "restLength": 1.0,
+                "stiffness": 50.0,
+                "damping": 2.0,
+                "hingeDistance": 1.0,
+                "enabled": true
+            }
+        },
+        {
+            "id": 12,
+            "name": "PbrDemoSphere",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -3.0,
+                    1.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_sphere",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.800000011920929,
+                    0.5,
+                    0.20000000298023224
+                ],
+                "shininess": 122.0,
+                "useTexture": true,
+                "texturePath": "assets/textures/brickwall.png",
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            },
+            "ParticleEmitter": {
+                "maxParticles": 200,
+                "spawnRate": 150.0,
+                "emitting": true,
+                "shape": 0,
+                "shapeRadius": 0.5,
+                "shapeExtents": [
+                    0.5,
+                    0.5,
+                    0.5
+                ],
+                "shapeHeight": 1.0,
+                "colorStart": [
+                    1.0,
+                    0.8999999761581421,
+                    0.30000001192092896,
+                    1.0
+                ],
+                "colorEnd": [
+                    1.0,
+                    0.20000000298023224,
+                    0.0,
+                    0.0
+                ],
+                "sizeStart": 0.07999999821186066,
+                "sizeEnd": 0.0,
+                "lifetime": 0.6000000238418579,
+                "lifetimeVariance": 0.20000000298023224,
+                "emitDirection": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "emitSpeed": 8.0,
+                "emitSpeedVariance": 3.0,
+                "spreadAngle": 65.0,
+                "gravity": [
+                    0.0,
+                    -8.0,
+                    0.0
+                ]
+            }
+        },
+        {
+            "id": 13,
+            "name": "DirectionalLight",
+            "tag": "",
+            "layer": 0,
+            "Light": {
+                "type": 0,
+                "color": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "intensity": 1.0,
+                "direction": [
+                    -0.33296409249305725,
+                    -0.3420201241970062,
+                    -0.8787247538566589
+                ],
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "range": 10.0,
+                "innerCone": 12.5,
+                "outerCone": 17.5,
+                "shadowBias": 0.004999999888241291,
+                "castShadows": true
+            }
+        },
+        {
+            "id": 14,
+            "name": "Reze",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    1.526474118232727,
+                    0.05938749015331268,
+                    1.6634970903396606
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.010000050067901611,
+                    0.010000050067901611,
+                    0.010000050067901611
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "assets/models/Reze.glb",
+                "isSkinned": true
+            },
+            "AnimationComponent": {
+                "activeClipIndex": 5,
+                "time": 0.49207639694213867,
+                "playbackSpeed": 1.0,
+                "playing": true,
+                "looping": true
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "materialPath": "assets/materials/Reze/Reze_Material_1.material.json",
+                "shaderVertexPath": "shaders/lit_skinned.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "CapsuleCollider": {
+                "pointA": [
+                    0.48708975315093994,
+                    20.439476013183594,
+                    0.8099688291549683
+                ],
+                "pointB": [
+                    0.48708975315093994,
+                    127.81128692626953,
+                    0.8099688291549683
+                ],
+                "radius": 16.8001766204834,
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0010019540786743164,
+                    0.8350000381469727,
+                    7.450580596923828e-9
+                ],
+                "radius": 1.0759518146514893,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 15,
+            "name": "Point Light",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    1.2907536029815674,
+                    0.5343863368034363,
+                    -2.845700740814209
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "Light": {
+                "type": 1,
+                "color": [
+                    0.1983979344367981,
+                    0.0,
+                    0.9805447459220886
+                ],
+                "intensity": 3.700000047683716,
+                "direction": [
+                    -0.20000000298023224,
+                    -1.0,
+                    -0.30000001192092896
+                ],
+                "position": [
+                    1.2907536029815674,
+                    0.5343863368034363,
+                    -2.845700740814209
+                ],
+                "range": 10.0,
+                "innerCone": 12.5,
+                "outerCone": 17.5,
+                "shadowBias": 0.004999999888241291,
+                "castShadows": true
+            }
+        },
+        {
+            "id": 16,
+            "name": "Bondrewd Rigged OBJ",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -3.5411531925201416,
+                    1.9573287963867188,
+                    -6.16497802734375
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "assets/models/Bondrewd Rigged OBJ.obj",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "materialPath": "assets/materials/Bondrewd Rigged OBJ/Bondrewd Rigged OBJ_Material_1.material.json",
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 1.3327749967575073,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 17,
+            "name": "Meshy_AI_Bondrewd_Rigged_biped_Character_output",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -1.1090261936187744,
+                    0.1689758598804474,
+                    1.8633161783218384
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.010000050067901611,
+                    0.010000050067901611,
+                    0.010000050067901611
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "assets/models/Meshy_AI_Bondrewd_Rigged_biped_Character_output.glb",
+                "isSkinned": true
+            },
+            "AnimationComponent": {
+                "activeClipIndex": 1,
+                "time": 7.990426063537598,
+                "playbackSpeed": 1.0,
+                "playing": true,
+                "looping": true
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "materialPath": "assets/materials/Meshy_AI_Bondrewd_Rigged_biped_Character_output/Meshy_AI_Bondrewd_Rigged_biped_Character_output_Material_1.material.json",
+                "shaderVertexPath": "shaders/lit_skinned.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "CapsuleCollider": {
+                "pointA": [
+                    0.4832771420478821,
+                    18.41787338256836,
+                    1.296644926071167
+                ],
+                "pointB": [
+                    0.4832771420478821,
+                    133.62106323242188,
+                    1.296644926071167
+                ],
+                "radius": 14.505016326904297,
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    -0.000568777322769165,
+                    0.8500000834465027,
+                    0.0008401870727539063
+                ],
+                "radius": 1.1328589916229248,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 18,
+            "name": "Meshy_AI_Yoko_Littner_Rigged_biped_Character_output",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -3.10693359375,
+                    0.03710939362645149,
+                    2.8677217960357666
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.009360000491142273,
+                    0.009360000491142273,
+                    0.009360000491142273
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "assets/models/Meshy_AI_Yoko_Littner_Rigged_biped_Character_output.glb",
+                "isSkinned": true
+            },
+            "AnimationComponent": {
+                "activeClipIndex": 1,
+                "time": 2.8687963485717773,
+                "playbackSpeed": 1.0,
+                "playing": true,
+                "looping": true
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "materialPath": "assets/materials/Meshy_AI_Yoko_Littner_Rigged_biped_Character_output/Meshy_AI_Yoko_Littner_Rigged_biped_Character_output_Material_1.material.json",
+                "shaderVertexPath": "shaders/lit_skinned.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "CapsuleCollider": {
+                "pointA": [
+                    1.1607664823532104,
+                    17.942852020263672,
+                    3.457561492919922
+                ],
+                "pointB": [
+                    1.1607664823532104,
+                    121.37406921386719,
+                    3.457561492919922
+                ],
+                "radius": 14.80030345916748,
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.014849990606307983,
+                    0.824999988079071,
+                    -7.450580596923828e-9
+                ],
+                "radius": 0.9041162729263306,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 19,
+            "name": "Meshy_AI_rias_gremory_rigged_biped_Animation_Walking_withSkin",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -0.6102905869483948,
+                    0.03842944651842117,
+                    -3.2296142578125
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.030000030994415283,
+                    0.030000030994415283,
+                    0.030000030994415283
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "assets/models/Meshy_AI_rias_gremory_rigged_biped_Animation_Walking_withSkin.glb",
+                "isSkinned": true
+            },
+            "AnimationComponent": {
+                "activeClipIndex": 1,
+                "time": 8.025778770446777,
+                "playbackSpeed": 1.0,
+                "playing": true,
+                "looping": true
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "materialPath": "assets/materials/Meshy_AI_rias_gremory_rigged_biped_Animation_Walking_withSkin/Meshy_AI_rias_gremory_rigged_biped_Animation_Walking_withSkin_Material_1.material.json",
+                "shaderVertexPath": "shaders/lit_skinned.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "CapsuleCollider": {
+                "pointA": [
+                    0.5208641290664673,
+                    16.56195068359375,
+                    6.252447128295898
+                ],
+                "pointB": [
+                    0.5208641290664673,
+                    127.59919738769531,
+                    6.252447128295898
+                ],
+                "radius": 15.966462135314941,
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0011423826217651367,
+                    0.8499999642372131,
+                    0.0003557130694389343
+                ],
+                "radius": 1.0760902166366577,
+                "isTrigger": false
+            }
+        }
+    ],
+    "globalScripts": [
+        {
+            "order": 0,
+            "scriptPath": "",
+            "enabled": true,
+            "autoStart": true
+        }
+    ]
+}

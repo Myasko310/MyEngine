@@ -222,6 +222,20 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     static std::shared_ptr<MyEngine::Shader> depthSkinnedShader = nullptr;
     static std::shared_ptr<MyEngine::Shader> pointDepthShader = nullptr;
     static MyEngine::IBLProbe                s_IBLProbe;
+    static const std::array<std::string, MAX_ANIMATION_BONES> boneMatrixUniformNames = []()
+    {
+        std::array<std::string, MAX_ANIMATION_BONES> names{};
+        for (int i = 0; i < MAX_ANIMATION_BONES; ++i)
+            names[i] = "u_BoneMatrices[" + std::to_string(i) + "]";
+        return names;
+    }();
+    static const std::array<std::string, 6> pointShadowMatrixUniformNames = []()
+    {
+        std::array<std::string, 6> names{};
+        for (int i = 0; i < 6; ++i)
+            names[i] = "u_ShadowMatrices[" + std::to_string(i) + "]";
+        return names;
+    }();
     static bool initialized = false;
 
     // Bake IBL if a new cubemap was requested via InitIBL()
@@ -269,12 +283,62 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
     constexpr int kMaxPointLights = 4;
     constexpr int kMaxSpotLights = 4;
+    static const std::array<std::string, kMaxPointLights> pointLightPosUniformNames = {
+        "u_PointLightPos[0]", "u_PointLightPos[1]", "u_PointLightPos[2]", "u_PointLightPos[3]"
+    };
+    static const std::array<std::string, kMaxPointLights> pointLightColorUniformNames = {
+        "u_PointLightColor[0]", "u_PointLightColor[1]", "u_PointLightColor[2]", "u_PointLightColor[3]"
+    };
+    static const std::array<std::string, kMaxPointLights> pointLightRangeUniformNames = {
+        "u_PointLightRange[0]", "u_PointLightRange[1]", "u_PointLightRange[2]", "u_PointLightRange[3]"
+    };
+    static const std::array<std::string, kMaxPointLights> pointLightCastShadowUniformNames = {
+        "u_PointLightCastShadows[0]", "u_PointLightCastShadows[1]", "u_PointLightCastShadows[2]", "u_PointLightCastShadows[3]"
+    };
+    static const std::array<std::string, kMaxPointLights> pointLightShadowFarUniformNames = {
+        "u_PointShadowFarPlane[0]", "u_PointShadowFarPlane[1]", "u_PointShadowFarPlane[2]", "u_PointShadowFarPlane[3]"
+    };
+    static const std::array<std::string, kMaxPointLights> pointLightShadowBiasUniformNames = {
+        "u_PointShadowBias[0]", "u_PointShadowBias[1]", "u_PointShadowBias[2]", "u_PointShadowBias[3]"
+    };
+    static const std::array<std::string, kMaxPointLights> pointLightShadowMapUniformNames = {
+        "u_PointShadowMap[0]", "u_PointShadowMap[1]", "u_PointShadowMap[2]", "u_PointShadowMap[3]"
+    };
+    static const std::array<std::string, kMaxSpotLights> spotLightPosUniformNames = {
+        "u_SpotLightPos[0]", "u_SpotLightPos[1]", "u_SpotLightPos[2]", "u_SpotLightPos[3]"
+    };
+    static const std::array<std::string, kMaxSpotLights> spotLightDirUniformNames = {
+        "u_SpotLightDir[0]", "u_SpotLightDir[1]", "u_SpotLightDir[2]", "u_SpotLightDir[3]"
+    };
+    static const std::array<std::string, kMaxSpotLights> spotLightColorUniformNames = {
+        "u_SpotLightColor[0]", "u_SpotLightColor[1]", "u_SpotLightColor[2]", "u_SpotLightColor[3]"
+    };
+    static const std::array<std::string, kMaxSpotLights> spotLightRangeUniformNames = {
+        "u_SpotLightRange[0]", "u_SpotLightRange[1]", "u_SpotLightRange[2]", "u_SpotLightRange[3]"
+    };
+    static const std::array<std::string, kMaxSpotLights> spotLightInnerCosUniformNames = {
+        "u_SpotLightInnerCos[0]", "u_SpotLightInnerCos[1]", "u_SpotLightInnerCos[2]", "u_SpotLightInnerCos[3]"
+    };
+    static const std::array<std::string, kMaxSpotLights> spotLightOuterCosUniformNames = {
+        "u_SpotLightOuterCos[0]", "u_SpotLightOuterCos[1]", "u_SpotLightOuterCos[2]", "u_SpotLightOuterCos[3]"
+    };
+    static const std::array<std::string, MAX_CASCADES> cascadeLightSpaceUniformNames = {
+        "u_CascadeLightSpace[0]", "u_CascadeLightSpace[1]", "u_CascadeLightSpace[2]", "u_CascadeLightSpace[3]"
+    };
+    static const std::array<std::string, MAX_CASCADES> cascadeSplitFarUniformNames = {
+        "u_CascadeSplitFar[0]", "u_CascadeSplitFar[1]", "u_CascadeSplitFar[2]", "u_CascadeSplitFar[3]"
+    };
+    static const std::array<std::string, MAX_CASCADES> cascadeShadowMapUniformNames = {
+        "u_CascadeShadowMap[0]", "u_CascadeShadowMap[1]", "u_CascadeShadowMap[2]", "u_CascadeShadowMap[3]"
+    };
 
     struct PointLightData { glm::vec3 pos; glm::vec3 color; float range; float shadowBias; bool castShadows; };
     struct SpotLightData { glm::vec3 pos; glm::vec3 dir; glm::vec3 color; float range; float innerCos; float outerCos; };
 
     std::vector<PointLightData> pointLights;
+    pointLights.reserve(kMaxPointLights);
     std::vector<SpotLightData> spotLights;
+    spotLights.reserve(kMaxSpotLights);
     std::array<int, kMaxPointLights> pointShadowMapIndices;
     pointShadowMapIndices.fill(-1);
     std::array<float, kMaxPointLights> pointShadowFarPlanes;
@@ -538,7 +602,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                     auto& anim = entity->GetComponent<AnimationComponent>();
                     int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
                     for (int b = 0; b < boneCount; ++b)
-                        shaderToUse->SetMat4("u_BoneMatrices[" + std::to_string(b) + "]", anim.boneMatrices[b]);
+                        shaderToUse->SetMat4(boneMatrixUniformNames[b], anim.boneMatrices[b]);
                 }
 
                 meshComponent.mesh->Draw();
@@ -582,7 +646,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             pointDepthShader->Use();
             for (int face = 0; face < 6; ++face)
             {
-                pointDepthShader->SetMat4("u_ShadowMatrices[" + std::to_string(face) + "]", shadowTransforms[face]);
+                pointDepthShader->SetMat4(pointShadowMatrixUniformNames[face], shadowTransforms[face]);
             }
             pointDepthShader->SetVec3("u_LightPos", pointLights[i].pos);
             pointDepthShader->SetFloat("u_FarPlane", pointFarPlane);
@@ -759,7 +823,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
             for (int b = 0; b < boneCount; ++b)
             {
-                activeShader->SetMat4("u_BoneMatrices[" + std::to_string(b) + "]", anim.boneMatrices[b]);
+                activeShader->SetMat4(boneMatrixUniformNames[b], anim.boneMatrices[b]);
             }
         }
 
@@ -852,22 +916,21 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         activeShader->SetInt("u_NumPointLights", static_cast<int>(pointLights.size()));
         for (size_t i = 0; i < pointLights.size(); ++i)
         {
-            std::string idx = std::to_string(i);
-            activeShader->SetVec3("u_PointLightPos[" + idx + "]", pointLights[i].pos);
-            activeShader->SetVec3("u_PointLightColor[" + idx + "]", pointLights[i].color);
-            activeShader->SetFloat("u_PointLightRange[" + idx + "]", pointLights[i].range);
-            activeShader->SetBool("u_PointLightCastShadows[" + idx + "]", pointShadowMapIndices[i] >= 0);
-            activeShader->SetFloat("u_PointShadowFarPlane[" + idx + "]", pointShadowFarPlanes[i]);
+            activeShader->SetVec3(pointLightPosUniformNames[i], pointLights[i].pos);
+            activeShader->SetVec3(pointLightColorUniformNames[i], pointLights[i].color);
+            activeShader->SetFloat(pointLightRangeUniformNames[i], pointLights[i].range);
+            activeShader->SetBool(pointLightCastShadowUniformNames[i], pointShadowMapIndices[i] >= 0);
+            activeShader->SetFloat(pointLightShadowFarUniformNames[i], pointShadowFarPlanes[i]);
 
             // Per-light bias from LightComponent, scaled by global point-shadow
             // bias control. Global 0.005f is neutral (x1.0 scale).
             float globalPointBias = m_Impl ? m_Impl->pointShadowBias : 0.005f;
             float biasScale = globalPointBias / 0.005f;
             float effectivePointBias = std::max(pointLights[i].shadowBias * biasScale, 0.0001f);
-            activeShader->SetFloat("u_PointShadowBias[" + idx + "]", effectivePointBias);
+            activeShader->SetFloat(pointLightShadowBiasUniformNames[i], effectivePointBias);
 
             int pointShadowUnit = std::max(nextTextureUnit, 1);
-            activeShader->SetInt("u_PointShadowMap[" + idx + "]", pointShadowUnit);
+            activeShader->SetInt(pointLightShadowMapUniformNames[i], pointShadowUnit);
             if (pointShadowMapIndices[i] >= 0 && m_Impl && m_Impl->pointShadowsEnabled)
             {
                 m_Impl->pointShadowMaps[pointShadowMapIndices[i]].BindForReading(pointShadowUnit);
@@ -879,13 +942,12 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         activeShader->SetInt("u_NumSpotLights", static_cast<int>(spotLights.size()));
         for (size_t i = 0; i < spotLights.size(); ++i)
         {
-            std::string idx = std::to_string(i);
-            activeShader->SetVec3("u_SpotLightPos[" + idx + "]", spotLights[i].pos);
-            activeShader->SetVec3("u_SpotLightDir[" + idx + "]", spotLights[i].dir);
-            activeShader->SetVec3("u_SpotLightColor[" + idx + "]", spotLights[i].color);
-            activeShader->SetFloat("u_SpotLightRange[" + idx + "]", spotLights[i].range);
-            activeShader->SetFloat("u_SpotLightInnerCos[" + idx + "]", spotLights[i].innerCos);
-            activeShader->SetFloat("u_SpotLightOuterCos[" + idx + "]", spotLights[i].outerCos);
+            activeShader->SetVec3(spotLightPosUniformNames[i], spotLights[i].pos);
+            activeShader->SetVec3(spotLightDirUniformNames[i], spotLights[i].dir);
+            activeShader->SetVec3(spotLightColorUniformNames[i], spotLights[i].color);
+            activeShader->SetFloat(spotLightRangeUniformNames[i], spotLights[i].range);
+            activeShader->SetFloat(spotLightInnerCosUniformNames[i], spotLights[i].innerCos);
+            activeShader->SetFloat(spotLightOuterCosUniformNames[i], spotLights[i].outerCos);
         }
 
         // CSM shadow uniforms
@@ -896,12 +958,11 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             activeShader->SetFloat("u_ShadowBias", m_Impl->shadowBias);
             for (int ci = 0; ci < numCascades; ++ci)
             {
-                std::string idx = std::to_string(ci);
-                activeShader->SetMat4("u_CascadeLightSpace[" + idx + "]", cascadeLightSpaceMatrices[ci]);
-                activeShader->SetFloat("u_CascadeSplitFar[" + idx + "]", cascadeSplitFar[ci]);
+                activeShader->SetMat4(cascadeLightSpaceUniformNames[ci], cascadeLightSpaceMatrices[ci]);
+                activeShader->SetFloat(cascadeSplitFarUniformNames[ci], cascadeSplitFar[ci]);
                 int shadowUnit = nextTextureUnit + ci;
                 m_Impl->cascadeMaps[ci].BindForReading(shadowUnit);
-                activeShader->SetInt("u_CascadeShadowMap[" + idx + "]", shadowUnit);
+                activeShader->SetInt(cascadeShadowMapUniformNames[ci], shadowUnit);
             }
             nextTextureUnit += numCascades;
         }

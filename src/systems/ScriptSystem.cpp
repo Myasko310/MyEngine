@@ -5,6 +5,7 @@
 #include "components/RigidbodyComponent.h"
 #include "components/ScriptComponent.h"
 #include "components/TransformComponent.h"
+#include "components/AnimationComponent.h"
 #include "core/Input.h"
 #include "ecs/Entity.h"
 #include "ecs/Scene.h"
@@ -42,15 +43,15 @@ namespace MyEngine
 			valueStartIndex = 1;
 
 			const int argCount = lua_gettop(L);
-			if (argCount == valueArgumentCount + 1 && lua_isinteger(L, 1))
-			{
-				lua_Integer requestedID = lua_tointeger(L, 1);
-				if (requestedID > 0)
+				if (argCount == valueArgumentCount + 1 && lua_isinteger(L, 1) && boundEntityID == 0)
 				{
-					targetEntityID = static_cast<uint32_t>(requestedID);
-					valueStartIndex = 2;
+					lua_Integer requestedID = lua_tointeger(L, 1);
+					if (requestedID > 0)
+					{
+						targetEntityID = static_cast<uint32_t>(requestedID);
+						valueStartIndex = 2;
+					}
 				}
-			}
 
 			if (argCount < valueArgumentCount)
 				return false;
@@ -103,6 +104,11 @@ engine.get_gravity_scale = engine_get_gravity_scale
 engine.set_gravity_scale = engine_set_gravity_scale
 engine.get_kinematic = engine_get_kinematic
 engine.set_kinematic = engine_set_kinematic
+engine.has_animation = engine_has_animation
+engine.get_animation_clip_count = engine_get_animation_clip_count
+engine.get_animation_clip_name = engine_get_animation_clip_name
+engine.get_active_animation_clip = engine_get_active_animation_clip
+engine.play_animation_clip = engine_play_animation_clip
 engine.has_light = engine_has_light
 engine.get_light_color = engine_get_light_color
 engine.set_light_color = engine_set_light_color
@@ -128,6 +134,11 @@ self.get_gravity_scale = engine_get_gravity_scale
 self.set_gravity_scale = engine_set_gravity_scale
 self.get_kinematic = engine_get_kinematic
 self.set_kinematic = engine_set_kinematic
+self.has_animation = engine_has_animation
+self.get_animation_clip_count = engine_get_animation_clip_count
+self.get_animation_clip_name = engine_get_animation_clip_name
+self.get_active_animation_clip = engine_get_active_animation_clip
+self.play_animation_clip = engine_play_animation_clip
 self.has_light = engine_has_light
 self.get_light_color = engine_get_light_color
 self.set_light_color = engine_set_light_color
@@ -171,6 +182,11 @@ engine.get_gravity_scale = engine_get_gravity_scale
 engine.set_gravity_scale = engine_set_gravity_scale
 engine.get_kinematic = engine_get_kinematic
 engine.set_kinematic = engine_set_kinematic
+engine.has_animation = engine_has_animation
+engine.get_animation_clip_count = engine_get_animation_clip_count
+engine.get_animation_clip_name = engine_get_animation_clip_name
+engine.get_active_animation_clip = engine_get_active_animation_clip
+engine.play_animation_clip = engine_play_animation_clip
 engine.has_light = engine_has_light
 engine.get_light_color = engine_get_light_color
 engine.set_light_color = engine_set_light_color
@@ -192,6 +208,11 @@ scene.remove_component = engine_remove_component
 scene.get_position = engine_get_position_of
 scene.set_position = engine_set_position_of
 scene.translate = engine_translate_of
+scene.has_animation = engine_has_animation
+scene.get_animation_clip_count = engine_get_animation_clip_count
+scene.get_animation_clip_name = engine_get_animation_clip_name
+scene.get_active_animation_clip = engine_get_active_animation_clip
+scene.play_animation_clip = engine_play_animation_clip
 scene.log = engine_log
 )LUA";
 
@@ -741,6 +762,21 @@ scene.log = engine_log
 		lua_pushcfunction(L, &ScriptSystem::LuaSetKinematic);
 		lua_setglobal(L, "engine_set_kinematic");
 
+		lua_pushcfunction(L, &ScriptSystem::LuaHasAnimation);
+		lua_setglobal(L, "engine_has_animation");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetAnimationClipCount);
+		lua_setglobal(L, "engine_get_animation_clip_count");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetAnimationClipName);
+		lua_setglobal(L, "engine_get_animation_clip_name");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetActiveAnimationClip);
+		lua_setglobal(L, "engine_get_active_animation_clip");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaPlayAnimationClip);
+		lua_setglobal(L, "engine_play_animation_clip");
+
 		lua_pushcfunction(L, &ScriptSystem::LuaHasLight);
 		lua_setglobal(L, "engine_has_light");
 
@@ -883,6 +919,21 @@ scene.log = engine_log
 
 		lua_pushcfunction(L, &ScriptSystem::LuaSetKinematic);
 		lua_setglobal(L, "engine_set_kinematic");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaHasAnimation);
+		lua_setglobal(L, "engine_has_animation");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetAnimationClipCount);
+		lua_setglobal(L, "engine_get_animation_clip_count");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetAnimationClipName);
+		lua_setglobal(L, "engine_get_animation_clip_name");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetActiveAnimationClip);
+		lua_setglobal(L, "engine_get_active_animation_clip");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaPlayAnimationClip);
+		lua_setglobal(L, "engine_play_animation_clip");
 
 		lua_pushcfunction(L, &ScriptSystem::LuaHasLight);
 		lua_setglobal(L, "engine_has_light");
@@ -1596,6 +1647,130 @@ scene.log = engine_log
 
 		entity->GetComponent<RigidbodyComponent>().isKinematic = lua_toboolean(L, valueStartIndex) != 0;
 		return 0;
+	}
+
+	int ScriptSystem::LuaHasAnimation(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
+		const bool hasAnimation = entity && entity->HasComponent<AnimationComponent>() &&
+			entity->GetComponent<AnimationComponent>().clips &&
+			!entity->GetComponent<AnimationComponent>().clips->empty();
+		lua_pushboolean(L, hasAnimation ? 1 : 0);
+		return 1;
+	}
+
+	int ScriptSystem::LuaGetAnimationClipCount(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return luaL_error(L, "engine.get_animation_clip_count: script runtime context is unavailable");
+
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+			return luaL_error(L, "engine.get_animation_clip_count: invalid entity target or arguments");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
+		if (!entity || !entity->HasComponent<AnimationComponent>())
+			return luaL_error(L, "engine.get_animation_clip_count: entity %u has no Animation component", targetEntityID);
+
+		const auto& anim = entity->GetComponent<AnimationComponent>();
+		lua_pushinteger(L, static_cast<lua_Integer>(anim.clips ? anim.clips->size() : 0));
+		return 1;
+	}
+
+	int ScriptSystem::LuaGetAnimationClipName(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return luaL_error(L, "engine.get_animation_clip_name: script runtime context is unavailable");
+
+		uint32_t targetEntityID = 0;
+		int valueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 1, targetEntityID, valueStartIndex))
+			return luaL_error(L, "engine.get_animation_clip_name: expected (clipIndex) or (entityID, clipIndex)");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
+		if (!entity || !entity->HasComponent<AnimationComponent>())
+			return luaL_error(L, "engine.get_animation_clip_name: entity %u has no Animation component", targetEntityID);
+
+		const auto& anim = entity->GetComponent<AnimationComponent>();
+		if (!anim.clips)
+			return luaL_error(L, "engine.get_animation_clip_name: entity %u has no animation clips", targetEntityID);
+
+		int clipIndex = static_cast<int>(luaL_checkinteger(L, valueStartIndex));
+		if (clipIndex < 0 || clipIndex >= static_cast<int>(anim.clips->size()))
+			return luaL_error(L, "engine.get_animation_clip_name: clip index %d is out of range [0, %d)", clipIndex, static_cast<int>(anim.clips->size()));
+
+		lua_pushstring(L, (*anim.clips)[clipIndex].name.c_str());
+		return 1;
+	}
+
+	int ScriptSystem::LuaGetActiveAnimationClip(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return luaL_error(L, "engine.get_active_animation_clip: script runtime context is unavailable");
+
+		uint32_t targetEntityID = 0;
+		int ignoredValueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 0, targetEntityID, ignoredValueStartIndex))
+			return luaL_error(L, "engine.get_active_animation_clip: invalid entity target or arguments");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
+		if (!entity || !entity->HasComponent<AnimationComponent>())
+			return luaL_error(L, "engine.get_active_animation_clip: entity %u has no Animation component", targetEntityID);
+
+		lua_pushinteger(L, static_cast<lua_Integer>(entity->GetComponent<AnimationComponent>().activeClipIndex));
+		return 1;
+	}
+
+	int ScriptSystem::LuaPlayAnimationClip(lua_State* L)
+	{
+		auto* system = GetSystem(L);
+		if (!system || !system->m_CurrentScene)
+			return luaL_error(L, "engine.play_animation_clip: script runtime context is unavailable");
+
+		uint32_t targetEntityID = 0;
+		int valueStartIndex = 1;
+		if (!ResolveTargetEntity(L, *system->m_CurrentScene, GetBoundEntityID(L), 1, targetEntityID, valueStartIndex))
+			return luaL_error(L, "engine.play_animation_clip: expected (clipIndex [, blendDuration]) or (entityID, clipIndex [, blendDuration])");
+
+		Entity* entity = FindEntity(*system->m_CurrentScene, targetEntityID);
+		if (!entity || !entity->HasComponent<AnimationComponent>())
+			return luaL_error(L, "engine.play_animation_clip: entity %u has no Animation component", targetEntityID);
+
+		auto& anim = entity->GetComponent<AnimationComponent>();
+		if (!anim.clips || anim.clips->empty())
+			return luaL_error(L, "engine.play_animation_clip: entity %u has no animation clips", targetEntityID);
+
+		int clipIndex = static_cast<int>(luaL_checkinteger(L, valueStartIndex));
+		if (clipIndex < 0 || clipIndex >= static_cast<int>(anim.clips->size()))
+			return luaL_error(L, "engine.play_animation_clip: clip index %d is out of range [0, %d)", clipIndex, static_cast<int>(anim.clips->size()));
+
+		float blendDuration = 0.15f;
+		if (lua_gettop(L) >= valueStartIndex + 1 && lua_isnumber(L, valueStartIndex + 1))
+			blendDuration = static_cast<float>(lua_tonumber(L, valueStartIndex + 1));
+
+		anim.playing = true;
+		anim.TransitionTo(clipIndex, blendDuration);
+		lua_pushboolean(L, 1);
+		return 1;
 	}
 
 	int ScriptSystem::LuaHasLight(lua_State* L)

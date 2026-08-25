@@ -37,27 +37,50 @@ namespace MyEngine
 	static bool EvaluateTransitionCondition(
 		const AnimationStateMachine& stateMachine,
 		AnimationStateMachineComponent& stateMachineComponent,
-		const AnimationStateMachineCondition& condition)
+		const AnimationStateMachineCondition& condition,
+		std::string* outReason = nullptr)
 	{
 		int parameterIndex = stateMachine.FindParameterIndex(condition.parameterName);
 		if (parameterIndex < 0 || parameterIndex >= static_cast<int>(stateMachineComponent.parameterValues.size()))
+		{
+			if (outReason)
+				*outReason = "Missing parameter '" + condition.parameterName + "'";
 			return false;
+		}
 
 		const auto& parameter = stateMachine.parameters[parameterIndex];
 		auto& value = stateMachineComponent.parameterValues[parameterIndex];
 		switch (condition.op)
 		{
 		case AnimationStateMachineConditionOperator::IfTrue:
+			if (!value.boolValue && outReason)
+				*outReason = condition.parameterName + " must be true";
 			return value.boolValue;
 		case AnimationStateMachineConditionOperator::IfFalse:
+			if (value.boolValue && outReason)
+				*outReason = condition.parameterName + " must be false";
 			return !value.boolValue;
 		case AnimationStateMachineConditionOperator::Greater:
+			if (!(value.floatValue > condition.threshold) && outReason)
+				*outReason = condition.parameterName + " must be > " + std::to_string(condition.threshold);
 			return value.floatValue > condition.threshold;
 		case AnimationStateMachineConditionOperator::Less:
+			if (!(value.floatValue < condition.threshold) && outReason)
+				*outReason = condition.parameterName + " must be < " + std::to_string(condition.threshold);
 			return value.floatValue < condition.threshold;
 		case AnimationStateMachineConditionOperator::Trigger:
-			return parameter.type == AnimationStateMachineParameterType::Trigger && value.triggerValue;
+			if (parameter.type != AnimationStateMachineParameterType::Trigger)
+			{
+				if (outReason)
+					*outReason = condition.parameterName + " is not a trigger parameter";
+				return false;
+			}
+			if (!value.triggerValue && outReason)
+				*outReason = condition.parameterName + " trigger not armed";
+			return value.triggerValue;
 		default:
+			if (outReason)
+				*outReason = "Unknown condition";
 			return false;
 		}
 	}
@@ -68,10 +91,15 @@ namespace MyEngine
 		const AnimationStateMachineTransition& transition,
 		const AnimationComponent& anim,
 		const AnimationStateMachineState& currentState,
-		const AnimationClip* currentClip)
+		const AnimationClip* currentClip,
+		std::string* outReason = nullptr)
 	{
 		if (!stateMachine.IsValidStateIndex(transition.targetStateIndex))
+		{
+			if (outReason)
+				*outReason = "Target state index is invalid";
 			return false;
+		}
 
 		if (transition.requiresExitTime && currentClip)
 		{
@@ -80,14 +108,23 @@ namespace MyEngine
 			{
 				float normalizedTime = std::clamp(anim.time / durationSeconds, 0.0f, 1.0f);
 				if (normalizedTime < std::clamp(transition.exitTimeNormalized, 0.0f, 1.0f))
+				{
+					if (outReason)
+						*outReason = "Waiting for exit time " + std::to_string(transition.exitTimeNormalized);
 					return false;
+				}
 			}
 		}
 
 		for (const auto& condition : transition.conditions)
 		{
-			if (!EvaluateTransitionCondition(stateMachine, stateMachineComponent, condition))
+			std::string conditionReason;
+			if (!EvaluateTransitionCondition(stateMachine, stateMachineComponent, condition, &conditionReason))
+			{
+				if (outReason)
+					*outReason = conditionReason;
 				return false;
+			}
 		}
 
 		(void)currentState;
@@ -119,6 +156,10 @@ namespace MyEngine
 
 		EnsureStateMachineParameterDefaults(stateMachineComponent);
 		AnimationStateMachine& stateMachine = *stateMachineComponent.stateMachine;
+		stateMachineComponent.debugTransitionMessages.clear();
+		stateMachineComponent.debugLastBlockedReason.clear();
+		stateMachineComponent.debugLastBlockedTransitionIndex = -1;
+		stateMachineComponent.debugPendingStateName.clear();
 		if (stateMachine.states.empty())
 			return;
 
@@ -131,6 +172,7 @@ namespace MyEngine
 			return;
 
 		const AnimationStateMachineState& currentState = stateMachine.states[stateMachineComponent.currentStateIndex];
+		stateMachineComponent.debugCurrentStateName = currentState.name;
 		int resolvedClipIndex = stateMachine.ResolveClipIndex(*anim.clips, currentState);
 		if (resolvedClipIndex >= 0 && resolvedClipIndex != anim.activeClipIndex)
 		{
@@ -146,15 +188,35 @@ namespace MyEngine
 		}
 
 		if (stateMachineComponent.debugPauseTransitions)
+		{
+			stateMachineComponent.debugTransitionMessages.push_back("Transitions paused for debugging.");
 			return;
+		}
 
 		const AnimationClip* currentClip = (resolvedClipIndex >= 0 && resolvedClipIndex < static_cast<int>(anim.clips->size()))
 			? &(*anim.clips)[resolvedClipIndex]
 			: nullptr;
-		for (const auto& transition : currentState.transitions)
+		for (size_t transitionIndex = 0; transitionIndex < currentState.transitions.size(); ++transitionIndex)
 		{
-			if (!ShouldTakeTransition(stateMachine, stateMachineComponent, transition, anim, currentState, currentClip))
+			const auto& transition = currentState.transitions[transitionIndex];
+			std::string transitionReason;
+			bool canTransition = ShouldTakeTransition(stateMachine, stateMachineComponent, transition, anim, currentState, currentClip, &transitionReason);
+			std::string targetName = stateMachine.IsValidStateIndex(transition.targetStateIndex)
+				? stateMachine.states[transition.targetStateIndex].name
+				: ("State " + std::to_string(transition.targetStateIndex));
+			stateMachineComponent.debugTransitionMessages.push_back(
+				"[" + std::to_string(static_cast<int>(transitionIndex)) + "] -> " + targetName + ": " +
+				(canTransition ? std::string("ready") : transitionReason));
+
+			if (!canTransition)
+			{
+				if (stateMachineComponent.debugLastBlockedTransitionIndex < 0)
+				{
+					stateMachineComponent.debugLastBlockedTransitionIndex = static_cast<int>(transitionIndex);
+					stateMachineComponent.debugLastBlockedReason = transitionReason;
+				}
 				continue;
+			}
 
 			stateMachineComponent.pendingStateIndex = transition.targetStateIndex;
 			stateMachineComponent.currentStateIndex = transition.targetStateIndex;
@@ -163,6 +225,7 @@ namespace MyEngine
 			if (stateMachine.IsValidStateIndex(stateMachineComponent.currentStateIndex))
 			{
 				const auto& nextState = stateMachine.states[stateMachineComponent.currentStateIndex];
+				stateMachineComponent.debugPendingStateName = nextState.name;
 				int nextClipIndex = stateMachine.ResolveClipIndex(*anim.clips, nextState);
 				if (nextClipIndex >= 0)
 				{
@@ -174,6 +237,7 @@ namespace MyEngine
 				}
 			}
 
+			stateMachineComponent.debugSelectedTransitionIndex = static_cast<int>(transitionIndex);
 			ConsumeTriggeredParameters(stateMachine, stateMachineComponent, transition);
 			break;
 		}

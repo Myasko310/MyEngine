@@ -24,10 +24,23 @@ struct AnimationStateMachineComponent
 	bool autoInitialize = true;
 	bool debugPauseTransitions = false;
 
+	int debugSelectedTransitionIndex = -1;
+	int debugLastBlockedTransitionIndex = -1;
+	std::string debugLastBlockedReason;
+	std::string debugCurrentStateName;
+	std::string debugPendingStateName;
+	std::vector<std::string> debugTransitionMessages;
+
 	void ResetRuntimeState()
 	{
 		currentStateIndex = -1;
 		pendingStateIndex = -1;
 		currentStateTime = 0.0f;
+		debugSelectedTransitionIndex = -1;
+		debugLastBlockedTransitionIndex = -1;
+		debugLastBlockedReason.clear();
+		debugCurrentStateName.clear();
+		debugPendingStateName.clear();
+		debugTransitionMessages.clear();
 	}
 	};

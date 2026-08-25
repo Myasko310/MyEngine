@@ -85,19 +85,6 @@ namespace MyEngine
 		std::vector<glm::vec3> positions;
 		positions.reserve(bones.size());
 
-		for (size_t i = 0; i < bones.size(); ++i)
-		{
-			const auto& bone = bones[i];
-			glm::mat4 parent = (bone.parentIndex >= 0 && bone.parentIndex < static_cast<int>(globalBind.size()))
-				? globalBind[bone.parentIndex]
-				: glm::mat4(1.0f);
-			globalBind[i] = parent * bone.localBindTransform;
-			positions.push_back(glm::vec3(globalBind[i][3]));
-		}
-
-		if (positions.size() < 3)
-			return false;
-
 		auto quantile = [](std::vector<float>& values, float t) -> float
 		{
 			if (values.empty())
@@ -111,44 +98,127 @@ namespace MyEngine
 			return values[lo] * (1.0f - f) + values[hi] * f;
 		};
 
-		std::vector<float> xs, ys, zs;
-		xs.reserve(positions.size());
-		ys.reserve(positions.size());
-		zs.reserve(positions.size());
-		for (const auto& p : positions)
+		auto toLower = [](std::string value)
 		{
+			std::transform(value.begin(), value.end(), value.begin(),
+				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return value;
+		};
+
+		auto nameContainsAny = [](const std::string& name, const std::initializer_list<const char*> patterns)
+		{
+			for (const char* pattern : patterns)
+			{
+				if (name.find(pattern) != std::string::npos)
+					return true;
+			}
+			return false;
+		};
+
+		std::vector<float> xs, ys, zs;
+		std::vector<glm::vec3> torsoPoints;
+		std::vector<glm::vec3> lowerBodyPoints;
+		std::vector<float> namedFootHeights;
+		std::vector<float> namedHeadHeights;
+		xs.reserve(bones.size());
+		ys.reserve(bones.size());
+		zs.reserve(bones.size());
+
+		for (size_t i = 0; i < bones.size(); ++i)
+		{
+			const auto& bone = bones[i];
+			glm::mat4 parent = (bone.parentIndex >= 0 && bone.parentIndex < static_cast<int>(globalBind.size()))
+				? globalBind[bone.parentIndex]
+				: glm::mat4(1.0f);
+			globalBind[i] = parent * bone.localBindTransform;
+			glm::vec3 p = glm::vec3(globalBind[i][3]);
+			positions.push_back(p);
 			xs.push_back(p.x);
 			ys.push_back(p.y);
 			zs.push_back(p.z);
+
+			std::string boneName = toLower(bone.name);
+			if (nameContainsAny(boneName, { "hip", "pelvis", "spine", "chest", "torso", "neck", "thigh", "leg", "calf", "shin" }) &&
+				!nameContainsAny(boneName, { "arm", "hand", "finger", "thumb", "shoulder", "toe" }))
+			{
+				torsoPoints.push_back(p);
+			}
+			if (nameContainsAny(boneName, { "hip", "pelvis", "thigh", "leg", "calf", "shin", "knee", "ankle", "foot" }) &&
+				!nameContainsAny(boneName, { "arm", "hand", "finger", "thumb" }))
+			{
+				lowerBodyPoints.push_back(p);
+			}
+			if (nameContainsAny(boneName, { "foot", "ankle", "toe" }))
+				namedFootHeights.push_back(p.y);
+			if (nameContainsAny(boneName, { "head", "neck" }))
+				namedHeadHeights.push_back(p.y);
 		}
 
-		float centerX = quantile(xs, 0.5f);
-		float centerZ = quantile(zs, 0.5f);
-		float yMin = quantile(ys, 0.01f);
-		float yMax = quantile(ys, 0.90f);
+		if (positions.size() < 3)
+			return false;
+
+		float yMin = !namedFootHeights.empty() ? quantile(namedFootHeights, 0.10f) : quantile(ys, 0.03f);
+		float yMax = !namedHeadHeights.empty() ? quantile(namedHeadHeights, 0.90f) : quantile(ys, 0.88f);
 		if (yMax - yMin < 0.1f)
 		{
 			yMin = quantile(ys, 0.0f);
 			yMax = quantile(ys, 1.0f);
 		}
 
+		const std::vector<glm::vec3>& centerSamples = !lowerBodyPoints.empty() ? lowerBodyPoints : (!torsoPoints.empty() ? torsoPoints : positions);
+		std::vector<float> centerXs;
+		std::vector<float> centerZs;
+		centerXs.reserve(centerSamples.size());
+		centerZs.reserve(centerSamples.size());
+		for (const auto& p : centerSamples)
+		{
+			centerXs.push_back(p.x);
+			centerZs.push_back(p.z);
+		}
+		float centerX = quantile(centerXs, 0.5f);
+		float centerZ = quantile(centerZs, 0.5f);
+
+		float height = std::max(yMax - yMin, 0.1f);
+		float bodyBandMin = yMin + height * 0.12f;
+		float bodyBandMax = yMin + height * 0.72f;
 		std::vector<float> radial;
 		radial.reserve(positions.size());
 		for (const auto& p : positions)
 		{
+			if (p.y < bodyBandMin || p.y > bodyBandMax)
+				continue;
 			glm::vec2 d(p.x - centerX, p.z - centerZ);
 			radial.push_back(glm::length(d));
 		}
-		float rCore = quantile(radial, 0.65f);
+		if (radial.size() < 3)
+		{
+			for (const auto& p : (!torsoPoints.empty() ? torsoPoints : positions))
+			{
+				glm::vec2 d(p.x - centerX, p.z - centerZ);
+				radial.push_back(glm::length(d));
+			}
+		}
 
-		float height = std::max(yMax - yMin, 0.1f);
-		float maxBodyRadius = height * 0.30f;
-		outRadius = std::clamp(rCore * 1.20f, 0.05f, maxBodyRadius);
+		float rCore = quantile(radial, radial.size() >= 4 ? 0.45f : 0.55f);
+		float maxBodyRadius = height * 0.22f;
+		outRadius = std::clamp(rCore * 1.08f, 0.04f, maxBodyRadius);
 
-		float centerY = (yMin + yMax) * 0.5f;
-		float halfSegment = std::max(0.0f, 0.5f * height - outRadius);
-		outPointA = glm::vec3(centerX, centerY - halfSegment, centerZ);
-		outPointB = glm::vec3(centerX, centerY + halfSegment, centerZ);
+		float lowerInset = std::min(outRadius * 0.35f, height * 0.08f);
+		float upperInset = std::min(outRadius * 0.55f, height * 0.10f);
+		float segmentMinY = yMin + lowerInset;
+		float segmentMaxY = yMax - upperInset;
+		if (segmentMaxY - segmentMinY < outRadius * 0.5f)
+		{
+			float centerY = (yMin + yMax) * 0.5f;
+			float halfSegment = std::max(0.0f, 0.5f * height - outRadius);
+			outPointA = glm::vec3(centerX, centerY - halfSegment, centerZ);
+			outPointB = glm::vec3(centerX, centerY + halfSegment, centerZ);
+		}
+		else
+		{
+			outPointA = glm::vec3(centerX, segmentMinY, centerZ);
+			outPointB = glm::vec3(centerX, segmentMaxY, centerZ);
+		}
 		return true;
 	}
 
@@ -368,6 +438,15 @@ namespace MyEngine
 		return result;
 	}
 
+	bool AssetManager::ComputeCharacterCapsuleFromSkeleton(
+		const std::shared_ptr<Skeleton>& skeleton,
+		glm::vec3& outPointA,
+		glm::vec3& outPointB,
+		float& outRadius)
+	{
+		return ComputeSkeletonCharacterCapsule(skeleton, outPointA, outPointB, outRadius);
+	}
+
 	std::shared_ptr<AudioClip> AssetManager::LoadAudioClip(const std::string& path)
 	{
 		auto it = s_AudioClipCache.find(path);
@@ -463,7 +542,7 @@ namespace MyEngine
 				auto& capsule = entity->AddComponent<CapsuleColliderComponent>();
 				glm::vec3 fitA(0.0f), fitB(0.0f);
 				float fitRadius = 0.0f;
-				if (ComputeSkeletonCharacterCapsule(data.skeleton, fitA, fitB, fitRadius))
+				if (ComputeCharacterCapsuleFromSkeleton(data.skeleton, fitA, fitB, fitRadius))
 				{
 					capsule.pointA = fitA;
 					capsule.pointB = fitB;

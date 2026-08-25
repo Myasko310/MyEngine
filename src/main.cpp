@@ -13,6 +13,7 @@
 #include <array>
 #include <functional>
 #include <fstream>
+#include <cmath>
 
 // Core
 #include "core/Input.h"
@@ -35,6 +36,7 @@
 #include "components/PlaneColliderComponent.h"
 #include "components/BoxColliderComponent.h"
 #include "components/CapsuleColliderComponent.h"
+#include "components/CharacterControllerComponent.h"
 #include "components/AudioSourceComponent.h"
 #include "components/AudioListenerComponent.h"
 #include "components/CollisionEventsComponent.h"
@@ -71,6 +73,7 @@
 #include "ImGuizmo.h"
 #include <glm/gtc/type_ptr.hpp>
 #endif
+#include <glm/gtc/matrix_transform.hpp>
 
 // Systems
 #include "systems/CameraSystem.h"
@@ -104,6 +107,44 @@ static void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
 
     glViewport(0, 0, width, height);
 }
+
+#ifdef USE_IMGUI
+static glm::vec3 ExtractWorldScaleFromMatrix(const glm::mat4& worldMatrix)
+{
+    return glm::vec3(
+        glm::length(glm::vec3(worldMatrix[0])),
+        glm::length(glm::vec3(worldMatrix[1])),
+        glm::length(glm::vec3(worldMatrix[2]))
+    );
+}
+
+static glm::vec3 TransformPointByMatrix(const glm::mat4& worldMatrix, const glm::vec3& point)
+{
+    return glm::vec3(worldMatrix * glm::vec4(point, 1.0f));
+}
+
+static bool ProjectWorldPointToScreen(
+    const glm::vec3& worldPoint,
+    const glm::mat4& view,
+    const glm::mat4& projection,
+    int windowWidth,
+    int windowHeight,
+    ImVec2& outScreen)
+{
+    glm::vec3 projected = glm::project(
+        worldPoint,
+        view,
+        projection,
+        glm::vec4(0.0f, 0.0f, static_cast<float>(windowWidth), static_cast<float>(windowHeight))
+    );
+
+    if (projected.z < 0.0f || projected.z > 1.0f)
+        return false;
+
+    outScreen = ImVec2(projected.x, static_cast<float>(windowHeight) - projected.y);
+    return true;
+}
+#endif
 
 // ------------------------------------------------------------
 // Recent scenes list persistence (simple one-path-per-line file)
@@ -681,10 +722,23 @@ int main()
 
         auto& rb = playerEntity->AddComponent<RigidbodyComponent>();
         rb.mass = 1.0f;
-        rb.useGravity = true;
+        rb.useGravity = false;
         rb.bounciness = 0.0f;
+        rb.isKinematic = true;
         rb.freezePositionX = false;
         rb.freezePositionZ = false;
+
+        auto& controller = playerEntity->AddComponent<MyEngine::CharacterControllerComponent>();
+        controller.moveSpeed = 4.5f;
+        controller.jumpSpeed = 6.0f;
+        controller.maxSlopeAngleDegrees = 50.0f;
+        controller.groundSnapDistance = 0.18f;
+        controller.skinWidth = 0.03f;
+        controller.acceleration = 36.0f;
+        controller.airAcceleration = 12.0f;
+        controller.braking = 28.0f;
+        controller.slideGravityScale = 1.35f;
+        controller.orientToMovement = true;
 
         // Log collisions/triggers so walking into the ground, cubes, or the
         // trigger zone below is visible in the console.
@@ -1351,35 +1405,26 @@ int main()
         // Update physics before camera (so camera can follow physics objects)
         if (isPlaying)
         {
-            // Simple player character controller: arrow keys move on the XZ plane,
-            // Right Control jumps. Restricted to play mode so it never fights with
-            // editor hotkeys (arrow keys otherwise adjust the light in edit mode).
-            if (playerEntity && playerEntity->HasComponent<RigidbodyComponent>())
+            glm::vec3 controllerCameraForward(0.0f, 0.0f, -1.0f);
+            glm::vec3 controllerCameraRight(1.0f, 0.0f, 0.0f);
+            for (auto& e : scene.GetEntities())
             {
-                auto& rb = playerEntity->GetComponent<RigidbodyComponent>();
+                if (!e || !e->HasComponent<CameraComponent>() || !e->HasComponent<TransformComponent>())
+                    continue;
 
-                const float playerSpeed = 4.0f;
-                glm::vec3 moveDir(0.0f);
+                auto& cam = e->GetComponent<CameraComponent>();
+                if (!cam.isPrimary)
+                    continue;
 
-                if (Input::IsKeyDown(GLFW_KEY_UP))    moveDir.z -= 1.0f;
-                if (Input::IsKeyDown(GLFW_KEY_DOWN))  moveDir.z += 1.0f;
-                if (Input::IsKeyDown(GLFW_KEY_LEFT))  moveDir.x -= 1.0f;
-                if (Input::IsKeyDown(GLFW_KEY_RIGHT)) moveDir.x += 1.0f;
-
-                if (glm::length(moveDir) > 0.0f)
-                    moveDir = glm::normalize(moveDir);
-
-                rb.velocity.x = moveDir.x * playerSpeed;
-                rb.velocity.z = moveDir.z * playerSpeed;
-
-                // Jump: simple heuristic since PhysicsSystem has no dedicated
-                // ground-contact flag - only allow jumping when vertical velocity
-                // is near zero (i.e. standing on something, not already falling/rising).
-                if (Input::IsKeyPressed(GLFW_KEY_RIGHT_CONTROL) && std::abs(rb.velocity.y) < 0.1f)
-                {
-                    rb.velocity.y = 6.0f;
-                }
+                controllerCameraForward.x = std::cos(glm::radians(cam.yaw)) * std::cos(glm::radians(cam.pitch));
+                controllerCameraForward.y = std::sin(glm::radians(cam.pitch));
+                controllerCameraForward.z = std::sin(glm::radians(cam.yaw)) * std::cos(glm::radians(cam.pitch));
+                controllerCameraForward = glm::normalize(controllerCameraForward);
+                controllerCameraRight = glm::normalize(glm::cross(controllerCameraForward, glm::vec3(0.0f, 1.0f, 0.0f)));
+                break;
             }
+
+            physicsSystem.OnUpdate(scene, deltaTime, window, controllerCameraForward, controllerCameraRight);
 
             // Toggle third-person follow camera with V (F is already bound to
             // wireframe toggle above). Resolved against the live primary
@@ -1419,8 +1464,7 @@ int main()
                 }
             }
 
-            physicsSystem.OnUpdate(scene, deltaTime);
-        }
+            }
 
         // Compute bone matrix palettes for any skinned entities every frame,
         // even while paused/in edit mode. Passing deltaTime of 0 when not
@@ -1887,6 +1931,7 @@ int main()
                                 auto& t = ent->AddComponent<TransformComponent>();
                                 t.position = glm::vec3(0.0f, 0.5f, -3.0f);
 
+                                const bool isRinAnimatedModel = entry.path().filename().string() == "rin_tohsaka_anim.glb";
                                 bool attached = false;
 
                                 if (isSkinnedCandidate)
@@ -1895,6 +1940,14 @@ int main()
                                     if (!skinnedData.meshes.empty() && skinnedData.skeleton && skinnedData.skeleton->GetBoneCount() > 0)
                                     {
                                         MyEngine::AssetManager::AttachSkinnedModelToEntity(ent, skinnedData, litSkinnedShader, filePath);
+                                        if (isRinAnimatedModel)
+                                        {
+                                            auto& script = ent->HasComponent<ScriptComponent>()
+                                                ? ent->GetComponent<ScriptComponent>()
+                                                : ent->AddComponent<ScriptComponent>();
+                                            script.scriptPath = "assets/scripts/rin_animation_hotkeys.lua";
+                                            script.requestReload = true;
+                                        }
                                         attached = true;
                                     }
                                 }
@@ -2485,7 +2538,20 @@ int main()
                         }
                     }
 
+                    const std::vector<MyEngine::AnimationClip>* stateMachineEditorClips = nullptr;
+                    if (selectedEntity && selectedEntity->HasComponent<AnimationComponent>())
+                    {
+                        auto& selectedAnim = selectedEntity->GetComponent<AnimationComponent>();
+                        if (selectedAnim.clips && !selectedAnim.clips->empty())
+                            stateMachineEditorClips = selectedAnim.clips.get();
+                    }
+
                     ImGui::Separator();
+                    if (stateMachineEditorClips)
+                        ImGui::TextDisabled("Clip source: selected entity (%d clip(s))", static_cast<int>(stateMachineEditorClips->size()));
+                    else
+                        ImGui::TextDisabled("Select an animated entity to use clip dropdowns and validation.");
+
                     if (ImGui::CollapsingHeader("Parameters##animsm", ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         if (ImGui::Button("Add Bool##animsmParam"))
@@ -2548,10 +2614,53 @@ int main()
                                 std::strncpy(stateNameBuffer, state.name.c_str(), sizeof(stateNameBuffer) - 1);
                                 if (ImGui::InputText("State Name", stateNameBuffer, sizeof(stateNameBuffer)))
                                     state.name = stateNameBuffer;
-                                char clipNameBuffer[128] = {};
-                                std::strncpy(clipNameBuffer, state.clipName.c_str(), sizeof(clipNameBuffer) - 1);
-                                if (ImGui::InputText("Clip Name", clipNameBuffer, sizeof(clipNameBuffer)))
-                                    state.clipName = clipNameBuffer;
+                                if (stateMachineEditorClips && !stateMachineEditorClips->empty())
+                                {
+                                    int resolvedClipIndex = sm.ResolveClipIndex(*stateMachineEditorClips, state);
+                                    std::string clipLabel = resolvedClipIndex >= 0
+                                        ? ((*stateMachineEditorClips)[resolvedClipIndex].name.empty()
+                                            ? ("Clip " + std::to_string(resolvedClipIndex))
+                                            : (*stateMachineEditorClips)[resolvedClipIndex].name)
+                                        : (state.clipName.empty() ? "<select clip>" : state.clipName + " (missing)");
+
+                                    if (ImGui::BeginCombo("Clip##animsm", clipLabel.c_str()))
+                                    {
+                                        for (int clipIndex = 0; clipIndex < static_cast<int>(stateMachineEditorClips->size()); ++clipIndex)
+                                        {
+                                            std::string availableClipName = (*stateMachineEditorClips)[clipIndex].name;
+                                            if (availableClipName.empty())
+                                                availableClipName = "Clip " + std::to_string(clipIndex);
+
+                                            bool isSelected = (resolvedClipIndex == clipIndex);
+                                            if (ImGui::Selectable(availableClipName.c_str(), isSelected))
+                                                state.clipName = (*stateMachineEditorClips)[clipIndex].name;
+                                            if (isSelected)
+                                                ImGui::SetItemDefaultFocus();
+                                        }
+                                        ImGui::EndCombo();
+                                    }
+                                }
+                                else
+                                {
+                                    char clipNameBuffer[128] = {};
+                                    std::strncpy(clipNameBuffer, state.clipName.c_str(), sizeof(clipNameBuffer) - 1);
+                                    if (ImGui::InputText("Clip Name", clipNameBuffer, sizeof(clipNameBuffer)))
+                                        state.clipName = clipNameBuffer;
+                                }
+
+                                if (state.clipName.empty())
+                                {
+                                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "No clip assigned.");
+                                }
+                                else if (stateMachineEditorClips)
+                                {
+                                    int validationClipIndex = sm.ResolveClipIndex(*stateMachineEditorClips, state);
+                                    if (validationClipIndex >= 0)
+                                        ImGui::TextDisabled("Resolved clip: %s", (*stateMachineEditorClips)[validationClipIndex].name.empty() ? "<unnamed clip>" : (*stateMachineEditorClips)[validationClipIndex].name.c_str());
+                                    else
+                                        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Assigned clip is not available on the selected entity.");
+                                }
+
                                 ImGui::Checkbox("Loop", &state.loop);
                                 ImGui::DragFloat("Playback Speed", &state.playbackSpeed, 0.01f, 0.0f, 4.0f, "%.2f");
 
@@ -3561,6 +3670,56 @@ int main()
                         }
                     }
 
+                    // Capsule Collider Component
+                    if (selectedEntity->HasComponent<CapsuleColliderComponent>())
+                    {
+                        if (ImGui::CollapsingHeader("Capsule Collider", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            auto& capsule = selectedEntity->GetComponent<CapsuleColliderComponent>();
+                            ImGui::DragFloat3("Point A", &capsule.pointA.x, 0.02f);
+                            ImGui::DragFloat3("Point B", &capsule.pointB.x, 0.02f);
+                            ImGui::DragFloat("Radius", &capsule.radius, 0.01f, 0.01f, 100.0f, "%.3f");
+                            ImGui::Checkbox("Is Trigger##capsule", &capsule.isTrigger);
+
+                            if (selectedEntity->HasComponent<SkeletonComponent>())
+                            {
+                                ImGui::Separator();
+                                if (ImGui::Button("Auto-Refit From Skeleton##capsule"))
+                                {
+                                    auto skeleton = selectedEntity->GetComponent<SkeletonComponent>().skeleton;
+                                    glm::vec3 fitA(0.0f), fitB(0.0f);
+                                    float fitRadius = 0.0f;
+                                    if (MyEngine::AssetManager::ComputeCharacterCapsuleFromSkeleton(skeleton, fitA, fitB, fitRadius))
+                                    {
+                                        capsule.pointA = fitA;
+                                        capsule.pointB = fitB;
+                                        capsule.radius = fitRadius;
+                                    }
+                                }
+                                ImGui::TextDisabled("Use auto-refit for imported characters, then fine-tune manually.");
+                            }
+
+                            if (ImGui::Button("Remove Capsule Collider"))
+                            {
+                                selectedEntity->RemoveComponent<CapsuleColliderComponent>();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Capsule Collider"))
+                        {
+                            auto& capsule = selectedEntity->AddComponent<CapsuleColliderComponent>();
+                            capsule.pointA = glm::vec3(0.0f, -0.4f, 0.0f);
+                            capsule.pointB = glm::vec3(0.0f, 0.4f, 0.0f);
+                            capsule.radius = 0.5f;
+                            if (selectedEntity->HasComponent<BoundingSphereComponent>())
+                            {
+                                selectedEntity->RemoveComponent<BoundingSphereComponent>();
+                            }
+                        }
+                    }
+
                     // Collision Events Component (trigger/collision callbacks for gameplay testing)
                     if (selectedEntity->HasComponent<CollisionEventsComponent>())
                     {
@@ -3730,8 +3889,31 @@ int main()
                                 {
                                     auto& sm = *smComponent->stateMachine;
                                     ImGui::Text("Current State Index: %d", smComponent->currentStateIndex);
-                                    if (sm.IsValidStateIndex(smComponent->currentStateIndex))
+                                    if (!smComponent->debugCurrentStateName.empty())
+                                        ImGui::Text("Current State: %s", smComponent->debugCurrentStateName.c_str());
+                                    else if (sm.IsValidStateIndex(smComponent->currentStateIndex))
                                         ImGui::Text("Current State: %s", sm.states[smComponent->currentStateIndex].name.c_str());
+
+                                    if (!smComponent->debugPendingStateName.empty())
+                                        ImGui::Text("Pending Transition: %s", smComponent->debugPendingStateName.c_str());
+                                    else
+                                        ImGui::TextDisabled("Pending Transition: none");
+
+                                    if (smComponent->debugLastBlockedTransitionIndex >= 0)
+                                    {
+                                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f),
+                                            "Blocked Transition [%d]: %s",
+                                            smComponent->debugLastBlockedTransitionIndex,
+                                            smComponent->debugLastBlockedReason.c_str());
+                                    }
+
+                                    if (!smComponent->debugTransitionMessages.empty() &&
+                                        ImGui::CollapsingHeader("Transition Debug##animsm", ImGuiTreeNodeFlags_DefaultOpen))
+                                    {
+                                        for (const auto& message : smComponent->debugTransitionMessages)
+                                            ImGui::BulletText("%s", message.c_str());
+                                    }
+
                                     for (size_t paramIndex = 0; paramIndex < sm.parameters.size(); ++paramIndex)
                                     {
                                         if (paramIndex >= smComponent->parameterValues.size())
@@ -4046,6 +4228,11 @@ int main()
 
                             ImGui::Checkbox("Enabled##script", &script.enabled);
                             ImGui::Checkbox("Auto Start##script", &script.autoStart);
+
+                            if (script.scriptPath.find("rin_animation_hotkeys.lua") != std::string::npos)
+                            {
+                                ImGui::TextWrapped("Hotkeys: press 1-9 to switch imported animation clips for this character.");
+                            }
 
                             std::string scriptDisplay = script.scriptPath.empty() ? "(none)" : script.scriptPath;
                             ImGui::TextWrapped("Path: %s", scriptDisplay.c_str());
@@ -5028,6 +5215,101 @@ int main()
         }
 
 #ifdef USE_IMGUI
+        if (selectedEntity && selectedEntity->HasComponent<TransformComponent>())
+        {
+            int windowW = 0, windowH = 0;
+            glfwGetWindowSize(window, &windowW, &windowH);
+            ImDrawList* overlayDrawList = ImGui::GetForegroundDrawList();
+            glm::mat4 overlayWorld = TransformHierarchy::GetWorldMatrix(scene, *selectedEntity);
+            glm::vec3 overlayScale = ExtractWorldScaleFromMatrix(overlayWorld);
+            glm::vec3 overlayRight = glm::normalize(glm::vec3(overlayWorld[0]));
+            if (glm::length(overlayRight) < 0.0001f)
+                overlayRight = glm::vec3(1.0f, 0.0f, 0.0f);
+
+            auto drawCapsuleOverlay = [&](const glm::vec3& localA, const glm::vec3& localB, float localRadius, ImU32 color, const char* label)
+            {
+                glm::vec3 worldA = TransformPointByMatrix(overlayWorld, localA);
+                glm::vec3 worldB = TransformPointByMatrix(overlayWorld, localB);
+                float worldRadius = localRadius * std::max(overlayScale.x, overlayScale.z);
+                glm::vec3 radiusOffset = overlayRight * worldRadius;
+
+                ImVec2 screenA, screenB, screenARadius, screenBRadius;
+                if (!ProjectWorldPointToScreen(worldA, view, projection, windowW, windowH, screenA) ||
+                    !ProjectWorldPointToScreen(worldB, view, projection, windowW, windowH, screenB) ||
+                    !ProjectWorldPointToScreen(worldA + radiusOffset, view, projection, windowW, windowH, screenARadius) ||
+                    !ProjectWorldPointToScreen(worldB + radiusOffset, view, projection, windowW, windowH, screenBRadius))
+                {
+                    return;
+                }
+
+                float radiusA = std::max(4.0f, std::sqrt((screenARadius.x - screenA.x) * (screenARadius.x - screenA.x) + (screenARadius.y - screenA.y) * (screenARadius.y - screenA.y)));
+                float radiusB = std::max(4.0f, std::sqrt((screenBRadius.x - screenB.x) * (screenBRadius.x - screenB.x) + (screenBRadius.y - screenB.y) * (screenBRadius.y - screenB.y)));
+                overlayDrawList->AddLine(screenA, screenB, color, 2.0f);
+                overlayDrawList->AddCircle(screenA, radiusA, color, 24, 2.0f);
+                overlayDrawList->AddCircle(screenB, radiusB, color, 24, 2.0f);
+                ImVec2 labelPos((screenA.x + screenB.x) * 0.5f + 8.0f, (screenA.y + screenB.y) * 0.5f - 10.0f);
+                overlayDrawList->AddText(labelPos, color, label);
+            };
+
+            if (selectedEntity->HasComponent<CapsuleColliderComponent>())
+            {
+                const auto& capsule = selectedEntity->GetComponent<CapsuleColliderComponent>();
+                drawCapsuleOverlay(capsule.pointA, capsule.pointB, capsule.radius, IM_COL32(80, 200, 255, 255), "Collider Capsule");
+            }
+
+            if (selectedEntity->HasComponent<SkeletonComponent>())
+            {
+                glm::vec3 fitA(0.0f), fitB(0.0f);
+                float fitRadius = 0.0f;
+                auto skeleton = selectedEntity->GetComponent<SkeletonComponent>().skeleton;
+                if (MyEngine::AssetManager::ComputeCharacterCapsuleFromSkeleton(skeleton, fitA, fitB, fitRadius))
+                    drawCapsuleOverlay(fitA, fitB, fitRadius, IM_COL32(80, 255, 120, 255), "Auto-Fit Capsule");
+            }
+
+            if (selectedEntity->HasComponent<AnimationStateMachineComponent>())
+            {
+                const auto& sm = selectedEntity->GetComponent<AnimationStateMachineComponent>();
+                std::string stateText;
+                ImU32 textColor = IM_COL32(255, 255, 255, 255);
+                if (!sm.debugPendingStateName.empty())
+                {
+                    stateText = sm.debugCurrentStateName.empty()
+                        ? ("Transition -> " + sm.debugPendingStateName)
+                        : (sm.debugCurrentStateName + " -> " + sm.debugPendingStateName);
+                    textColor = IM_COL32(120, 255, 160, 255);
+                }
+                else if (!sm.debugCurrentStateName.empty())
+                {
+                    stateText = "State: " + sm.debugCurrentStateName;
+                }
+
+                if (!stateText.empty())
+                {
+                    float textHeightOffset = 1.5f;
+                    if (selectedEntity->HasComponent<CapsuleColliderComponent>())
+                    {
+                        const auto& capsule = selectedEntity->GetComponent<CapsuleColliderComponent>();
+                        textHeightOffset = std::max(capsule.pointA.y, capsule.pointB.y) + capsule.radius + 0.2f;
+                    }
+                    glm::vec3 textWorld = TransformPointByMatrix(overlayWorld, glm::vec3(0.0f, textHeightOffset, 0.0f));
+                    ImVec2 textScreen;
+                    if (ProjectWorldPointToScreen(textWorld, view, projection, windowW, windowH, textScreen))
+                    {
+                        overlayDrawList->AddCircleFilled(textScreen, 5.0f, textColor);
+                        overlayDrawList->AddLine(textScreen, ImVec2(textScreen.x + 8.0f, textScreen.y - 2.0f), textColor, 2.0f);
+                        overlayDrawList->AddText(ImVec2(textScreen.x + 10.0f, textScreen.y - 12.0f), textColor, stateText.c_str());
+                        if (!sm.debugLastBlockedReason.empty())
+                        {
+                            overlayDrawList->AddText(
+                                ImVec2(textScreen.x + 10.0f, textScreen.y + 6.0f),
+                                IM_COL32(255, 210, 90, 255),
+                                sm.debugLastBlockedReason.c_str());
+                        }
+                    }
+                }
+            }
+        }
+
         // Rendering ImGui
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

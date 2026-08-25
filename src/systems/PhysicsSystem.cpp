@@ -8,8 +8,11 @@
 #include "components/PlaneColliderComponent.h"
 #include "components/BoxColliderComponent.h"
 #include "components/CapsuleColliderComponent.h"
+#include "components/CharacterControllerComponent.h"
 #include "components/CollisionEventsComponent.h"
 #include "components/JointComponent.h"
+#include "components/AnimationStateMachineComponent.h"
+#include "core/Input.h"
 
 #include <iostream>
 #include <algorithm>
@@ -39,6 +42,13 @@ namespace MyEngine
 
 	void PhysicsSystem::OnUpdate(Scene& scene, float deltaTime)
 	{
+		OnUpdate(scene, deltaTime, nullptr, glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+	}
+
+	void PhysicsSystem::OnUpdate(Scene& scene, float deltaTime, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight)
+	{
+		CollectCharacterControllerInput(scene, window, cameraForward, cameraRight);
+
 		// Fixed timestep physics
 		// Clamp deltaTime to prevent spiral of death
 		deltaTime = std::min(deltaTime, 0.1f);
@@ -63,6 +73,7 @@ namespace MyEngine
 		// Physics pipeline
 		ApplyForces(scene, dt);
 		IntegrateVelocity(scene, dt);
+		UpdateCharacterControllers(scene, dt);
 		SolveJoints(scene, dt);
 
 		if (enableCollisions)
@@ -128,6 +139,468 @@ namespace MyEngine
 
 			// p = p + v * dt
 			transform.position += deltaPosition;
+		}
+	}
+
+	void PhysicsSystem::CollectCharacterControllerInput(Scene& scene, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight)
+	{
+		(void)window;
+
+		glm::vec3 flattenedForward = FlattenToPlane(cameraForward, glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::vec3 flattenedRight = FlattenToPlane(cameraRight, glm::vec3(0.0f, 1.0f, 0.0f));
+		if (glm::length(flattenedForward) > 0.0001f)
+			flattenedForward = glm::normalize(flattenedForward);
+		else
+			flattenedForward = glm::vec3(0.0f, 0.0f, -1.0f);
+		if (glm::length(flattenedRight) > 0.0001f)
+			flattenedRight = glm::normalize(flattenedRight);
+		else
+			flattenedRight = glm::vec3(1.0f, 0.0f, 0.0f);
+
+		glm::vec3 moveInput(0.0f);
+		if (Input::IsKeyDown(GLFW_KEY_W) || Input::IsKeyDown(GLFW_KEY_UP)) moveInput += flattenedForward;
+		if (Input::IsKeyDown(GLFW_KEY_S) || Input::IsKeyDown(GLFW_KEY_DOWN)) moveInput -= flattenedForward;
+		if (Input::IsKeyDown(GLFW_KEY_D) || Input::IsKeyDown(GLFW_KEY_RIGHT)) moveInput += flattenedRight;
+		if (Input::IsKeyDown(GLFW_KEY_A) || Input::IsKeyDown(GLFW_KEY_LEFT)) moveInput -= flattenedRight;
+		if (glm::length(moveInput) > 1.0f)
+			moveInput = glm::normalize(moveInput);
+
+		bool jumpPressed = Input::IsKeyPressed(GLFW_KEY_SPACE) || Input::IsKeyPressed(GLFW_KEY_RIGHT_CONTROL);
+
+		for (const auto& entity : scene.GetEntities())
+		{
+			if (!entity || !entity->HasComponent<CharacterControllerComponent>())
+				continue;
+
+			auto& controller = entity->GetComponent<CharacterControllerComponent>();
+			controller.moveInput = moveInput;
+			controller.jumpRequested = jumpPressed;
+		}
+	}
+
+	glm::vec3 PhysicsSystem::MoveTowards(const glm::vec3& current, const glm::vec3& target, float maxDelta)
+	{
+		glm::vec3 delta = target - current;
+		float distance = glm::length(delta);
+		if (distance <= maxDelta || distance < 0.0001f)
+			return target;
+		return current + delta / distance * maxDelta;
+	}
+
+	glm::vec3 PhysicsSystem::FlattenToPlane(const glm::vec3& vector, const glm::vec3& planeNormal)
+	{
+		glm::vec3 normal = glm::length(planeNormal) > 0.0001f
+			? glm::normalize(planeNormal)
+			: glm::vec3(0.0f, 1.0f, 0.0f);
+		return vector - glm::dot(vector, normal) * normal;
+	}
+
+	bool PhysicsSystem::IsWalkableSlope(const glm::vec3& normal, float maxSlopeAngleDegrees) const
+	{
+		if (glm::length(normal) < 0.0001f)
+			return false;
+		float upDot = glm::dot(glm::normalize(normal), glm::vec3(0.0f, 1.0f, 0.0f));
+		float minUpDot = std::cos(glm::radians(std::clamp(maxSlopeAngleDegrees, 0.0f, 89.0f)));
+		return upDot >= minUpDot;
+	}
+
+	bool PhysicsSystem::SweepCharacterPlanes(const Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const
+	{
+		if (!entity || !entity->HasComponent<TransformComponent>() || !entity->HasComponent<CapsuleColliderComponent>())
+			return false;
+
+		auto& transform = entity->GetComponent<TransformComponent>();
+		auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
+		glm::vec3 worldScale = ExtractWorldScale(scene, *entity);
+		glm::vec3 segA = transform.position + capsule.pointA * worldScale;
+		glm::vec3 segB = transform.position + capsule.pointB * worldScale;
+		float radius = capsule.radius * glm::compMax(glm::vec2(worldScale.x, worldScale.z));
+
+		bool foundHit = false;
+		outPenetration = 0.0f;
+		for (const auto& other : scene.GetEntities())
+		{
+			if (!other || other.get() == entity.get() || !other->HasComponent<PlaneColliderComponent>())
+				continue;
+
+			const auto& plane = other->GetComponent<PlaneColliderComponent>();
+			if (plane.isTrigger)
+				continue;
+
+			glm::vec3 normal;
+			float penetration = 0.0f;
+			if (!CheckCapsulePlaneCollision(segA, segB, radius, plane.normal, plane.distance, normal, penetration))
+				continue;
+
+			if (!foundHit || penetration > outPenetration ||
+				(std::abs(penetration - outPenetration) < 0.0001f && glm::dot(normal, glm::vec3(0.0f, 1.0f, 0.0f)) > glm::dot(outNormal, glm::vec3(0.0f, 1.0f, 0.0f))))
+			{
+				foundHit = true;
+				outNormal = normal;
+				outPenetration = penetration;
+			}
+		}
+
+		return foundHit;
+	}
+
+	bool PhysicsSystem::SweepCharacterPairs(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const
+	{
+		if (!entity || !entity->HasComponent<TransformComponent>() || !entity->HasComponent<CapsuleColliderComponent>())
+			return false;
+
+		auto& transform = entity->GetComponent<TransformComponent>();
+		auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
+		glm::vec3 worldScale = ExtractWorldScale(scene, *entity);
+		glm::vec3 segA = transform.position + capsule.pointA * worldScale;
+		glm::vec3 segB = transform.position + capsule.pointB * worldScale;
+		float radius = capsule.radius * glm::compMax(glm::vec2(worldScale.x, worldScale.z));
+
+		bool foundHit = false;
+		outPenetration = 0.0f;
+		for (const auto& other : scene.GetEntities())
+		{
+			if (!other || other.get() == entity.get() || !other->HasComponent<TransformComponent>())
+				continue;
+
+			glm::vec3 otherScale = ExtractWorldScale(scene, *other);
+			glm::vec3 normal;
+			float penetration = 0.0f;
+			bool hit = false;
+
+			if (other->HasComponent<BoxColliderComponent>())
+			{
+				const auto& box = other->GetComponent<BoxColliderComponent>();
+				const auto& otherTransform = other->GetComponent<TransformComponent>();
+				if (box.isTrigger)
+					continue;
+				hit = CheckCapsuleBoxCollision(
+					segA, segB, radius,
+					otherTransform.position + box.center * otherScale,
+					box.halfExtents * otherScale,
+					normal, penetration);
+			}
+			else if (other->HasComponent<CapsuleColliderComponent>())
+			{
+				const auto& otherCapsule = other->GetComponent<CapsuleColliderComponent>();
+				if (otherCapsule.isTrigger)
+					continue;
+				hit = CheckCapsuleCapsuleCollision(
+					segA, segB, radius,
+					other->GetComponent<TransformComponent>().position + otherCapsule.pointA * otherScale,
+					other->GetComponent<TransformComponent>().position + otherCapsule.pointB * otherScale,
+					otherCapsule.radius * glm::compMax(glm::vec2(otherScale.x, otherScale.z)),
+					normal, penetration);
+			}
+			else if (other->HasComponent<BoundingSphereComponent>())
+			{
+				const auto& sphere = other->GetComponent<BoundingSphereComponent>();
+				if (sphere.isTrigger)
+					continue;
+				hit = CheckCapsuleSphereCollision(
+					segA, segB, radius,
+					other->GetComponent<TransformComponent>().position + sphere.center * otherScale,
+					sphere.radius * glm::compMax(otherScale),
+					normal, penetration);
+			}
+
+			if (!hit)
+				continue;
+
+			if (!foundHit || penetration > outPenetration ||
+				(std::abs(penetration - outPenetration) < 0.0001f && glm::dot(normal, glm::vec3(0.0f, 1.0f, 0.0f)) > glm::dot(outNormal, glm::vec3(0.0f, 1.0f, 0.0f))))
+			{
+				foundHit = true;
+				outNormal = normal;
+				outPenetration = penetration;
+			}
+		}
+
+		return foundHit;
+	}
+
+	bool PhysicsSystem::QueryCharacterSupport(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const
+	{
+		glm::vec3 planeNormal(0.0f, 1.0f, 0.0f);
+		float planePenetration = 0.0f;
+		bool hitPlane = SweepCharacterPlanes(scene, entity, planeNormal, planePenetration);
+
+		glm::vec3 pairNormal(0.0f, 1.0f, 0.0f);
+		float pairPenetration = 0.0f;
+		bool hitPair = SweepCharacterPairs(scene, entity, pairNormal, pairPenetration);
+
+		if (!hitPlane && !hitPair)
+			return false;
+
+		outNormal = planeNormal;
+		outPenetration = planePenetration;
+		if (hitPair && (!hitPlane || pairPenetration > planePenetration ||
+			(std::abs(pairPenetration - planePenetration) < 0.0001f && glm::dot(pairNormal, glm::vec3(0.0f, 1.0f, 0.0f)) > glm::dot(planeNormal, glm::vec3(0.0f, 1.0f, 0.0f)))))
+		{
+			outNormal = pairNormal;
+			outPenetration = pairPenetration;
+		}
+
+		return true;
+	}
+
+	bool PhysicsSystem::ResolveCharacterOverlaps(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb) const
+	{
+		auto& transform = entity->GetComponent<TransformComponent>();
+		bool resolvedAny = false;
+		for (int iteration = 0; iteration < 4; ++iteration)
+		{
+			glm::vec3 hitNormal(0.0f, 1.0f, 0.0f);
+			float hitPenetration = 0.0f;
+			if (!QueryCharacterSupport(scene, entity, hitNormal, hitPenetration))
+				break;
+
+			resolvedAny = true;
+			transform.position += hitNormal * (hitPenetration + controller.skinWidth);
+			float intoSurface = glm::dot(rb.velocity, hitNormal);
+			if (intoSurface < 0.0f)
+				rb.velocity -= intoSurface * hitNormal;
+
+			if (IsWalkableSlope(hitNormal, controller.maxSlopeAngleDegrees))
+			{
+				controller.isGrounded = true;
+				controller.groundNormal = glm::normalize(hitNormal);
+				controller.isOnSteepSlope = false;
+				if (rb.velocity.y < 0.0f)
+					rb.velocity.y = 0.0f;
+			}
+			else
+			{
+				controller.isOnSteepSlope = true;
+			}
+		}
+
+		return resolvedAny;
+	}
+
+	bool PhysicsSystem::TryStepUp(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb, const glm::vec3& horizontalDisplacement) const
+	{
+		if (!controller.wasGrounded || controller.maxStepHeight <= 0.0001f || glm::length(horizontalDisplacement) <= 0.0001f)
+			return false;
+
+		auto& transform = entity->GetComponent<TransformComponent>();
+		glm::vec3 originalPosition = transform.position;
+		glm::vec3 originalGroundNormal = controller.groundNormal;
+		bool originalGrounded = controller.isGrounded;
+		bool originalSteep = controller.isOnSteepSlope;
+		float originalVerticalVelocity = rb.velocity.y;
+
+		transform.position += glm::vec3(0.0f, controller.maxStepHeight + controller.skinWidth, 0.0f);
+		transform.position += horizontalDisplacement;
+		ResolveCharacterOverlaps(scene, entity, controller, rb);
+		transform.position -= glm::vec3(0.0f, controller.maxStepHeight + controller.groundSnapDistance + controller.skinWidth, 0.0f);
+
+		glm::vec3 supportNormal(0.0f, 1.0f, 0.0f);
+		float supportPenetration = 0.0f;
+		if (QueryCharacterSupport(scene, entity, supportNormal, supportPenetration) && IsWalkableSlope(supportNormal, controller.maxSlopeAngleDegrees))
+		{
+			transform.position += supportNormal * (supportPenetration + controller.skinWidth);
+			controller.isGrounded = true;
+			controller.groundNormal = glm::normalize(supportNormal);
+			controller.isOnSteepSlope = false;
+			if (rb.velocity.y < 0.0f)
+				rb.velocity.y = 0.0f;
+			return true;
+		}
+
+		transform.position = originalPosition;
+		controller.groundNormal = originalGroundNormal;
+		controller.isGrounded = originalGrounded;
+		controller.isOnSteepSlope = originalSteep;
+		rb.velocity.y = originalVerticalVelocity;
+		return false;
+	}
+
+	void PhysicsSystem::UpdateControllerAnimationState(const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller) const
+	{
+		if (!entity || !entity->HasComponent<AnimationStateMachineComponent>())
+			return;
+
+		auto& sm = entity->GetComponent<AnimationStateMachineComponent>();
+		if (!sm.stateMachine)
+			return;
+
+		auto setParameterByName = [&](const std::string& parameterName, auto&& applyValue)
+		{
+			if (parameterName.empty())
+				return;
+
+			int parameterIndex = sm.stateMachine->FindParameterIndex(parameterName);
+			if (parameterIndex < 0)
+				return;
+
+			if (static_cast<size_t>(parameterIndex) >= sm.parameterValues.size())
+				sm.parameterValues.resize(sm.stateMachine->parameters.size());
+			if (static_cast<size_t>(parameterIndex) >= sm.parameterValues.size())
+				return;
+
+			applyValue(sm.stateMachine->parameters[parameterIndex], sm.parameterValues[parameterIndex]);
+		};
+
+		setParameterByName(controller.animationSpeedParameter, [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Float)
+				value.floatValue = controller.currentSpeed;
+		});
+
+		setParameterByName(controller.animationGroundedParameter, [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Bool)
+				value.boolValue = controller.isGrounded;
+		});
+
+		setParameterByName(controller.animationJumpTriggerParameter, [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Trigger && controller.jumpedThisFrame)
+				value.triggerValue = true;
+		});
+	}
+
+	void PhysicsSystem::UpdateCharacterControllers(Scene& scene, float dt)
+	{
+		for (const auto& entity : scene.GetEntities())
+		{
+			if (!entity || !entity->HasComponent<CharacterControllerComponent>() || !entity->HasComponent<TransformComponent>() ||
+				!entity->HasComponent<CapsuleColliderComponent>() || !entity->HasComponent<RigidbodyComponent>())
+			{
+				continue;
+			}
+
+			auto& controller = entity->GetComponent<CharacterControllerComponent>();
+			auto& transform = entity->GetComponent<TransformComponent>();
+			auto& rb = entity->GetComponent<RigidbodyComponent>();
+			rb.isKinematic = true;
+
+			controller.wasGrounded = controller.isGrounded;
+			controller.isGrounded = false;
+			controller.isOnSteepSlope = false;
+			controller.groundNormal = glm::vec3(0.0f, 1.0f, 0.0f);
+			controller.groundVelocity = glm::vec3(0.0f);
+			controller.jumpedThisFrame = false;
+
+			glm::vec3 probeNormal(0.0f, 1.0f, 0.0f);
+			float probePenetration = 0.0f;
+			bool hasSupport = QueryCharacterSupport(scene, entity, probeNormal, probePenetration);
+			if (hasSupport && IsWalkableSlope(probeNormal, controller.maxSlopeAngleDegrees))
+			{
+				controller.isGrounded = true;
+				controller.wasGrounded = true;
+				controller.groundNormal = glm::normalize(probeNormal);
+				if (rb.velocity.y < 0.0f)
+					rb.velocity.y = 0.0f;
+			}
+			else if (hasSupport)
+			{
+				controller.isOnSteepSlope = true;
+			}
+
+			glm::vec3 moveInput = controller.moveInput;
+			if (controller.isGrounded)
+				moveInput = FlattenToPlane(moveInput, controller.groundNormal);
+			if (glm::length(moveInput) > 1.0f)
+				moveInput = glm::normalize(moveInput);
+
+			glm::vec3 horizontalVelocity(rb.velocity.x, 0.0f, rb.velocity.z);
+			glm::vec3 targetHorizontalVelocity = moveInput * controller.moveSpeed;
+			if (glm::length(moveInput) > 0.0001f)
+			{
+				float accel = controller.isGrounded
+					? controller.acceleration
+					: controller.airAcceleration * std::max(controller.airControl, 0.0f);
+				horizontalVelocity = MoveTowards(horizontalVelocity, targetHorizontalVelocity, accel * dt);
+			}
+			else
+			{
+				horizontalVelocity = MoveTowards(horizontalVelocity, glm::vec3(0.0f), controller.braking * dt);
+			}
+			rb.velocity.x = horizontalVelocity.x;
+			rb.velocity.z = horizontalVelocity.z;
+			controller.currentSpeed = glm::length(glm::vec2(rb.velocity.x, rb.velocity.z));
+
+			if (controller.jumpRequested && controller.isGrounded)
+			{
+				rb.velocity.y = controller.jumpSpeed;
+				controller.isGrounded = false;
+				controller.wasGrounded = false;
+				controller.jumpedThisFrame = true;
+			}
+			else if (!controller.isGrounded)
+			{
+				rb.velocity += gravity * controller.gravityScale * dt;
+			}
+
+			if (controller.isOnSteepSlope)
+			{
+				glm::vec3 slideDirection = FlattenToPlane(gravity, probeNormal);
+				if (glm::length(slideDirection) > 0.0001f)
+					rb.velocity += glm::normalize(slideDirection) * (glm::length(gravity) * controller.slideGravityScale * dt);
+			}
+
+			glm::vec3 horizontalDisplacement(rb.velocity.x * dt, 0.0f, rb.velocity.z * dt);
+			if (glm::length(horizontalDisplacement) > 0.0001f)
+			{
+				glm::vec3 startPosition = transform.position;
+				transform.position += horizontalDisplacement;
+
+				glm::vec3 moveNormal(0.0f, 1.0f, 0.0f);
+				float movePenetration = 0.0f;
+				if (QueryCharacterSupport(scene, entity, moveNormal, movePenetration))
+				{
+					bool blockingHit = !IsWalkableSlope(moveNormal, controller.maxSlopeAngleDegrees);
+					if (blockingHit)
+					{
+						transform.position = startPosition;
+						if (!TryStepUp(scene, entity, controller, rb, horizontalDisplacement))
+						{
+							transform.position += horizontalDisplacement;
+							ResolveCharacterOverlaps(scene, entity, controller, rb);
+						}
+					}
+					else
+					{
+						ResolveCharacterOverlaps(scene, entity, controller, rb);
+					}
+				}
+			}
+
+			transform.position += glm::vec3(0.0f, rb.velocity.y * dt, 0.0f);
+			ResolveCharacterOverlaps(scene, entity, controller, rb);
+
+			controller.groundVelocity = glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z);
+
+			if (controller.enableGroundSnap && !controller.jumpRequested && rb.velocity.y <= 0.0f)
+			{
+				glm::vec3 originalPosition = transform.position;
+				transform.position -= glm::vec3(0.0f, controller.groundSnapDistance, 0.0f);
+				glm::vec3 snapNormal(0.0f, 1.0f, 0.0f);
+				float snapPenetration = 0.0f;
+				if (QueryCharacterSupport(scene, entity, snapNormal, snapPenetration) && IsWalkableSlope(snapNormal, controller.maxSlopeAngleDegrees))
+				{
+					transform.position += snapNormal * (snapPenetration + controller.skinWidth);
+					controller.isGrounded = true;
+					controller.groundNormal = glm::normalize(snapNormal);
+					controller.isOnSteepSlope = false;
+					rb.velocity.y = 0.0f;
+				}
+				else
+				{
+					transform.position = originalPosition;
+				}
+			}
+
+			glm::vec3 facing = FlattenToPlane(glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z), glm::vec3(0.0f, 1.0f, 0.0f));
+			if (controller.orientToMovement && glm::length(facing) > 0.1f)
+			{
+				facing = glm::normalize(facing);
+				transform.rotation.y = std::atan2(facing.z, facing.x);
+			}
+
+			UpdateControllerAnimationState(entity, controller);
 		}
 	}
 
@@ -816,7 +1289,7 @@ namespace MyEngine
 	bool PhysicsSystem::CheckBoxSphereCollision(
 		const glm::vec3& boxCenter, const glm::vec3& boxHalfExtents,
 		const glm::vec3& spherePos, float sphereRadius,
-		glm::vec3& outNormal, float& outPenetration)
+		glm::vec3& outNormal, float& outPenetration) const
 	{
 		// Find the closest point on the AABB to the sphere center
 		glm::vec3 boxMin = boxCenter - boxHalfExtents;
@@ -1026,7 +1499,7 @@ namespace MyEngine
 	bool PhysicsSystem::CheckCapsulePlaneCollision(
 		const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
 		const glm::vec3& planeNormal, float planeDistance,
-		glm::vec3& outNormal, float& outPenetration)
+		glm::vec3& outNormal, float& outPenetration) const
 	{
 		// Find whichever end of the capsule segment is deepest into the plane
 		float distA = glm::dot(segA, planeNormal) - planeDistance;
@@ -1046,7 +1519,7 @@ namespace MyEngine
 	bool PhysicsSystem::CheckCapsuleSphereCollision(
 		const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
 		const glm::vec3& spherePos, float sphereRadius,
-		glm::vec3& outNormal, float& outPenetration)
+		glm::vec3& outNormal, float& outPenetration) const
 	{
 		glm::vec3 closest = ClosestPointOnSegment(spherePos, segA, segB);
 		glm::vec3 delta = spherePos - closest;
@@ -1075,7 +1548,7 @@ namespace MyEngine
 	bool PhysicsSystem::CheckCapsuleBoxCollision(
 		const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
 		const glm::vec3& boxCenter, const glm::vec3& boxHalfExtents,
-		glm::vec3& outNormal, float& outPenetration)
+		glm::vec3& outNormal, float& outPenetration) const
 	{
 		// Approximate by finding the closest point on the capsule segment to the box,
 		// then treating that point as a sphere center for a box-sphere test.
@@ -1107,7 +1580,7 @@ namespace MyEngine
 	bool PhysicsSystem::CheckCapsuleCapsuleCollision(
 		const glm::vec3& segA0, const glm::vec3& segA1, float radiusA,
 		const glm::vec3& segB0, const glm::vec3& segB1, float radiusB,
-		glm::vec3& outNormal, float& outPenetration)
+		glm::vec3& outNormal, float& outPenetration) const
 	{
 		glm::vec3 closestA, closestB;
 		ClosestPointsBetweenSegments(segA0, segA1, segB0, segB1, closestA, closestB);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ecs/System.h"
+#include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <memory>
 #include <unordered_map>
@@ -14,6 +15,9 @@ class Entity;
 
 namespace MyEngine
 {
+	struct RigidbodyComponent;
+	struct CharacterControllerComponent;
+
 	class PhysicsSystem : public System
 	{
 	public:
@@ -21,6 +25,7 @@ namespace MyEngine
 		~PhysicsSystem() override = default;
 
 		void OnUpdate(Scene& scene, float deltaTime) override;
+		void OnUpdate(Scene& scene, float deltaTime, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight);
 
 		// Physics settings
 		glm::vec3 gravity = glm::vec3(0.0f, -9.81f, 0.0f);  // Default gravity (m/s²)
@@ -78,6 +83,8 @@ namespace MyEngine
 			void FixedUpdate(Scene& scene, float dt);
 			void ApplyForces(Scene& scene, float dt);
 			void IntegrateVelocity(Scene& scene, float dt);
+			void UpdateCharacterControllers(Scene& scene, float dt);
+			void CollectCharacterControllerInput(Scene& scene, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight);
 			void DetectAndResolveCollisions(Scene& scene);
 			void SolveJoints(Scene& scene, float dt);
 
@@ -110,7 +117,7 @@ namespace MyEngine
 						const glm::vec3& boxCenter, const glm::vec3& boxHalfExtents,
 						const glm::vec3& spherePos, float sphereRadius,
 						glm::vec3& outNormal, float& outPenetration
-					);
+					) const;
 
 					// --- Capsule collision detection ---
 					// A capsule is defined by a world-space segment [segA, segB] and a radius.
@@ -119,25 +126,25 @@ namespace MyEngine
 						const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
 						const glm::vec3& planeNormal, float planeDistance,
 						glm::vec3& outNormal, float& outPenetration
-					);
+					) const;
 
 					bool CheckCapsuleSphereCollision(
 						const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
 						const glm::vec3& spherePos, float sphereRadius,
 						glm::vec3& outNormal, float& outPenetration
-					);
+					) const;
 
 					bool CheckCapsuleBoxCollision(
 						const glm::vec3& segA, const glm::vec3& segB, float capsuleRadius,
 						const glm::vec3& boxCenter, const glm::vec3& boxHalfExtents,
 						glm::vec3& outNormal, float& outPenetration
-					);
+					) const;
 
 					bool CheckCapsuleCapsuleCollision(
 						const glm::vec3& segA0, const glm::vec3& segA1, float radiusA,
 						const glm::vec3& segB0, const glm::vec3& segB1, float radiusB,
 						glm::vec3& outNormal, float& outPenetration
-					);
+					) const;
 
 					// Closest point between two segments (used by capsule-capsule collision)
 					static void ClosestPointsBetweenSegments(
@@ -155,6 +162,16 @@ namespace MyEngine
 						glm::vec3& posB, glm::vec3& velB, float massB, float bouncinessB, bool isKinematicB,
 						const glm::vec3& normal, float penetration
 					);
+
+					bool SweepCharacterPlanes(const Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const;
+					bool SweepCharacterPairs(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const;
+					bool QueryCharacterSupport(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const;
+					bool ResolveCharacterOverlaps(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb) const;
+					bool TryStepUp(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb, const glm::vec3& horizontalDisplacement) const;
+					void UpdateControllerAnimationState(const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller) const;
+					bool IsWalkableSlope(const glm::vec3& normal, float maxSlopeAngleDegrees) const;
+					static glm::vec3 MoveTowards(const glm::vec3& current, const glm::vec3& target, float maxDelta);
+					static glm::vec3 FlattenToPlane(const glm::vec3& vector, const glm::vec3& planeNormal);
 
 						private:
 							// Computes a world-space AABB for an entity's collider (sphere, box, or capsule).

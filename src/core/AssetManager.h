@@ -5,6 +5,8 @@
 #include <memory>
 #include <unordered_map>
 
+#include <glm/glm.hpp>
+
 #include "ecs/Entity.h"
 
 namespace MyEngine
@@ -90,6 +92,14 @@ namespace MyEngine
 										const SkinnedModelData& data,
 										const std::shared_ptr<Shader>& shader = nullptr,
 										const std::string& assetPath = "");
+
+		// Compute a tighter character capsule from a skeleton bind pose. Returns
+		// false when the skeleton does not provide enough data to fit a capsule.
+		static bool ComputeCharacterCapsuleFromSkeleton(
+			const std::shared_ptr<Skeleton>& skeleton,
+			glm::vec3& outPointA,
+			glm::vec3& outPointB,
+			float& outRadius);
 
 	private:
 		static std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> s_ModelCache;

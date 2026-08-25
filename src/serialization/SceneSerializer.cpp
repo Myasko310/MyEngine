@@ -12,6 +12,7 @@
 #include "components/RigidbodyComponent.h"
 #include "components/BoxColliderComponent.h"
 #include "components/CapsuleColliderComponent.h"
+#include "components/CharacterControllerComponent.h"
 #include "components/PlaneColliderComponent.h"
 #include "components/AudioSourceComponent.h"
 #include "components/AudioListenerComponent.h"
@@ -366,6 +367,31 @@ namespace MyEngine
 					writer.Key("pointB"); SerializeVec3(writer, capsule.pointB);
 					writer.Key("radius"); writer.Double(capsule.radius);
 					writer.Key("isTrigger"); writer.Bool(capsule.isTrigger);
+					writer.EndObject();
+				}
+
+				if (e->HasComponent<MyEngine::CharacterControllerComponent>())
+				{
+					auto& controller = e->GetComponent<MyEngine::CharacterControllerComponent>();
+					writer.Key("CharacterController");
+					writer.StartObject();
+					writer.Key("moveSpeed"); writer.Double(controller.moveSpeed);
+					writer.Key("airControl"); writer.Double(controller.airControl);
+					writer.Key("jumpSpeed"); writer.Double(controller.jumpSpeed);
+					writer.Key("gravityScale"); writer.Double(controller.gravityScale);
+					writer.Key("maxSlopeAngleDegrees"); writer.Double(controller.maxSlopeAngleDegrees);
+					writer.Key("groundSnapDistance"); writer.Double(controller.groundSnapDistance);
+					writer.Key("skinWidth"); writer.Double(controller.skinWidth);
+					writer.Key("maxStepHeight"); writer.Double(controller.maxStepHeight);
+					writer.Key("acceleration"); writer.Double(controller.acceleration);
+					writer.Key("airAcceleration"); writer.Double(controller.airAcceleration);
+					writer.Key("braking"); writer.Double(controller.braking);
+					writer.Key("slideGravityScale"); writer.Double(controller.slideGravityScale);
+					writer.Key("enableGroundSnap"); writer.Bool(controller.enableGroundSnap);
+					writer.Key("orientToMovement"); writer.Bool(controller.orientToMovement);
+					writer.Key("animationSpeedParameter"); writer.String(controller.animationSpeedParameter.c_str());
+					writer.Key("animationGroundedParameter"); writer.String(controller.animationGroundedParameter.c_str());
+					writer.Key("animationJumpTriggerParameter"); writer.String(controller.animationJumpTriggerParameter.c_str());
 					writer.EndObject();
 				}
 
@@ -739,7 +765,11 @@ namespace MyEngine
 							MyEngine::SkinnedModelData skinnedData = MyEngine::AssetManager::LoadSkinnedModel(path);
 							if (!skinnedData.meshes.empty())
 							{
-								MyEngine::AssetManager::AttachSkinnedModelToEntity(ent, skinnedData, defaultShader, path);
+								// Ensure skinned entities load with a skinning-capable shader.
+								auto skinnedShader = MyEngine::AssetManager::LoadShader("shaders/lit_skinned.vert", "shaders/lit.frag");
+								if (!skinnedShader)
+									skinnedShader = defaultShader;
+								MyEngine::AssetManager::AttachSkinnedModelToEntity(ent, skinnedData, skinnedShader, path);
 							}
 						}
 						else
@@ -969,6 +999,29 @@ namespace MyEngine
 					if (co.HasMember("isTrigger")) capsule.isTrigger = co["isTrigger"].GetBool();
 				}
 
+				if (v.HasMember("CharacterController") && v["CharacterController"].IsObject())
+				{
+					auto& controller = ent->AddComponent<MyEngine::CharacterControllerComponent>();
+					const auto& cco = v["CharacterController"];
+					if (cco.HasMember("moveSpeed")) controller.moveSpeed = static_cast<float>(cco["moveSpeed"].GetDouble());
+					if (cco.HasMember("airControl")) controller.airControl = static_cast<float>(cco["airControl"].GetDouble());
+					if (cco.HasMember("jumpSpeed")) controller.jumpSpeed = static_cast<float>(cco["jumpSpeed"].GetDouble());
+					if (cco.HasMember("gravityScale")) controller.gravityScale = static_cast<float>(cco["gravityScale"].GetDouble());
+					if (cco.HasMember("maxSlopeAngleDegrees")) controller.maxSlopeAngleDegrees = static_cast<float>(cco["maxSlopeAngleDegrees"].GetDouble());
+					if (cco.HasMember("groundSnapDistance")) controller.groundSnapDistance = static_cast<float>(cco["groundSnapDistance"].GetDouble());
+					if (cco.HasMember("skinWidth")) controller.skinWidth = static_cast<float>(cco["skinWidth"].GetDouble());
+					if (cco.HasMember("maxStepHeight")) controller.maxStepHeight = static_cast<float>(cco["maxStepHeight"].GetDouble());
+					if (cco.HasMember("acceleration")) controller.acceleration = static_cast<float>(cco["acceleration"].GetDouble());
+					if (cco.HasMember("airAcceleration")) controller.airAcceleration = static_cast<float>(cco["airAcceleration"].GetDouble());
+					if (cco.HasMember("braking")) controller.braking = static_cast<float>(cco["braking"].GetDouble());
+					if (cco.HasMember("slideGravityScale")) controller.slideGravityScale = static_cast<float>(cco["slideGravityScale"].GetDouble());
+					if (cco.HasMember("enableGroundSnap")) controller.enableGroundSnap = cco["enableGroundSnap"].GetBool();
+					if (cco.HasMember("orientToMovement")) controller.orientToMovement = cco["orientToMovement"].GetBool();
+					if (cco.HasMember("animationSpeedParameter") && cco["animationSpeedParameter"].IsString()) controller.animationSpeedParameter = cco["animationSpeedParameter"].GetString();
+					if (cco.HasMember("animationGroundedParameter") && cco["animationGroundedParameter"].IsString()) controller.animationGroundedParameter = cco["animationGroundedParameter"].GetString();
+					if (cco.HasMember("animationJumpTriggerParameter") && cco["animationJumpTriggerParameter"].IsString()) controller.animationJumpTriggerParameter = cco["animationJumpTriggerParameter"].GetString();
+				}
+
 				// Plane Collider
 				if (v.HasMember("PlaneCollider") && v["PlaneCollider"].IsObject())
 				{
@@ -1125,6 +1178,7 @@ namespace MyEngine
 								COPY_COMPONENT(RigidbodyComponent);
 								COPY_COMPONENT(BoxColliderComponent);
 								COPY_COMPONENT(CapsuleColliderComponent);
+								COPY_COMPONENT(CharacterControllerComponent);
 								COPY_COMPONENT(PlaneColliderComponent);
 								COPY_COMPONENT(AudioSourceComponent);
 								COPY_COMPONENT(AudioListenerComponent);
@@ -1177,6 +1231,7 @@ namespace MyEngine
 						COPY_COMPONENT(RigidbodyComponent);
 						COPY_COMPONENT(BoxColliderComponent);
 						COPY_COMPONENT(CapsuleColliderComponent);
+						COPY_COMPONENT(CharacterControllerComponent);
 						COPY_COMPONENT(PlaneColliderComponent);
 						COPY_COMPONENT(AudioSourceComponent);
 						COPY_COMPONENT(AudioListenerComponent);

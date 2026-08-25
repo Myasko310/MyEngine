@@ -105,6 +105,11 @@ namespace MyEngine
 		static int LuaSetGravityScale(lua_State* L);
 		static int LuaGetKinematic(lua_State* L);
 		static int LuaSetKinematic(lua_State* L);
+		static int LuaHasAnimation(lua_State* L);
+		static int LuaGetAnimationClipCount(lua_State* L);
+		static int LuaGetAnimationClipName(lua_State* L);
+		static int LuaGetActiveAnimationClip(lua_State* L);
+		static int LuaPlayAnimationClip(lua_State* L);
 		static int LuaHasLight(lua_State* L);
 		static int LuaGetLightColor(lua_State* L);
 		static int LuaSetLightColor(lua_State* L);

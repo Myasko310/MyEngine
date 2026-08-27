@@ -27,6 +27,7 @@
 #include "components/TerrainComponent.h"
 #include "components/NavigationAgentComponent.h"
 #include "components/ParticleEmitterComponent.h"
+#include "components/PrefabInstanceComponent.h"
 #include "core/LayerMask.h"
 #include "rendering/MeshPrimitives.h"
 #include "rendering/Texture.h"
@@ -41,6 +42,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <queue>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -289,6 +293,17 @@ namespace MyEngine
 						writer.EndObject();
 					}
 					writer.EndArray();
+					writer.EndObject();
+				}
+
+				// Prefab instances
+				if (e->HasComponent<PrefabInstanceComponent>())
+				{
+					auto& prefab = e->GetComponent<PrefabInstanceComponent>();
+					writer.Key("PrefabInstanceComponent");
+					writer.StartObject();
+					writer.Key("sourcePrefabPath"); writer.String(prefab.sourcePrefabPath.c_str());
+					writer.Key("sourceEntityID"); writer.Uint(prefab.sourceEntityID);
 					writer.EndObject();
 				}
 
@@ -1001,6 +1016,17 @@ namespace MyEngine
 					}
 				}
 
+				// PrefabInstanceComponent
+				if (v.HasMember("PrefabInstanceComponent") && v["PrefabInstanceComponent"].IsObject())
+				{
+					auto& prefab = ent->AddComponent<PrefabInstanceComponent>();
+					const auto& po = v["PrefabInstanceComponent"];
+					if (po.HasMember("sourcePrefabPath") && po["sourcePrefabPath"].IsString())
+						prefab.sourcePrefabPath = po["sourcePrefabPath"].GetString();
+					if (po.HasMember("sourceEntityID") && po["sourceEntityID"].IsUint())
+						prefab.sourceEntityID = po["sourceEntityID"].GetUint();
+				}
+
 				// NavigationAgentComponent
 					if (v.HasMember("NavAgent") && v["NavAgent"].IsObject())
 					{
@@ -1231,108 +1257,236 @@ namespace MyEngine
 					return true;
 					}
 
-					// -------------------------------------------------------------------
-					// Prefab helpers
-					// -------------------------------------------------------------------
-					// SavePrefab serialises a single entity by creating a temporary
-					// single-entity scene and delegating to SaveScene.
+							// -------------------------------------------------------------------
+							// Prefab helpers
+							// -------------------------------------------------------------------
 							bool SavePrefab(
-								::Entity* entity,
+								const ::Scene& sourceScene,
+								::Entity* rootEntity,
 								const std::string& path
 							)
 							{
-								if (!entity)
+								if (!rootEntity)
 									return false;
 
-								// Build a minimal temporary scene that contains only this entity.
-								::Scene tmp;
-								auto clone = tmp.CreateEntity(entity->GetName());
+								const uint32_t rootID = rootEntity->GetID();
+								std::unordered_set<uint32_t> subtreeIDs;
+								std::queue<uint32_t> pending;
+								pending.push(rootID);
 
-					#define COPY_COMPONENT(T) \
-						if (entity->HasComponent<T>()) clone->AddComponent<T>() = entity->GetComponent<T>()
+								while (!pending.empty())
+								{
+									const uint32_t currentID = pending.front();
+									pending.pop();
+									if (!subtreeIDs.insert(currentID).second)
+										continue;
 
-								COPY_COMPONENT(TransformComponent);
-								COPY_COMPONENT(CameraComponent);
-								COPY_COMPONENT(LightComponent);
-								COPY_COMPONENT(MeshComponent);
-								COPY_COMPONENT(MeshRendererComponent);
-								COPY_COMPONENT(BoundingSphereComponent);
-								COPY_COMPONENT(RigidbodyComponent);
-								COPY_COMPONENT(BoxColliderComponent);
-								COPY_COMPONENT(CapsuleColliderComponent);
-								COPY_COMPONENT(CharacterControllerComponent);
-								COPY_COMPONENT(PlaneColliderComponent);
-								COPY_COMPONENT(AudioSourceComponent);
-								COPY_COMPONENT(AudioListenerComponent);
-								COPY_COMPONENT(JointComponent);
-								COPY_COMPONENT(SkeletonComponent);
-								COPY_COMPONENT(AnimationComponent);
-								COPY_COMPONENT(ScriptComponent);
-										COPY_COMPONENT(LODComponent);
-										COPY_COMPONENT(TerrainComponent);
-										COPY_COMPONENT(NavigationAgentComponent);
+									for (const auto& candidate : sourceScene.GetEntities())
+									{
+										if (!candidate || !candidate->HasComponent<TransformComponent>())
+											continue;
+										if (candidate->GetComponent<TransformComponent>().parentID == currentID)
+											pending.push(candidate->GetID());
+									}
+								}
+
+								::Scene prefabScene;
+								std::vector<uint32_t> orderedIDs;
+								orderedIDs.reserve(subtreeIDs.size());
+								orderedIDs.push_back(rootID);
+								for (const auto& e : sourceScene.GetEntities())
+								{
+									if (!e || e->GetID() == rootID)
+										continue;
+									if (subtreeIDs.find(e->GetID()) != subtreeIDs.end())
+										orderedIDs.push_back(e->GetID());
+								}
+
+								for (const uint32_t id : orderedIDs)
+								{
+									auto source = sourceScene.GetEntitySharedByID(id);
+									if (!source)
+										continue;
+
+									auto clone = prefabScene.CreateEntityWithID(source->GetID(), source->GetName());
+									if (!clone)
+										continue;
+
+									clone->SetTag(source->GetTag());
+									clone->SetLayer(source->GetLayer());
+
+								#define COPY_COMPONENT(T) \
+									if (source->HasComponent<T>()) clone->AddComponent<T>() = source->GetComponent<T>()
+									COPY_COMPONENT(TransformComponent);
+									COPY_COMPONENT(CameraComponent);
+									COPY_COMPONENT(LightComponent);
+									COPY_COMPONENT(MeshComponent);
+									COPY_COMPONENT(MeshRendererComponent);
+									COPY_COMPONENT(BoundingSphereComponent);
+									COPY_COMPONENT(RigidbodyComponent);
+									COPY_COMPONENT(BoxColliderComponent);
+									COPY_COMPONENT(CapsuleColliderComponent);
+									COPY_COMPONENT(CharacterControllerComponent);
+									COPY_COMPONENT(PlaneColliderComponent);
+									COPY_COMPONENT(AudioSourceComponent);
+									COPY_COMPONENT(AudioListenerComponent);
+									COPY_COMPONENT(JointComponent);
+									COPY_COMPONENT(MeshColliderComponent);
+									COPY_COMPONENT(SkeletonComponent);
+									COPY_COMPONENT(AnimationComponent);
+									COPY_COMPONENT(AnimationStateMachineComponent);
+									COPY_COMPONENT(ScriptComponent);
+									COPY_COMPONENT(LODComponent);
+									COPY_COMPONENT(TerrainComponent);
+									COPY_COMPONENT(NavigationAgentComponent);
+									COPY_COMPONENT(ParticleEmitterComponent);
 								#undef COPY_COMPONENT
 
-								return SaveScene(tmp, path);
+									if (clone->HasComponent<TransformComponent>())
+									{
+										auto& t = clone->GetComponent<TransformComponent>();
+										if (t.parentID == rootID)
+											t.parentID = 0;
+										else if (subtreeIDs.find(t.parentID) == subtreeIDs.end())
+											t.parentID = 0;
+									}
+
+									if (clone->HasComponent<JointComponent>())
+									{
+										auto& joint = clone->GetComponent<JointComponent>();
+										if (subtreeIDs.find(joint.connectedEntityID) == subtreeIDs.end())
+											joint.connectedEntityID = 0;
+									}
+								}
+
+								return SaveScene(prefabScene, path);
 							}
 
-					// SpawnPrefab loads a prefab into a temporary scene, then clones the
-					// entity into the destination scene so full scene-load semantics
-					// (replace-on-load) do not affect prefab instancing.
-					::Entity* SpawnPrefab(
-						::Scene& scene,
-						const std::string& path,
-						const std::shared_ptr<MyEngine::Shader>& defaultShader
-					)
-					{
-						::Scene prefabScene;
-						if (!LoadScene(prefabScene, path, defaultShader))
-							return nullptr;
+							::Entity* SpawnPrefab(
+								::Scene& scene,
+								const std::string& path,
+								const std::shared_ptr<MyEngine::Shader>& defaultShader
+							)
+							{
+								::Scene prefabScene;
+								if (!LoadScene(prefabScene, path, defaultShader))
+									return nullptr;
 
-						auto& prefabEntities = prefabScene.GetEntities();
-						if (prefabEntities.empty() || !prefabEntities.front())
-							return nullptr;
+								auto& prefabEntities = prefabScene.GetEntities();
+								if (prefabEntities.empty())
+									return nullptr;
 
-						auto source = prefabEntities.front();
-						auto spawned = scene.CreateEntity(source->GetName());
-						if (!spawned)
-							return nullptr;
+								std::unordered_set<uint32_t> sourceIDs;
+								for (const auto& source : prefabEntities)
+									if (source) sourceIDs.insert(source->GetID());
 
-						spawned->SetTag(source->GetTag());
-						spawned->SetLayer(source->GetLayer());
+								auto isRootCandidate = [&](const std::shared_ptr<::Entity>& candidate) -> bool
+								{
+									if (!candidate)
+										return false;
+									if (!candidate->HasComponent<TransformComponent>())
+										return true;
+									const auto& t = candidate->GetComponent<TransformComponent>();
+									return t.parentID == 0 || sourceIDs.find(t.parentID) == sourceIDs.end();
+								};
 
-					#define COPY_COMPONENT(T) \
-						if (source->HasComponent<T>()) spawned->AddComponent<T>() = source->GetComponent<T>()
+								std::shared_ptr<::Entity> sourceRoot;
+								for (const auto& source : prefabEntities)
+								{
+									if (isRootCandidate(source))
+									{
+										sourceRoot = source;
+										break;
+									}
+								}
+								if (!sourceRoot)
+									sourceRoot = prefabEntities.front();
 
-						COPY_COMPONENT(TransformComponent);
-						COPY_COMPONENT(CameraComponent);
-						COPY_COMPONENT(LightComponent);
-						COPY_COMPONENT(MeshComponent);
-						COPY_COMPONENT(MeshRendererComponent);
-						COPY_COMPONENT(BoundingSphereComponent);
-						COPY_COMPONENT(RigidbodyComponent);
-						COPY_COMPONENT(BoxColliderComponent);
-						COPY_COMPONENT(CapsuleColliderComponent);
-						COPY_COMPONENT(CharacterControllerComponent);
-						COPY_COMPONENT(PlaneColliderComponent);
-						COPY_COMPONENT(AudioSourceComponent);
-						COPY_COMPONENT(AudioListenerComponent);
-						COPY_COMPONENT(JointComponent);
-						COPY_COMPONENT(SkeletonComponent);
-						COPY_COMPONENT(AnimationComponent);
-						COPY_COMPONENT(ScriptComponent);
-						COPY_COMPONENT(LODComponent);
-						COPY_COMPONENT(TerrainComponent);
-						COPY_COMPONENT(NavigationAgentComponent);
-						COPY_COMPONENT(ParticleEmitterComponent);
-					#undef COPY_COMPONENT
+								std::unordered_map<uint32_t, std::shared_ptr<::Entity>> spawnedBySourceID;
+								spawnedBySourceID.reserve(prefabEntities.size());
 
-						if (spawned->HasComponent<TransformComponent>())
-							spawned->GetComponent<TransformComponent>().parentID = 0;
-						if (spawned->HasComponent<JointComponent>())
-							spawned->GetComponent<JointComponent>().connectedEntityID = 0;
+								for (const auto& source : prefabEntities)
+								{
+									if (!source)
+										continue;
 
-						return spawned.get();
+									auto spawned = scene.CreateEntity(source->GetName());
+									if (!spawned)
+										continue;
+
+										spawned->SetTag(source->GetTag());
+										spawned->SetLayer(source->GetLayer());
+
+										auto& prefabInstance = spawned->AddComponent<PrefabInstanceComponent>();
+										prefabInstance.sourcePrefabPath = path;
+										prefabInstance.sourceEntityID = source->GetID();
+
+									#define COPY_COMPONENT(T) \
+									if (source->HasComponent<T>()) spawned->AddComponent<T>() = source->GetComponent<T>()
+									COPY_COMPONENT(TransformComponent);
+									COPY_COMPONENT(CameraComponent);
+									COPY_COMPONENT(LightComponent);
+									COPY_COMPONENT(MeshComponent);
+									COPY_COMPONENT(MeshRendererComponent);
+									COPY_COMPONENT(BoundingSphereComponent);
+									COPY_COMPONENT(RigidbodyComponent);
+									COPY_COMPONENT(BoxColliderComponent);
+									COPY_COMPONENT(CapsuleColliderComponent);
+									COPY_COMPONENT(CharacterControllerComponent);
+									COPY_COMPONENT(PlaneColliderComponent);
+									COPY_COMPONENT(AudioSourceComponent);
+									COPY_COMPONENT(AudioListenerComponent);
+									COPY_COMPONENT(JointComponent);
+									COPY_COMPONENT(MeshColliderComponent);
+									COPY_COMPONENT(SkeletonComponent);
+									COPY_COMPONENT(AnimationComponent);
+									COPY_COMPONENT(AnimationStateMachineComponent);
+									COPY_COMPONENT(ScriptComponent);
+									COPY_COMPONENT(LODComponent);
+									COPY_COMPONENT(TerrainComponent);
+									COPY_COMPONENT(NavigationAgentComponent);
+									COPY_COMPONENT(ParticleEmitterComponent);
+								#undef COPY_COMPONENT
+
+									spawnedBySourceID[source->GetID()] = spawned;
+								}
+
+								for (const auto& source : prefabEntities)
+								{
+									if (!source)
+										continue;
+
+									auto itSpawned = spawnedBySourceID.find(source->GetID());
+									if (itSpawned == spawnedBySourceID.end() || !itSpawned->second)
+										continue;
+
+									auto& spawned = itSpawned->second;
+									if (spawned->HasComponent<TransformComponent>() && source->HasComponent<TransformComponent>())
+									{
+										auto& dst = spawned->GetComponent<TransformComponent>();
+										const auto& src = source->GetComponent<TransformComponent>();
+										auto parentIt = spawnedBySourceID.find(src.parentID);
+										dst.parentID = (parentIt != spawnedBySourceID.end() && parentIt->second)
+											? parentIt->second->GetID()
+											: 0;
+									}
+
+									if (spawned->HasComponent<JointComponent>() && source->HasComponent<JointComponent>())
+									{
+										auto& dst = spawned->GetComponent<JointComponent>();
+										const auto& src = source->GetComponent<JointComponent>();
+										auto connectedIt = spawnedBySourceID.find(src.connectedEntityID);
+										dst.connectedEntityID = (connectedIt != spawnedBySourceID.end() && connectedIt->second)
+											? connectedIt->second->GetID()
+											: 0;
+									}
+								}
+
+								auto rootIt = spawnedBySourceID.find(sourceRoot->GetID());
+								if (rootIt == spawnedBySourceID.end() || !rootIt->second)
+									return nullptr;
+
+								return rootIt->second.get();
+							}
+						}
 					}
-				}
-			}

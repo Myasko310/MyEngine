@@ -42,7 +42,8 @@ namespace MyEngine
 		// Prefab helpers: serialize one entity to a .prefab.json file, then
 		// instantiate a copy of it back into a scene.
 		bool SavePrefab(
-			::Entity* entity,
+			const ::Scene& sourceScene,
+			::Entity* rootEntity,
 			const std::string& path
 		);
 

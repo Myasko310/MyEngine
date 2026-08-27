@@ -4,6 +4,8 @@
 #include <iostream>
 #ifdef _WIN32
 #include <windows.h>
+#include <psapi.h>
+#pragma comment(lib, "Psapi.lib")
 #endif
 #include <memory>
 #include <chrono>
@@ -15,17 +17,21 @@
 #include <fstream>
 #include <cmath>
 
-// Core
 #include "core/Input.h"
 #include "core/FileDialog.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
 #include "ecs/TransformHierarchy.h"
+#include "editor/EditorContext.h"
 #include "editor/EditorUndo.h"
-
+#include "editor/EditorUIState.h"
+#include "editor/panels/AnimationStateMachinePanel.h"
+#include "editor/panels/AssetBrowserPanel.h"
+#include "editor/panels/MaterialBrowserPanel.h"
+#include "editor/panels/SceneHierarchyPanel.h"
+#include "editor/panels/ScriptingPanel.h"
+#include "editor/panels/ToolbarPanel.h"
 #include "components/LightComponent.h"
-
-// Components
 #include "components/CameraComponent.h"
 #include "components/TransformComponent.h"
 #include "components/BoundingSphereComponent.h"
@@ -45,39 +51,31 @@
 #include "components/JointComponent.h"
 #include "components/AnimationComponent.h"
 #include "components/AnimationStateMachineComponent.h"
+#include "components/PrefabInstanceComponent.h"
 #include "components/SkeletonComponent.h"
 #include "components/ScriptComponent.h"
-
-// Audio
 #include "audio/AudioEngine.h"
 #include "audio/AudioClip.h"
 #include <AL/al.h>
-
-// Rendering
 #include "rendering/Mesh.h"
 #include "rendering/Shader.h"
 #include "rendering/MeshPrimitives.h"
-// Model / serialization
 #include "rendering/Model.h"
 #include "serialization/SceneSerializer.h"
 #include "animation/AnimationStateMachine.h"
-// Asset manager
 #include "core/AssetManager.h"
 #include "core/LayerMask.h"
-
 #ifdef USE_IMGUI
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
+#include "editor/EditorStyle.h"
 #endif
-
 #ifdef USE_IMGUIZMO
 #include "ImGuizmo.h"
 #include <glm/gtc/type_ptr.hpp>
 #endif
 #include <glm/gtc/matrix_transform.hpp>
-
-// Systems
 #include "systems/CameraSystem.h"
 #include "systems/MeshRendererSystem.h"
 #include "systems/TerrainSystem.h"
@@ -92,16 +90,18 @@
 #include "systems/ScriptSystem.h"
 #include "systems/ParticleSystem.h"
 #include "components/ParticleEmitterComponent.h"
-
-// Core (picking)
 #include "core/Raycast.h"
 
 using namespace MyEngine;
+#ifdef USE_IMGUI
+using namespace MyEngine::Editor;
+#endif
 
-// Make the initial window larger so UI and scene are more visible by default
+// Tracks the current framebuffer size used for viewport and UI layout.
 static int g_WindowWidth = 3200;
 static int g_WindowHeight = 1800;
 
+// Keeps the cached window size in sync with the active GLFW framebuffer.
 static void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
     g_WindowWidth = width;
@@ -111,6 +111,7 @@ static void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
 }
 
 #ifdef USE_IMGUI
+// Returns the world-space scale encoded in a transform matrix.
 static glm::vec3 ExtractWorldScaleFromMatrix(const glm::mat4& worldMatrix)
 {
     return glm::vec3(
@@ -120,11 +121,13 @@ static glm::vec3 ExtractWorldScaleFromMatrix(const glm::mat4& worldMatrix)
     );
 }
 
+// Applies a transform matrix to a point in local space.
 static glm::vec3 TransformPointByMatrix(const glm::mat4& worldMatrix, const glm::vec3& point)
 {
     return glm::vec3(worldMatrix * glm::vec4(point, 1.0f));
 }
 
+// Projects a world-space point into ImGui screen coordinates.
 static bool ProjectWorldPointToScreen(
     const glm::vec3& worldPoint,
     const glm::mat4& view,
@@ -148,12 +151,11 @@ static bool ProjectWorldPointToScreen(
 }
 #endif
 
-// ------------------------------------------------------------
-// Recent scenes list persistence (simple one-path-per-line file)
-// ------------------------------------------------------------
+// Recent scenes are persisted to a small text file so the file menu can restore them.
 static const char* kRecentScenesFile = "recent_scenes.txt";
 static const size_t kMaxRecentScenes = 5;
 
+// Loads the recent-scene history from disk.
 static std::vector<std::string> LoadRecentScenes()
 {
     std::vector<std::string> recents;
@@ -170,6 +172,7 @@ static std::vector<std::string> LoadRecentScenes()
     return recents;
 }
 
+// Writes the recent-scene history back to disk.
 static void SaveRecentScenes(const std::vector<std::string>& recents)
 {
     std::ofstream ofs(kRecentScenesFile, std::ios::trunc);
@@ -180,6 +183,7 @@ static void SaveRecentScenes(const std::vector<std::string>& recents)
         ofs << path << "\n";
 }
 
+// Moves a scene to the front of the list and persists the update.
 static void AddRecentScene(std::vector<std::string>& recents, const std::string& path)
 {
     if (path.empty())
@@ -193,6 +197,7 @@ static void AddRecentScene(std::vector<std::string>& recents, const std::string&
     SaveRecentScenes(recents);
 }
 
+// Updates the window title to reflect the active scene file.
 static void UpdateWindowTitle(GLFWwindow* window, const std::string& scenePath)
 {
     std::string title = "MyEngine";
@@ -219,6 +224,9 @@ static void APIENTRY OpenGLDebugCallback(
 
     std::cerr << "[OpenGL Debug] " << message << std::endl;
 }
+
+#ifdef USE_IMGUI
+#endif
 
 int main()
 {
@@ -502,82 +510,7 @@ int main()
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
-    ImGui::StyleColorsDark();
-
-    // Custom editor theme: softer dark blue-gray palette, rounded corners,
-    // and tighter spacing so panels feel more like a modern editor (e.g.
-    // Unity/Unreal/Blender) rather than the default ImGui demo look.
-    {
-        ImGuiStyle& style = ImGui::GetStyle();
-
-        style.WindowRounding = 6.0f;
-        style.ChildRounding = 6.0f;
-        style.FrameRounding = 4.0f;
-        style.PopupRounding = 4.0f;
-        style.ScrollbarRounding = 6.0f;
-        style.GrabRounding = 4.0f;
-        style.TabRounding = 4.0f;
-
-        style.WindowPadding = ImVec2(10.0f, 10.0f);
-        style.FramePadding = ImVec2(8.0f, 4.0f);
-        style.CellPadding = ImVec2(6.0f, 4.0f);
-        style.ItemSpacing = ImVec2(8.0f, 6.0f);
-        style.ItemInnerSpacing = ImVec2(6.0f, 6.0f);
-        style.IndentSpacing = 18.0f;
-        style.ScrollbarSize = 14.0f;
-        style.GrabMinSize = 10.0f;
-
-        style.WindowBorderSize = 1.0f;
-        style.FrameBorderSize = 0.0f;
-        style.PopupBorderSize = 1.0f;
-
-        ImVec4* colors = style.Colors;
-        colors[ImGuiCol_Text]                  = ImVec4(0.92f, 0.93f, 0.94f, 1.00f);
-        colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.52f, 0.55f, 1.00f);
-        colors[ImGuiCol_WindowBg]               = ImVec4(0.11f, 0.12f, 0.14f, 1.00f);
-        colors[ImGuiCol_ChildBg]                = ImVec4(0.13f, 0.14f, 0.16f, 1.00f);
-        colors[ImGuiCol_PopupBg]                = ImVec4(0.10f, 0.11f, 0.13f, 0.98f);
-        colors[ImGuiCol_Border]                 = ImVec4(0.06f, 0.06f, 0.07f, 1.00f);
-        colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-        colors[ImGuiCol_FrameBg]                = ImVec4(0.17f, 0.18f, 0.21f, 1.00f);
-        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.23f, 0.24f, 0.28f, 1.00f);
-        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.26f, 0.48f, 0.80f, 0.55f);
-        colors[ImGuiCol_TitleBg]                = ImVec4(0.09f, 0.10f, 0.12f, 1.00f);
-        colors[ImGuiCol_TitleBgActive]          = ImVec4(0.13f, 0.15f, 0.18f, 1.00f);
-        colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.09f, 0.10f, 0.12f, 0.75f);
-        colors[ImGuiCol_MenuBarBg]              = ImVec4(0.10f, 0.11f, 0.13f, 1.00f);
-        colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.09f, 0.10f, 0.12f, 1.00f);
-        colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.27f, 0.29f, 0.33f, 1.00f);
-        colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.34f, 0.37f, 0.42f, 1.00f);
-        colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.26f, 0.48f, 0.80f, 1.00f);
-        colors[ImGuiCol_CheckMark]              = ImVec4(0.30f, 0.62f, 1.00f, 1.00f);
-        colors[ImGuiCol_SliderGrab]             = ImVec4(0.30f, 0.62f, 1.00f, 0.85f);
-        colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.36f, 0.68f, 1.00f, 1.00f);
-        colors[ImGuiCol_Button]                 = ImVec4(0.20f, 0.22f, 0.26f, 1.00f);
-        colors[ImGuiCol_ButtonHovered]          = ImVec4(0.26f, 0.48f, 0.80f, 0.60f);
-        colors[ImGuiCol_ButtonActive]           = ImVec4(0.26f, 0.48f, 0.80f, 0.90f);
-        colors[ImGuiCol_Header]                 = ImVec4(0.20f, 0.22f, 0.26f, 1.00f);
-        colors[ImGuiCol_HeaderHovered]          = ImVec4(0.26f, 0.48f, 0.80f, 0.55f);
-        colors[ImGuiCol_HeaderActive]           = ImVec4(0.26f, 0.48f, 0.80f, 0.80f);
-        colors[ImGuiCol_Separator]              = ImVec4(0.06f, 0.06f, 0.07f, 1.00f);
-        colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.30f, 0.62f, 1.00f, 0.60f);
-        colors[ImGuiCol_SeparatorActive]        = ImVec4(0.30f, 0.62f, 1.00f, 0.90f);
-        colors[ImGuiCol_ResizeGrip]             = ImVec4(0.30f, 0.62f, 1.00f, 0.25f);
-        colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.30f, 0.62f, 1.00f, 0.55f);
-        colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.30f, 0.62f, 1.00f, 0.85f);
-        colors[ImGuiCol_Tab]                    = ImVec4(0.14f, 0.16f, 0.19f, 1.00f);
-        colors[ImGuiCol_TabHovered]             = ImVec4(0.26f, 0.48f, 0.80f, 0.60f);
-        colors[ImGuiCol_TabActive]              = ImVec4(0.20f, 0.36f, 0.60f, 1.00f);
-        colors[ImGuiCol_TabUnfocused]           = ImVec4(0.10f, 0.11f, 0.13f, 1.00f);
-        colors[ImGuiCol_TabUnfocusedActive]     = ImVec4(0.14f, 0.16f, 0.19f, 1.00f);
-        colors[ImGuiCol_PlotLines]              = ImVec4(0.61f, 0.61f, 0.61f, 1.00f);
-        colors[ImGuiCol_PlotLinesHovered]       = ImVec4(0.30f, 0.62f, 1.00f, 1.00f);
-        colors[ImGuiCol_PlotHistogram]          = ImVec4(0.86f, 0.60f, 0.20f, 1.00f);
-        colors[ImGuiCol_PlotHistogramHovered]   = ImVec4(0.95f, 0.68f, 0.24f, 1.00f);
-        colors[ImGuiCol_TextSelectedBg]         = ImVec4(0.26f, 0.48f, 0.80f, 0.35f);
-        colors[ImGuiCol_DragDropTarget]         = ImVec4(0.95f, 0.75f, 0.20f, 0.90f);
-        colors[ImGuiCol_NavHighlight]           = ImVec4(0.30f, 0.62f, 1.00f, 0.80f);
-    }
+    ApplyEditorTheme();
 
     // Try to make the process per-monitor DPI aware on Windows so framebuffer
     // sizes reported by GLFW reflect the actual DPI scaling.
@@ -870,6 +803,7 @@ int main()
     // edited scene.  No temp file needed.
     bool        hasPlaySnapshot   = false;
     std::string playSnapshotJSON;  // in-memory snapshot (replaces temp file)
+    bool        showStopPlayPrompt = false;
 
     // Scene file state
     std::string currentScenePath;
@@ -877,35 +811,33 @@ int main()
 
     // UI state
     Entity* selectedEntity = nullptr;
-    bool showSceneHierarchy = true;
-    bool showInspector = true;
-    bool showLightingPanel = true;
-    bool showPostProcessPanel = true;
-    bool showSkyboxPanel = true;
-    bool showScriptingPanel = true;
-    bool showPerformancePanel = true;
-    bool showPhysicsPanel = true;
-    bool showAssetBrowser = true;
-    std::string assetBrowserPath = "assets";
-
-    // Material Browser state
-    bool showMaterialBrowser = false;
-    bool showIBLPanel        = false;
-    bool showLayerManager    = false;
-    std::string materialBrowserPath = "assets/materials";
-    std::string selectedMaterialPath;                          // currently selected file in the list
-    std::shared_ptr<MyEngine::Material> editingMaterial;       // material open in the inline editor
-    char  materialRenameBuffer[256] = "";                      // rename-in-place buffer
-    bool  materialRenameActive = false;                        // is rename mode open
-    char  newMaterialNameBuffer[256] = "new_material.material.json"; // create-new dialog buffer
-    bool  showNewMaterialDialog = false;
-    std::string animationStateMachineBrowserPath = "assets/animation";
-    std::string selectedAnimationStateMachinePath;
-    std::shared_ptr<MyEngine::AnimationStateMachine> editingAnimationStateMachine;
-    // Texture list used by the material editor (same scan as inspector)
-    std::vector<std::string> matBrowserTextures;
-    bool matBrowserTexturesScanned = false;
-    std::vector<MyEngine::ScriptSystem::GlobalScriptConfig> globalScripts = { MyEngine::ScriptSystem::GlobalScriptConfig{} };
+    MyEngine::Editor::UIState editorUI;
+    auto& showSceneHierarchy = editorUI.showSceneHierarchy;
+    auto& showInspector = editorUI.showInspector;
+    auto& showLightingPanel = editorUI.showLightingPanel;
+    auto& showPostProcessPanel = editorUI.showPostProcessPanel;
+    auto& showSkyboxPanel = editorUI.showSkyboxPanel;
+    auto& showScriptingPanel = editorUI.showScriptingPanel;
+    auto& showPerformancePanel = editorUI.showPerformancePanel;
+    auto& showPhysicsPanel = editorUI.showPhysicsPanel;
+    auto& showAssetBrowser = editorUI.showAssetBrowser;
+    auto& assetBrowserPath = editorUI.assetBrowserPath;
+    auto& showMaterialBrowser = editorUI.showMaterialBrowser;
+    auto& showIBLPanel = editorUI.showIBLPanel;
+    auto& showLayerManager = editorUI.showLayerManager;
+    auto& materialBrowserPath = editorUI.materialBrowserPath;
+    auto& selectedMaterialPath = editorUI.selectedMaterialPath;
+    auto& editingMaterial = editorUI.editingMaterial;
+    auto& materialRenameBuffer = editorUI.materialRenameBuffer;
+    auto& materialRenameActive = editorUI.materialRenameActive;
+    auto& newMaterialNameBuffer = editorUI.newMaterialNameBuffer;
+    auto& showNewMaterialDialog = editorUI.showNewMaterialDialog;
+    auto& animationStateMachineBrowserPath = editorUI.animationStateMachineBrowserPath;
+    auto& selectedAnimationStateMachinePath = editorUI.selectedAnimationStateMachinePath;
+    auto& editingAnimationStateMachine = editorUI.editingAnimationStateMachine;
+    auto& matBrowserTextures = editorUI.matBrowserTextures;
+    auto& matBrowserTexturesScanned = editorUI.matBrowserTexturesScanned;
+    auto& globalScripts = editorUI.globalScripts;
 
 #ifdef USE_IMGUIZMO
     // Gizmo editor state (Translate/Rotate/Scale)
@@ -915,95 +847,21 @@ int main()
 
     // Editor undo/redo state. Transform edits are captured as a single
     // command per gizmo drag (snapshot on drag start, commit on release).
-    class SceneStateCommand final : public EditorUndo::Command
-    {
-    public:
-        SceneStateCommand(
-            const std::string& beforeState,
-            const std::string& afterState,
-            const std::shared_ptr<MyEngine::Shader>& shader,
-            std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>* globalScripts,
-            Entity** selectedEntity,
-            std::shared_ptr<Entity>* playerEntity)
-            : m_BeforeState(beforeState)
-            , m_AfterState(afterState)
-            , m_Shader(shader)
-            , m_GlobalScripts(globalScripts)
-            , m_SelectedEntity(selectedEntity)
-            , m_PlayerEntity(playerEntity)
-        {
-        }
-
-        void Undo(Scene& scene) override { Apply(scene, m_BeforeState); }
-        void Redo(Scene& scene) override { Apply(scene, m_AfterState); }
-
-    private:
-        void Apply(Scene& scene, const std::string& state)
-        {
-            if (!m_GlobalScripts)
-                return;
-
-            MyEngine::Serialization::LoadSceneFromString(scene, state, m_Shader, m_GlobalScripts);
-
-            if (m_SelectedEntity)
-                *m_SelectedEntity = nullptr;
-
-            if (m_PlayerEntity)
-            {
-                m_PlayerEntity->reset();
-                for (auto& e : scene.GetEntities())
-                {
-                    if (e && e->GetName() == "Player")
-                    {
-                        *m_PlayerEntity = e;
-                        break;
-                    }
-                }
-            }
-        }
-
-    private:
-        std::string m_BeforeState;
-        std::string m_AfterState;
-        std::shared_ptr<MyEngine::Shader> m_Shader;
-        std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>* m_GlobalScripts = nullptr;
-        Entity** m_SelectedEntity = nullptr;
-        std::shared_ptr<Entity>* m_PlayerEntity = nullptr;
-    };
-
-    class GlobalScriptsCommand final : public EditorUndo::Command
-    {
-    public:
-        GlobalScriptsCommand(
-            const std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>& before,
-            const std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>& after,
-            std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>* target)
-            : m_Before(before), m_After(after), m_Target(target)
-        {
-        }
-
-        void Undo(Scene&) override { if (m_Target) *m_Target = m_Before; }
-        void Redo(Scene&) override { if (m_Target) *m_Target = m_After; }
-
-    private:
-        std::vector<MyEngine::ScriptSystem::GlobalScriptConfig> m_Before;
-        std::vector<MyEngine::ScriptSystem::GlobalScriptConfig> m_After;
-        std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>* m_Target = nullptr;
-    };
-
     EditorUndo::UndoStack undoStack;
     bool gizmoWasUsing = false;
     uint32_t gizmoEditEntityID = 0;
     TransformComponent gizmoEditBefore;
 
+    // Captures the current scene as a serialized snapshot for undo and play mode.
     auto captureSceneState = [&]()
     {
         return MyEngine::Serialization::SaveSceneToString(scene, globalScripts);
     };
 
+    // Records a scene-state change as an undoable command.
     auto pushSceneStateCommand = [&](const std::string& beforeState, const std::string& afterState)
     {
-        undoStack.Push(std::make_unique<SceneStateCommand>(
+        undoStack.Push(std::make_unique<EditorUndo::SceneStateCommand>(
             beforeState,
             afterState,
             litShader,
@@ -1013,15 +871,189 @@ int main()
         ));
     };
 
-    auto pushGlobalScriptsCommand = [&](const std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>& before,
-                                        const std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>& after)
+    // Compares a prefab instance against its source prefab and reports changed fields.
+    auto describePrefabOverrides = [&](Entity* entity) -> std::vector<std::string>
     {
-        undoStack.Push(std::make_unique<GlobalScriptsCommand>(before, after, &globalScripts));
+        std::vector<std::string> overrides;
+        if (!entity || !entity->HasComponent<PrefabInstanceComponent>())
+            return overrides;
+
+        const auto& prefab = entity->GetComponent<PrefabInstanceComponent>();
+        if (prefab.sourcePrefabPath.empty() || prefab.sourceEntityID == 0)
+            return overrides;
+
+        Scene prefabScene;
+        if (!MyEngine::Serialization::LoadScene(prefabScene, prefab.sourcePrefabPath, litShader, &globalScripts))
+        {
+            overrides.push_back("Unable to load source prefab.");
+            return overrides;
+        }
+
+        auto source = prefabScene.GetEntityByID(prefab.sourceEntityID);
+        if (!source)
+        {
+            overrides.push_back("Missing source entity in prefab.");
+            return overrides;
+        }
+
+        auto addOverride = [&](const std::string& label) { overrides.push_back(label); };
+        auto nearlyEqual = [](float a, float b) { return std::fabs(a - b) < 0.0001f; };
+        auto vec3Equal = [&](const glm::vec3& a, const glm::vec3& b)
+        {
+            return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
+        };
+
+        if (entity->GetName() != source->GetName()) addOverride("Name");
+        if (entity->GetTag() != source->GetTag()) addOverride("Tag");
+        if (entity->GetLayer() != source->GetLayer()) addOverride("Layer");
+
+        if (entity->HasComponent<TransformComponent>() && source->HasComponent<TransformComponent>())
+        {
+            const auto& current = entity->GetComponent<TransformComponent>();
+            const auto& original = source->GetComponent<TransformComponent>();
+            if (!vec3Equal(current.position, original.position) || !vec3Equal(current.rotation, original.rotation) || !vec3Equal(current.scale, original.scale) || current.parentID != original.parentID)
+                addOverride("Transform");
+        }
+
+        if (entity->HasComponent<MeshRendererComponent>() && source->HasComponent<MeshRendererComponent>())
+        {
+            const auto& current = entity->GetComponent<MeshRendererComponent>();
+            const auto& original = source->GetComponent<MeshRendererComponent>();
+            if (current.visible != original.visible || current.materialPath != original.materialPath || current.useTexture != original.useTexture || current.usePBR != original.usePBR)
+                addOverride("Mesh Renderer");
+        }
+
+        if (entity->HasComponent<LightComponent>() && source->HasComponent<LightComponent>())
+        {
+            const auto& current = entity->GetComponent<LightComponent>();
+            const auto& original = source->GetComponent<LightComponent>();
+            if (current.type != original.type || !vec3Equal(current.color, original.color) || !vec3Equal(current.direction, original.direction) || !vec3Equal(current.position, original.position) || !nearlyEqual(current.intensity, original.intensity) || !nearlyEqual(current.range, original.range) || current.castShadows != original.castShadows)
+                addOverride("Light");
+        }
+
+        if (entity->HasComponent<RigidbodyComponent>() && source->HasComponent<RigidbodyComponent>())
+        {
+            const auto& current = entity->GetComponent<RigidbodyComponent>();
+            const auto& original = source->GetComponent<RigidbodyComponent>();
+            if (!vec3Equal(current.velocity, original.velocity) || !vec3Equal(current.acceleration, original.acceleration) || !nearlyEqual(current.mass, original.mass) || current.isKinematic != original.isKinematic)
+                addOverride("Rigidbody");
+        }
+
+        if (entity->HasComponent<ScriptComponent>() && source->HasComponent<ScriptComponent>())
+        {
+            const auto& current = entity->GetComponent<ScriptComponent>();
+            const auto& original = source->GetComponent<ScriptComponent>();
+            if (current.scriptPath != original.scriptPath || current.enabled != original.enabled || current.autoStart != original.autoStart)
+                addOverride("Script");
+        }
+
+        if (entity->HasComponent<AnimationComponent>() && source->HasComponent<AnimationComponent>())
+        {
+            const auto& current = entity->GetComponent<AnimationComponent>();
+            const auto& original = source->GetComponent<AnimationComponent>();
+            if (current.activeClipIndex != original.activeClipIndex || !nearlyEqual(current.time, original.time) || !nearlyEqual(current.playbackSpeed, original.playbackSpeed) || current.playing != original.playing || current.looping != original.looping)
+                addOverride("Animation");
+        }
+
+        return overrides;
+    };
+
+    MyEngine::Editor::Context editorContext{};
+    editorContext.scene = &scene;
+    editorContext.litShader = litShader;
+    editorContext.litSkinnedShader = litSkinnedShader;
+    editorContext.selectedEntity = &selectedEntity;
+    editorContext.playerEntity = &playerEntity;
+    editorContext.ui = &editorUI;
+    editorContext.undoStack = &undoStack;
+    editorContext.currentScenePath = &currentScenePath;
+    editorContext.recentScenes = &recentScenes;
+    editorContext.window = window;
+    editorContext.addRecentScene = AddRecentScene;
+    editorContext.updateWindowTitle = UpdateWindowTitle;
+    editorContext.captureSceneState = captureSceneState;
+    editorContext.pushSceneStateCommand = pushSceneStateCommand;
+
+    // Restores the edit-time scene snapshot after play mode ends.
+    auto restorePlaySnapshot = [&]()
+    {
+        if (!hasPlaySnapshot)
+            return;
+
+        // Preserve the active camera state so the editor view doesn't jump.
+        bool hadCamera = false;
+        TransformComponent savedCameraTransform;
+        CameraComponent savedCamera;
+        for (auto& e : scene.GetEntities())
+        {
+            if (e && e->HasComponent<CameraComponent>() && e->GetComponent<CameraComponent>().isPrimary)
+            {
+                if (e->HasComponent<TransformComponent>())
+                    savedCameraTransform = e->GetComponent<TransformComponent>();
+                savedCamera = e->GetComponent<CameraComponent>();
+                hadCamera = true;
+                break;
+            }
+        }
+
+        selectedEntity = nullptr;
+        undoStack.Clear();
+        std::vector<uint32_t> ids;
+        for (auto& e : scene.GetEntities())
+            if (e) ids.push_back(e->GetID());
+        for (uint32_t id : ids)
+            scene.DestroyEntity(id);
+        MyEngine::Serialization::LoadSceneFromString(scene, playSnapshotJSON, litShader, &globalScripts);
+        hasPlaySnapshot = false;
+        playSnapshotJSON.clear();
+
+        // The player entity was destroyed above along with the rest of the
+        // scene; re-resolve it from the freshly loaded entities so gameplay
+        // controls keep operating on a valid, live entity instead of a
+        // dangling pointer to the destroyed one.
+        playerEntity.reset();
+        for (auto& e : scene.GetEntities())
+        {
+            if (e && e->GetName() == "Player")
+            {
+                playerEntity = e;
+                break;
+            }
+        }
+
+        // The camera entity was likewise destroyed and recreated by the
+        // reload above, so re-point the fresh camera's follow target at
+        // the re-resolved player (the original `camera`/`cameraEntity`
+        // references from setup now refer to destroyed objects), then
+        // restore the transform/look state captured above so the camera
+        // doesn't visually snap back to its edit-time pose on Stop.
+        for (auto& e : scene.GetEntities())
+        {
+            if (e && e->HasComponent<CameraComponent>())
+            {
+                auto& freshCamera = e->GetComponent<CameraComponent>();
+                if (playerEntity)
+                    freshCamera.followTargetID = playerEntity->GetID();
+
+                if (hadCamera)
+                {
+                    if (e->HasComponent<TransformComponent>())
+                        e->GetComponent<TransformComponent>() = savedCameraTransform;
+
+                    freshCamera.yaw = savedCamera.yaw;
+                    freshCamera.pitch = savedCamera.pitch;
+                    freshCamera.thirdPerson = savedCamera.thirdPerson;
+                    freshCamera.followDistance = savedCamera.followDistance;
+                    freshCamera.followHeight = savedCamera.followHeight;
+                    freshCamera.smoothedMouseDelta = savedCamera.smoothedMouseDelta;
+                }
+                break;
+            }
+        }
     };
 
     // Central play-state switch: snapshot the scene when starting play,
-    // restore the snapshot when stopping so edits made during simulation
-    // are discarded.
+    // and prompt on stop so runtime changes can optionally be saved as copy.
     auto setPlaying = [&](bool play)
     {
         if (play == isPlaying)
@@ -1030,96 +1062,76 @@ int main()
         if (play)
         {
             playSnapshotJSON = MyEngine::Serialization::SaveSceneToString(scene, globalScripts);
-            hasPlaySnapshot  = !playSnapshotJSON.empty();
+            hasPlaySnapshot = !playSnapshotJSON.empty();
+            showStopPlayPrompt = false;
             isPlaying = true;
         }
         else
         {
             isPlaying = false;
+#ifdef USE_IMGUI
             if (hasPlaySnapshot)
             {
-                // Capture the live camera's transform/look state before the scene
-                // is torn down so play-mode camera movement (fly/orbit, mouse
-                // look, third-person toggle) isn't lost when stopping - only the
-                // simulated gameplay entities should revert to their edit-time
-                // state, not the editor/gameplay camera the user was just using.
-                bool hadCamera = false;
-                TransformComponent savedCameraTransform;
-                CameraComponent savedCamera;
-                for (auto& e : scene.GetEntities())
-                {
-                    if (e && e->HasComponent<CameraComponent>() && e->GetComponent<CameraComponent>().isPrimary)
-                    {
-                        if (e->HasComponent<TransformComponent>())
-                            savedCameraTransform = e->GetComponent<TransformComponent>();
-                        savedCamera = e->GetComponent<CameraComponent>();
-                        hadCamera = true;
-                        break;
-                    }
-                }
-
-                selectedEntity = nullptr;
-                undoStack.Clear();
-                std::vector<uint32_t> ids;
-                for (auto& e : scene.GetEntities())
-                    if (e) ids.push_back(e->GetID());
-                for (uint32_t id : ids)
-                    scene.DestroyEntity(id);
-                MyEngine::Serialization::LoadSceneFromString(scene, playSnapshotJSON, litShader, &globalScripts);
-                hasPlaySnapshot  = false;
-                playSnapshotJSON.clear();
-
-                // The player entity was destroyed above along with the rest of the
-                // scene; re-resolve it from the freshly loaded entities so gameplay
-                // controls keep operating on a valid, live entity instead of a
-                // dangling pointer to the destroyed one.
-                playerEntity.reset();
-                for (auto& e : scene.GetEntities())
-                {
-                    if (e && e->GetName() == "Player")
-                    {
-                        playerEntity = e;
-                        break;
-                    }
-                }
-
-                // The camera entity was likewise destroyed and recreated by the
-                // reload above, so re-point the fresh camera's follow target at
-                // the re-resolved player (the original `camera`/`cameraEntity`
-                // references from setup now refer to destroyed objects), then
-                // restore the transform/look state captured above so the camera
-                // doesn't visually snap back to its edit-time pose on Stop.
-                for (auto& e : scene.GetEntities())
-                {
-                    if (e && e->HasComponent<CameraComponent>())
-                    {
-                        auto& freshCamera = e->GetComponent<CameraComponent>();
-                        if (playerEntity)
-                            freshCamera.followTargetID = playerEntity->GetID();
-
-                        if (hadCamera)
-                        {
-                            if (e->HasComponent<TransformComponent>())
-                                e->GetComponent<TransformComponent>() = savedCameraTransform;
-
-                            freshCamera.yaw = savedCamera.yaw;
-                            freshCamera.pitch = savedCamera.pitch;
-                            freshCamera.thirdPerson = savedCamera.thirdPerson;
-                            freshCamera.followDistance = savedCamera.followDistance;
-                            freshCamera.followHeight = savedCamera.followHeight;
-                            freshCamera.smoothedMouseDelta = savedCamera.smoothedMouseDelta;
-                        }
-                        break;
-                    }
-                }
+                showStopPlayPrompt = true;
+                return;
             }
+#endif
+            restorePlaySnapshot();
         }
     };
 
+    editorContext.isPlaying = &isPlaying;
+    editorContext.wireframe = &wireframe;
+    editorContext.setPlaying = setPlaying;
+    editorContext.applyWireframe = [&](bool enabled)
+    {
+        renderSystem.SetWireframe(enabled);
+    };
+#ifdef USE_IMGUIZMO
+    editorContext.getGizmoOperation = [&]() { return static_cast<int>(gizmoOperation); };
+    editorContext.setGizmoOperation = [&](int value) { gizmoOperation = static_cast<ImGuizmo::OPERATION>(value); };
+    editorContext.getGizmoMode = [&]() { return static_cast<int>(gizmoMode); };
+    editorContext.setGizmoMode = [&](int value) { gizmoMode = static_cast<ImGuizmo::MODE>(value); };
+#endif
+
     // ------------------------------------------------------------
-    // Timing
+    // Timing / profiling
     // ------------------------------------------------------------
     auto previousTime = std::chrono::high_resolution_clock::now();
+
+    static constexpr int kPerfHistory = 180;
+    std::array<float, kPerfHistory> frameMsHistory{};
+    std::array<float, kPerfHistory> physicsMsHistory{};
+    std::array<float, kPerfHistory> animationMsHistory{};
+    std::array<float, kPerfHistory> renderMsHistory{};
+    int perfHistoryIndex = 0;
+
+    float cpuPhysicsMs = 0.0f;
+    float cpuAnimationMs = 0.0f;
+    float cpuRenderMs = 0.0f;
+    float gpuFrameMs = 0.0f;
+    float memoryWorkingSetMB = 0.0f;
+    float memoryPrivateMB = 0.0f;
+
+    GLuint gpuFrameQueries[2] = { 0, 0 };
+    glGenQueries(2, gpuFrameQueries);
+    int gpuQueryWriteIndex = 0;
+
+    // Writes the current performance history buffers to a CSV file.
+    auto exportPerformanceCsv = [&]() -> bool
+    {
+        std::ofstream ofs("performance_metrics.csv", std::ios::trunc);
+        if (!ofs)
+            return false;
+
+        ofs << "frameIndex,frameMs,physicsMs,animationMs,renderMs\n";
+        for (int i = 0; i < kPerfHistory; ++i)
+        {
+            const int index = (perfHistoryIndex + i) % kPerfHistory;
+            ofs << i << ',' << frameMsHistory[index] << ',' << physicsMsHistory[index] << ',' << animationMsHistory[index] << ',' << renderMsHistory[index] << '\n';
+        }
+        return true;
+    };
 
     // ------------------------------------------------------------
     // Main loop
@@ -1426,7 +1438,11 @@ int main()
                 break;
             }
 
-            physicsSystem.OnUpdate(scene, deltaTime, window, controllerCameraForward, controllerCameraRight);
+            {
+                auto cpuStart = std::chrono::high_resolution_clock::now();
+                physicsSystem.OnUpdate(scene, deltaTime, window, controllerCameraForward, controllerCameraRight);
+                cpuPhysicsMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
+            }
 
             // Toggle third-person follow camera with V (F is already bound to
             // wireframe toggle above). Resolved against the live primary
@@ -1475,8 +1491,12 @@ int main()
         // stays empty until Play is pressed and every skinned vertex gets
         // multiplied by a zero bone matrix, collapsing the mesh to the
         // origin (invisible) before Play is hit.
-        animationSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
-        particleSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
+        {
+            auto cpuStart = std::chrono::high_resolution_clock::now();
+            animationSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
+            particleSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
+            cpuAnimationMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
+        }
 
         cameraSystem.Update(scene, window, deltaTime, aspectRatio);
 
@@ -1491,6 +1511,18 @@ int main()
         // --------------------------------------------------------
         // Render
         // --------------------------------------------------------
+        auto cpuRenderStart = std::chrono::high_resolution_clock::now();
+        const int gpuQueryReadIndex = (gpuQueryWriteIndex + 1) % 2;
+        GLuint gpuQueryAvailable = 0;
+        glGetQueryObjectuiv(gpuFrameQueries[gpuQueryReadIndex], GL_QUERY_RESULT_AVAILABLE, &gpuQueryAvailable);
+        if (gpuQueryAvailable)
+        {
+            GLuint64 elapsedNanoseconds = 0;
+            glGetQueryObjectui64v(gpuFrameQueries[gpuQueryReadIndex], GL_QUERY_RESULT, &elapsedNanoseconds);
+            gpuFrameMs = static_cast<float>(elapsedNanoseconds / 1000000.0);
+        }
+        glBeginQuery(GL_TIME_ELAPSED, gpuFrameQueries[gpuQueryWriteIndex]);
+
         if (postProcessEnabled)
         {
             postProcess.Resize(static_cast<unsigned int>(g_WindowWidth), static_cast<unsigned int>(g_WindowHeight));
@@ -1517,11 +1549,47 @@ int main()
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        if (showStopPlayPrompt)
+        {
+            ImGui::OpenPopup("Stop Play Mode");
+            showStopPlayPrompt = false;
+        }
+
+        bool keepStopPlayPopupOpen = true;
+        if (ImGui::BeginPopupModal("Stop Play Mode", &keepStopPlayPopupOpen, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextWrapped("Play mode changes were detected. Save runtime changes as a separate scene copy before restoring edit snapshot?");
+            ImGui::Separator();
+
+            if (ImGui::Button("Save Runtime Scene Copy...", ImVec2(220, 0)))
+            {
+                std::string saveCopyPath = MyEngine::FileDialog::SaveSceneFile();
+                if (!saveCopyPath.empty())
+                {
+                    MyEngine::Serialization::SaveScene(scene, saveCopyPath, globalScripts);
+                    AddRecentScene(recentScenes, saveCopyPath);
+                }
+                restorePlaySnapshot();
+                ImGui::CloseCurrentPopup();
+            }
+
+            if (ImGui::Button("Discard Runtime Changes", ImVec2(220, 0)))
+            {
+                restorePlaySnapshot();
+                ImGui::CloseCurrentPopup();
+            }
+
+            if (ImGui::Button("Cancel", ImVec2(220, 0)))
+            {
+                isPlaying = true;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+
         if (showUI)
         {
-            // Menu Bar (standalone). The Play/Stop control now lives in the
-            // toolbar strip directly below the menu bar (see "Toolbar"
-            // block after EndMainMenuBar) so it isn't duplicated here.
             if (ImGui::BeginMainMenuBar())
             {
             if (ImGui::BeginMenu("File"))
@@ -1751,1136 +1819,20 @@ int main()
             }
 
             // ============================================================
-            // Toolbar: a slim, always-visible strip docked directly under
-            // the main menu bar exposing the most frequently used editor
-            // controls (play/stop, gizmo mode, gizmo space, wireframe)
-            // without needing to open a menu.
-            // ============================================================
-            {
-                float menuBarHeight = ImGui::GetFrameHeight();
-                float toolbarHeight = ImGui::GetFrameHeight() + 12.0f;
-
-                ImGui::SetNextWindowPos(ImVec2(0.0f, menuBarHeight));
-                ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, toolbarHeight));
-                ImGuiWindowFlags toolbarFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                                                ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings |
-                                                ImGuiWindowFlags_NoBringToFrontOnFocus;
-
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
-                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 4.0f));
-                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.10f, 0.12f, 1.00f));
-                ImGui::Begin("##Toolbar", nullptr, toolbarFlags);
-
-                // Helper for a "toggle" style button that stays highlighted
-                // while active, matching the accent color used elsewhere.
-                auto toolbarToggleButton = [](const char* label, bool active, float width = 0.0f) -> bool
-                {
-                    bool pressed = false;
-                    if (active)
-                    {
-                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.48f, 0.80f, 0.90f));
-                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.55f, 0.88f, 0.95f));
-                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.55f, 0.88f, 1.00f));
-                    }
-                    pressed = ImGui::Button(label, ImVec2(width, 0.0f));
-                    if (active)
-                        ImGui::PopStyleColor(3);
-                    return pressed;
-                };
-
-                // --- Play / Stop -------------------------------------------------
-                ImGui::PushStyleColor(ImGuiCol_Button, isPlaying ? ImVec4(0.80f, 0.30f, 0.30f, 1.00f) : ImVec4(0.30f, 0.75f, 0.35f, 1.00f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isPlaying ? ImVec4(0.88f, 0.36f, 0.36f, 1.00f) : ImVec4(0.36f, 0.82f, 0.42f, 1.00f));
-                if (ImGui::Button(isPlaying ? "  [] Stop  " : "  > Play  "))
-                {
-                    setPlaying(!isPlaying);
-                }
-                ImGui::PopStyleColor(2);
-
-                ImGui::SameLine();
-                ImGui::BeginDisabled(!undoStack.CanUndo());
-                if (ImGui::Button("Undo"))
-                    undoStack.Undo(scene);
-                ImGui::EndDisabled();
-
-                ImGui::SameLine();
-                ImGui::BeginDisabled(!undoStack.CanRedo());
-                if (ImGui::Button("Redo"))
-                    undoStack.Redo(scene);
-                ImGui::EndDisabled();
-
-                ImGui::SameLine();
-                ImGui::Dummy(ImVec2(8.0f, 0.0f));
-                ImGui::SameLine();
-                ImGui::TextDisabled("|");
-                ImGui::SameLine();
-                ImGui::Dummy(ImVec2(8.0f, 0.0f));
-                ImGui::SameLine();
-
-#ifdef USE_IMGUIZMO
-                // --- Gizmo mode: Translate / Rotate / Scale -----------------------
-                if (toolbarToggleButton("Move (W)", gizmoOperation == ImGuizmo::TRANSLATE, 84.0f))
-                    gizmoOperation = ImGuizmo::TRANSLATE;
-                ImGui::SameLine();
-                if (toolbarToggleButton("Rotate (E)", gizmoOperation == ImGuizmo::ROTATE, 84.0f))
-                    gizmoOperation = ImGuizmo::ROTATE;
-                ImGui::SameLine();
-                if (toolbarToggleButton("Scale (R)", gizmoOperation == ImGuizmo::SCALE, 84.0f))
-                    gizmoOperation = ImGuizmo::SCALE;
-
-                ImGui::SameLine();
-                ImGui::Dummy(ImVec2(8.0f, 0.0f));
-                ImGui::SameLine();
-                ImGui::TextDisabled("|");
-                ImGui::SameLine();
-                ImGui::Dummy(ImVec2(8.0f, 0.0f));
-                ImGui::SameLine();
-
-                // --- Gizmo space: World / Local ------------------------------------
-                bool isWorldSpaceToolbar = (gizmoMode == ImGuizmo::WORLD);
-                if (toolbarToggleButton("World", isWorldSpaceToolbar, 64.0f))
-                    gizmoMode = ImGuizmo::WORLD;
-                ImGui::SameLine();
-                if (toolbarToggleButton("Local", !isWorldSpaceToolbar, 64.0f))
-                    gizmoMode = ImGuizmo::LOCAL;
-
-                ImGui::SameLine();
-                ImGui::Dummy(ImVec2(8.0f, 0.0f));
-                ImGui::SameLine();
-                ImGui::TextDisabled("|");
-                ImGui::SameLine();
-                ImGui::Dummy(ImVec2(8.0f, 0.0f));
-                ImGui::SameLine();
-#endif
-
-                // --- Wireframe toggle ----------------------------------------------
-                if (toolbarToggleButton("Wireframe (F)", wireframe, 108.0f))
-                {
-                    wireframe = !wireframe;
-                    renderSystem.SetWireframe(wireframe);
-                }
-
-                ImGui::End();
-                ImGui::PopStyleColor();
-                ImGui::PopStyleVar(3);
-            }
+            MyEngine::Editor::Panels::DrawToolbarPanel(editorContext);
 
             // ============================================================
             // Asset Browser Panel
             // ============================================================
-            if (showAssetBrowser)
-            {
-                ImGui::SetNextWindowPos(ImVec2(10, 440), ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
-                ImGui::Begin("Asset Browser", &showAssetBrowser);
-
-                namespace fs = std::filesystem;
-
-                // Breadcrumb: navigate back up to "assets"
-                if (assetBrowserPath != "assets")
-                {
-                    if (ImGui::Button("<- Back"))
-                    {
-                        fs::path parent = fs::path(assetBrowserPath).parent_path();
-                        assetBrowserPath = parent.empty() ? "assets" : parent.generic_string();
-                    }
-                    ImGui::SameLine();
-                }
-                ImGui::TextDisabled("%s", assetBrowserPath.c_str());
-                ImGui::Separator();
-
-                if (fs::exists(assetBrowserPath) && fs::is_directory(assetBrowserPath))
-                {
-                    // Directories first
-                    for (const auto& entry : fs::directory_iterator(assetBrowserPath))
-                    {
-                        if (!entry.is_directory())
-                            continue;
-                        std::string label = "[DIR] " + entry.path().filename().string();
-                        if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
-                            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                        {
-                            assetBrowserPath = entry.path().generic_string();
-                        }
-                    }
-
-                    // Files with type-aware actions
-                    for (const auto& entry : fs::directory_iterator(assetBrowserPath))
-                    {
-                        if (!entry.is_regular_file())
-                            continue;
-
-                        std::string filePath = entry.path().generic_string();
-                        std::string fileName = entry.path().filename().string();
-                        std::string ext = entry.path().extension().string();
-                        std::transform(ext.begin(), ext.end(), ext.begin(),
-                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-                        ImGui::Selectable(fileName.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick);
-
-                        bool doubleClicked = ImGui::IsItemHovered() &&
-                            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
-
-                        if (doubleClicked)
-                        {
-                            const bool isStaticModel = (ext == ".obj");
-                            const bool isSkinnedCandidate = (ext == ".gltf" || ext == ".glb" || ext == ".fbx");
-
-                            if (isStaticModel || isSkinnedCandidate)
-                            {
-                                auto ent = scene.CreateEntity(entry.path().stem().string());
-                                auto& t = ent->AddComponent<TransformComponent>();
-                                t.position = glm::vec3(0.0f, 0.5f, -3.0f);
-
-                                const bool isRinAnimatedModel = entry.path().filename().string() == "rin_tohsaka_anim.glb";
-                                bool attached = false;
-
-                                if (isSkinnedCandidate)
-                                {
-                                    MyEngine::SkinnedModelData skinnedData = MyEngine::AssetManager::LoadSkinnedModel(filePath);
-                                    if (!skinnedData.meshes.empty() && skinnedData.skeleton && skinnedData.skeleton->GetBoneCount() > 0)
-                                    {
-                                        MyEngine::AssetManager::AttachSkinnedModelToEntity(ent, skinnedData, litSkinnedShader, filePath);
-                                        if (isRinAnimatedModel)
-                                        {
-                                            auto& script = ent->HasComponent<ScriptComponent>()
-                                                ? ent->GetComponent<ScriptComponent>()
-                                                : ent->AddComponent<ScriptComponent>();
-                                            script.scriptPath = "assets/scripts/rin_animation_hotkeys.lua";
-                                            script.requestReload = true;
-                                        }
-                                        attached = true;
-                                    }
-                                }
-
-                                if (!attached)
-                                {
-                                    auto meshes = MyEngine::AssetManager::LoadModel(filePath);
-                                    if (!meshes.empty())
-                                    {
-                                        MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], filePath, litShader);
-                                        attached = true;
-                                    }
-                                }
-
-                                if (attached)
-                                {
-                                    // Auto-create materials from embedded model data
-                                    auto importedMats = MyEngine::AssetManager::ImportModelMaterials(filePath);
-                                    if (!importedMats.empty() && importedMats[0])
-                                    {
-                                        auto& mr = ent->GetComponent<MeshRendererComponent>();
-                                        mr.material     = importedMats[0];
-                                        mr.materialPath = importedMats[0]->GetPath();
-                                        if (importedMats[0]->shader && !ent->HasComponent<AnimationComponent>())
-                                            mr.shader = importedMats[0]->shader;
-                                    }
-                                    selectedEntity = ent.get();
-                                }
-                                else
-                                {
-                                    scene.DestroyEntity(ent->GetID());
-                                }
-                            }
-                            else if (ext == ".wav")
-                            {
-                                if (selectedEntity)
-                                {
-                                    if (!selectedEntity->HasComponent<AudioSourceComponent>())
-                                        selectedEntity->AddComponent<AudioSourceComponent>();
-                                    auto& as = selectedEntity->GetComponent<AudioSourceComponent>();
-                                    as.clipPath = filePath;
-                                    as.clip = MyEngine::AssetManager::LoadAudioClip(filePath);
-                                }
-                            }
-                            else if (filePath.find(".material.json") != std::string::npos)
-                            {
-                                // Open the material browser and jump straight to this file
-                                showMaterialBrowser = true;
-                                selectedMaterialPath = filePath;
-                                editingMaterial = MyEngine::AssetManager::LoadMaterial(filePath);
-                                matBrowserTexturesScanned = false;
-                            }
-                            else if (filePath.find(".animstate.json") != std::string::npos)
-                            {
-                                showInspector = true;
-                                selectedAnimationStateMachinePath = filePath;
-                                editingAnimationStateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
-                                if (!editingAnimationStateMachine->LoadFromFile(filePath))
-                                    editingAnimationStateMachine.reset();
-                            }
-                            else if (ext == ".scene" || ext == ".json")
-                            {
-                                selectedEntity = nullptr;
-                                undoStack.Clear();
-                                if (MyEngine::Serialization::LoadScene(scene, filePath, litShader, &globalScripts))
-                                {
-                                    currentScenePath = filePath;
-                                    AddRecentScene(recentScenes, currentScenePath);
-                                    UpdateWindowTitle(window, currentScenePath);
-                                }
-                            }
-                        }
-
-                        if (ImGui::IsItemHovered())
-                        {
-                            if (ext == ".obj")
-                                ImGui::SetTooltip("Double-click: add model to scene");
-                            else if (ext == ".wav")
-                                ImGui::SetTooltip("Double-click: assign clip to selected entity's audio source");
-                            else if (filePath.find(".material.json") != std::string::npos)
-                                ImGui::SetTooltip("Double-click: open in Material Browser");
-                            else if (filePath.find(".animstate.json") != std::string::npos)
-                                ImGui::SetTooltip("Double-click: open animation state machine asset");
-                            else if (ext == ".scene" || ext == ".json")
-                                ImGui::SetTooltip("Double-click: open scene");
-                        }
-                    }
-                }
-                else
-                {
-                    ImGui::TextDisabled("Folder not found: %s", assetBrowserPath.c_str());
-                }
-
-                ImGui::End();
-            }
+            MyEngine::Editor::Panels::DrawAssetBrowserPanel(editorContext);
 
             // ============================================================
             // Material Browser Panel
             // ============================================================
-            if (showMaterialBrowser)
-            {
-                ImGui::SetNextWindowPos(ImVec2(320, 440), ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(680, 560), ImGuiCond_FirstUseEver);
-                ImGui::Begin("Material Browser", &showMaterialBrowser);
+            MyEngine::Editor::Panels::DrawMaterialBrowserPanel(editorContext);
 
-                namespace fs = std::filesystem;
-
-                // Ensure the root folder exists
-                {
-                    std::error_code ec;
-                    fs::create_directories(materialBrowserPath, ec);
-                }
-
-                // ---- Toolbar ----
-                if (ImGui::Button("New Material"))
-                    showNewMaterialDialog = true;
-
-                ImGui::SameLine();
-                if (ImGui::Button("Open..."))
-                {
-                    std::string picked = MyEngine::FileDialog::OpenMaterialFile();
-                    if (!picked.empty())
-                    {
-                        selectedMaterialPath = picked;
-                        editingMaterial = MyEngine::AssetManager::LoadMaterial(picked);
-                        matBrowserTexturesScanned = false;
-                    }
-                }
-
-                ImGui::SameLine();
-                if (ImGui::Button("Refresh"))
-                    matBrowserTexturesScanned = false; // also forces texture list rescan
-
-                ImGui::SameLine();
-                ImGui::TextDisabled("Dir: %s", materialBrowserPath.c_str());
-
-                ImGui::Separator();
-
-                // ---- New Material dialog (inline) ----
-                if (showNewMaterialDialog)
-                {
-                    ImGui::InputText("Name##newmat", newMaterialNameBuffer, sizeof(newMaterialNameBuffer));
-                    ImGui::SameLine();
-                    if (ImGui::Button("Create##newmat"))
-                    {
-                        std::string newPath = materialBrowserPath + "/" + newMaterialNameBuffer;
-                        // Ensure .material.json extension
-                        if (newPath.find(".material.json") == std::string::npos)
-                            newPath += ".material.json";
-
-                        auto mat = std::make_shared<MyEngine::Material>();
-                        mat->SetPath(newPath);
-                        mat->shaderVertexPath  = "shaders/lit.vert";
-                        mat->shaderFragmentPath = "shaders/lit.frag";
-                        mat->shader = MyEngine::AssetManager::LoadShader(mat->shaderVertexPath, mat->shaderFragmentPath);
-                        mat->SaveToFile(newPath);
-
-                        selectedMaterialPath = newPath;
-                        editingMaterial = mat;
-                        showNewMaterialDialog = false;
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Cancel##newmat"))
-                        showNewMaterialDialog = false;
-
-                    ImGui::Separator();
-                }
-
-                // ---- Two-column layout: list | editor ----
-                float listWidth = 220.0f;
-                ImGui::BeginChild("##matlist", ImVec2(listWidth, 0), true);
-
-                // Breadcrumb navigation
-                if (materialBrowserPath != "assets/materials")
-                {
-                    if (ImGui::Button("<- Back"))
-                    {
-                        fs::path parent = fs::path(materialBrowserPath).parent_path();
-                        materialBrowserPath = parent.empty() ? "assets/materials" : parent.generic_string();
-                        selectedMaterialPath.clear();
-                        editingMaterial = nullptr;
-                    }
-                }
-                ImGui::TextDisabled("%s", fs::path(materialBrowserPath).filename().string().c_str());
-                ImGui::Separator();
-
-                if (fs::exists(materialBrowserPath) && fs::is_directory(materialBrowserPath))
-                {
-                    // Subdirectories first
-                    for (const auto& entry : fs::directory_iterator(materialBrowserPath))
-                    {
-                        if (!entry.is_directory()) continue;
-                        std::string label = "[DIR] " + entry.path().filename().string();
-                        if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
-                            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                        {
-                            materialBrowserPath = entry.path().generic_string();
-                            selectedMaterialPath.clear();
-                            editingMaterial = nullptr;
-                        }
-                    }
-
-                    // Material files
-                    for (const auto& entry : fs::directory_iterator(materialBrowserPath))
-                    {
-                        if (!entry.is_regular_file()) continue;
-                        std::string filePath = entry.path().generic_string();
-                        std::string fileName = entry.path().filename().string();
-                        // Only show .material.json and .json files
-                        if (filePath.find(".json") == std::string::npos) continue;
-
-                        bool isSelected = (filePath == selectedMaterialPath);
-                        if (ImGui::Selectable(fileName.c_str(), isSelected))
-                        {
-                            selectedMaterialPath = filePath;
-                            editingMaterial = MyEngine::AssetManager::LoadMaterial(filePath);
-                            matBrowserTexturesScanned = false;
-                            materialRenameActive = false;
-                        }
-
-                        // Right-click context menu
-                        if (ImGui::BeginPopupContextItem(filePath.c_str()))
-                        {
-                            if (ImGui::MenuItem("Edit"))
-                            {
-                                selectedMaterialPath = filePath;
-                                editingMaterial = MyEngine::AssetManager::LoadMaterial(filePath);
-                                matBrowserTexturesScanned = false;
-                            }
-                            if (ImGui::MenuItem("Assign to Selected Entity"))
-                            {
-                                if (selectedEntity && selectedEntity->HasComponent<MeshRendererComponent>())
-                                {
-                                    auto mat = MyEngine::AssetManager::LoadMaterial(filePath);
-                                    if (mat)
-                                    {
-                                        auto& mr = selectedEntity->GetComponent<MeshRendererComponent>();
-                                        mr.material = mat;
-                                        mr.materialPath = filePath;
-                                        if (mat->shader)
-                                            mr.shader = mat->shader;
-                                    }
-                                }
-                            }
-                            ImGui::Separator();
-                            if (ImGui::MenuItem("Rename"))
-                            {
-                                selectedMaterialPath = filePath;
-                                std::strncpy(materialRenameBuffer, fileName.c_str(), sizeof(materialRenameBuffer) - 1);
-                                materialRenameActive = true;
-                            }
-                            if (ImGui::MenuItem("Delete"))
-                            {
-                                std::error_code ec;
-                                fs::remove(filePath, ec);
-                                if (selectedMaterialPath == filePath)
-                                {
-                                    selectedMaterialPath.clear();
-                                    editingMaterial = nullptr;
-                                }
-                            }
-                            ImGui::EndPopup();
-                        }
-
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("Click: select | Right-click: options");
-                    }
-                }
-                else
-                {
-                    ImGui::TextDisabled("Folder not found");
-                }
-
-                ImGui::EndChild();
-                ImGui::SameLine();
-
-                // ---- Right side: editor ----
-                ImGui::BeginChild("##mateditor", ImVec2(0, 0), false);
-
-                if (!selectedMaterialPath.empty() && editingMaterial)
-                {
-                    auto& mat = *editingMaterial;
-
-                    // Rename bar
-                    if (materialRenameActive)
-                    {
-                        ImGui::SetNextItemWidth(300.0f);
-                        if (ImGui::InputText("##rename", materialRenameBuffer, sizeof(materialRenameBuffer),
-                                             ImGuiInputTextFlags_EnterReturnsTrue))
-                        {
-                            std::string newPath = fs::path(selectedMaterialPath).parent_path().generic_string()
-                                                  + "/" + materialRenameBuffer;
-                            std::error_code ec;
-                            fs::rename(selectedMaterialPath, newPath, ec);
-                            if (!ec)
-                            {
-                                mat.SetPath(newPath);
-                                selectedMaterialPath = newPath;
-                            }
-                            materialRenameActive = false;
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("OK##ren"))
-                        {
-                            std::string newPath = fs::path(selectedMaterialPath).parent_path().generic_string()
-                                                  + "/" + materialRenameBuffer;
-                            std::error_code ec;
-                            fs::rename(selectedMaterialPath, newPath, ec);
-                            if (!ec) { mat.SetPath(newPath); selectedMaterialPath = newPath; }
-                            materialRenameActive = false;
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("Cancel##ren"))
-                            materialRenameActive = false;
-                    }
-                    else
-                    {
-                        ImGui::TextDisabled("%s", selectedMaterialPath.c_str());
-                    }
-
-                    ImGui::Separator();
-
-                    // --- Shader ---
-                    if (ImGui::CollapsingHeader("Shader", ImGuiTreeNodeFlags_DefaultOpen))
-                    {
-                        static char vertBuf[256]; static char fragBuf[256];
-                        // Sync buffers on first select
-                        static std::string lastMatPath;
-                        if (lastMatPath != selectedMaterialPath)
-                        {
-                            lastMatPath = selectedMaterialPath;
-                            std::strncpy(vertBuf, mat.shaderVertexPath.c_str(), sizeof(vertBuf) - 1);
-                            std::strncpy(fragBuf, mat.shaderFragmentPath.c_str(), sizeof(fragBuf) - 1);
-                        }
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::InputText("Vertex##sv", vertBuf, sizeof(vertBuf));
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::InputText("Fragment##sf", fragBuf, sizeof(fragBuf));
-                        if (ImGui::Button("Apply Shader"))
-                        {
-                            mat.shaderVertexPath  = vertBuf;
-                            mat.shaderFragmentPath = fragBuf;
-                            try { mat.shader = MyEngine::AssetManager::LoadShader(vertBuf, fragBuf); }
-                            catch (...) { mat.shader = nullptr; }
-                        }
-                        ImGui::SameLine();
-                        // Quick presets
-                        if (ImGui::Button("Lit"))
-                        {
-                            std::strncpy(vertBuf, "shaders/lit.vert", sizeof(vertBuf)-1);
-                            std::strncpy(fragBuf, "shaders/lit.frag", sizeof(fragBuf)-1);
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("PBR"))
-                        {
-                            std::strncpy(vertBuf, "shaders/pbr.vert", sizeof(vertBuf)-1);
-                            std::strncpy(fragBuf, "shaders/pbr.frag", sizeof(fragBuf)-1);
-                        }
-                        ImGui::TextDisabled("Loaded: %s", mat.shader ? "yes" : "no");
-                    }
-
-                    // --- Classic properties ---
-                    if (ImGui::CollapsingHeader("Surface", ImGuiTreeNodeFlags_DefaultOpen))
-                    {
-                        ImGui::ColorEdit3("Albedo", &mat.albedo.x);
-                        ImGui::DragFloat("Shininess", &mat.shininess, 1.0f, 0.0f, 256.0f);
-                        ImGui::Checkbox("Use Texture", &mat.useTexture);
-
-                        // Texture scan (lazy)
-                        if (!matBrowserTexturesScanned)
-                        {
-                            matBrowserTextures.clear();
-                            std::error_code ec2;
-                            if (fs::exists("assets/textures", ec2))
-                            {
-                                for (const auto& te : fs::recursive_directory_iterator("assets/textures", ec2))
-                                {
-                                    if (!te.is_regular_file()) continue;
-                                    std::string ext2 = te.path().extension().string();
-                                    std::transform(ext2.begin(), ext2.end(), ext2.begin(),
-                                        [](unsigned char c){ return (char)std::tolower(c); });
-                                    if (ext2==".png"||ext2==".jpg"||ext2==".jpeg"||ext2==".bmp"||ext2==".tga")
-                                        matBrowserTextures.push_back(te.path().generic_string());
-                                }
-                                std::sort(matBrowserTextures.begin(), matBrowserTextures.end());
-                            }
-                            matBrowserTexturesScanned = true;
-                        }
-
-                        auto texPicker = [&](const char* label, std::shared_ptr<MyEngine::Texture>& slot)
-                        {
-                            std::string cur = slot ? slot->GetPath() : "None";
-                            if (ImGui::BeginCombo(label, cur.c_str()))
-                            {
-                                if (ImGui::Selectable("None", !slot)) slot = nullptr;
-                                for (const auto& tp : matBrowserTextures)
-                                {
-                                    bool sel = slot && slot->GetPath() == tp;
-                                    if (ImGui::Selectable(tp.c_str(), sel))
-                                    {
-                                        try { slot = MyEngine::AssetManager::LoadTexture(tp); }
-                                        catch (...) {}
-                                    }
-                                    if (sel) ImGui::SetItemDefaultFocus();
-                                }
-                                ImGui::EndCombo();
-                            }
-                        };
-
-                        texPicker("Texture##matbase", mat.texture);
-
-                        // Browse button
-                        ImGui::SameLine();
-                        if (ImGui::Button("Browse##basetex"))
-                        {
-                            std::string p = MyEngine::FileDialog::OpenImageFile();
-                            if (!p.empty())
-                            {
-                                try { mat.texture = MyEngine::AssetManager::LoadTexture(p); mat.useTexture = true; }
-                                catch (...) {}
-                            }
-                        }
-                    }
-
-                    // --- PBR ---
-                    if (ImGui::CollapsingHeader("PBR##matHeader"))
-                    {
-                        ImGui::Checkbox("Use PBR##matpbr", &mat.usePBR);
-                        if (mat.usePBR)
-                        {
-                            ImGui::SliderFloat("Metallic##matMetallic",   &mat.metallic,   0.0f, 1.0f);
-                            ImGui::SliderFloat("Roughness##matRoughness", &mat.roughness,  0.04f, 1.0f);
-                            ImGui::SliderFloat("AO##matAOStrength",       &mat.aoStrength, 0.0f, 1.0f);
-                            ImGui::ColorEdit3("Emissive##matEmissiveColor", &mat.emissive.x);
-                            ImGui::Separator();
-                            auto texPicker2 = [&](const char* label, std::shared_ptr<MyEngine::Texture>& slot)
-                            {
-                                std::string cur = slot ? slot->GetPath() : "None";
-                                if (ImGui::BeginCombo(label, cur.c_str()))
-                                {
-                                    if (ImGui::Selectable("None", !slot)) slot = nullptr;
-                                    for (const auto& tp : matBrowserTextures)
-                                    {
-                                        bool sel = slot && slot->GetPath() == tp;
-                                        if (ImGui::Selectable(tp.c_str(), sel))
-                                        {
-                                            try { slot = MyEngine::AssetManager::LoadTexture(tp); }
-                                            catch (...) {}
-                                        }
-                                        if (sel) ImGui::SetItemDefaultFocus();
-                                    }
-                                    ImGui::EndCombo();
-                                }
-                                ImGui::SameLine();
-                                std::string browseId = std::string("Browse##") + label;
-                                if (ImGui::Button(browseId.c_str()))
-                                {
-                                    std::string p = MyEngine::FileDialog::OpenImageFile();
-                                    if (!p.empty())
-                                    {
-                                        try { slot = MyEngine::AssetManager::LoadTexture(p); }
-                                        catch (...) {}
-                                    }
-                                }
-                            };
-                            texPicker2("Albedo Map##matAlbedo",            mat.albedoMap);
-                            texPicker2("Normal Map##matNormal",            mat.normalMap);
-                            texPicker2("MetallicRoughness##matMetalRough", mat.metallicRoughnessMap);
-                            texPicker2("AO Map##matAO",                    mat.aoMap);
-                            texPicker2("Emissive Map##matEmissive",        mat.emissiveMap);
-                        }
-                    }
-
-                    // --- Render Flags ---
-                    if (ImGui::CollapsingHeader("Render Flags##matRenderFlags"))
-                    {
-                        // Blend Mode
-                        const char* blendItems[] = { "Opaque", "Alpha Blend", "Additive" };
-                        int blendIdx = static_cast<int>(mat.blendMode);
-                        if (ImGui::Combo("Blend Mode##matBlend", &blendIdx, blendItems, IM_ARRAYSIZE(blendItems)))
-                            mat.blendMode = static_cast<MyEngine::BlendMode>(blendIdx);
-
-                        // Cull Mode
-                        const char* cullItems[] = { "Back", "Front", "Off (Double-Sided)" };
-                        int cullIdx = static_cast<int>(mat.cullMode);
-                        if (ImGui::Combo("Cull Mode##matCull", &cullIdx, cullItems, IM_ARRAYSIZE(cullItems)))
-                            mat.cullMode = static_cast<MyEngine::CullMode>(cullIdx);
-
-                        ImGui::Checkbox("Depth Write##matDepthWrite", &mat.depthWrite);
-                        ImGui::SameLine();
-                        ImGui::Checkbox("Depth Test##matDepthTest",   &mat.depthTest);
-
-                        ImGui::DragInt("Render Queue##matRQ", &mat.renderQueue, 1.0f, 0, 5000);
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(Opaque~2000, Transparent~3000)");
-                    }
-
-                    ImGui::Separator();
-                    if (ImGui::Button("Save##matbrowser"))
-                    {
-                        mat.shaderVertexPath  = mat.shader ? mat.shader->GetVertexPath()   : mat.shaderVertexPath;
-                        mat.shaderFragmentPath = mat.shader ? mat.shader->GetFragmentPath() : mat.shaderFragmentPath;
-                        mat.SaveToFile(selectedMaterialPath);
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Save As...##matbrowser"))
-                    {
-                        std::string dest = MyEngine::FileDialog::SaveMaterialFile();
-                        if (!dest.empty())
-                        {
-                            mat.SetPath(dest);
-                            mat.shaderVertexPath  = mat.shader ? mat.shader->GetVertexPath()   : mat.shaderVertexPath;
-                            mat.shaderFragmentPath = mat.shader ? mat.shader->GetFragmentPath() : mat.shaderFragmentPath;
-                            mat.SaveToFile(dest);
-                            selectedMaterialPath = dest;
-                        }
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Assign to Selected Entity##matbrowser"))
-                    {
-                        if (selectedEntity && selectedEntity->HasComponent<MeshRendererComponent>())
-                        {
-                            auto& mr = selectedEntity->GetComponent<MeshRendererComponent>();
-                            mr.material = editingMaterial;
-                            mr.materialPath = selectedMaterialPath;
-                            if (editingMaterial->shader)
-                                mr.shader = editingMaterial->shader;
-                        }
-                    }
-                }
-                else
-                {
-                    ImGui::TextDisabled("Select a material from the list or create a new one.");
-                }
-
-                ImGui::EndChild();
-                ImGui::End();
-            }
-
-            if (editingAnimationStateMachine)
-            {
-                ImGui::SetNextWindowPos(ImVec2(1010, 440), ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(540, 560), ImGuiCond_FirstUseEver);
-                bool openAnimationStateMachineEditor = true;
-                ImGui::Begin("Animation State Machine", &openAnimationStateMachineEditor);
-                if (!openAnimationStateMachineEditor)
-                {
-                    editingAnimationStateMachine.reset();
-                    selectedAnimationStateMachinePath.clear();
-                }
-                else
-                {
-                    auto& sm = *editingAnimationStateMachine;
-                    static char smNameBuffer[256] = "";
-                    static std::string smLastPath;
-                    if (smLastPath != selectedAnimationStateMachinePath)
-                    {
-                        smLastPath = selectedAnimationStateMachinePath;
-                        std::strncpy(smNameBuffer, sm.name.c_str(), sizeof(smNameBuffer) - 1);
-                        smNameBuffer[sizeof(smNameBuffer) - 1] = '\0';
-                    }
-
-                    ImGui::TextDisabled("%s", selectedAnimationStateMachinePath.empty() ? "Unsaved state machine" : selectedAnimationStateMachinePath.c_str());
-                    if (ImGui::InputText("Name##animsm", smNameBuffer, sizeof(smNameBuffer)))
-                        sm.name = smNameBuffer;
-
-                    if (ImGui::Button("Save##animsm"))
-                    {
-                        std::string savePath = selectedAnimationStateMachinePath.empty()
-                            ? MyEngine::FileDialog::SaveAnimationStateMachineFile()
-                            : selectedAnimationStateMachinePath;
-                        if (!savePath.empty())
-                        {
-                            sm.SetPath(savePath);
-                            sm.SaveToFile(savePath);
-                            selectedAnimationStateMachinePath = savePath;
-                        }
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Save As...##animsm"))
-                    {
-                        std::string savePath = MyEngine::FileDialog::SaveAnimationStateMachineFile();
-                        if (!savePath.empty())
-                        {
-                            sm.SetPath(savePath);
-                            sm.SaveToFile(savePath);
-                            selectedAnimationStateMachinePath = savePath;
-                        }
-                    }
-
-                    const std::vector<MyEngine::AnimationClip>* stateMachineEditorClips = nullptr;
-                    if (selectedEntity && selectedEntity->HasComponent<AnimationComponent>())
-                    {
-                        auto& selectedAnim = selectedEntity->GetComponent<AnimationComponent>();
-                        if (selectedAnim.clips && !selectedAnim.clips->empty())
-                            stateMachineEditorClips = selectedAnim.clips.get();
-                    }
-
-                    ImGui::Separator();
-                    if (stateMachineEditorClips)
-                        ImGui::TextDisabled("Clip source: selected entity (%d clip(s))", static_cast<int>(stateMachineEditorClips->size()));
-                    else
-                        ImGui::TextDisabled("Select an animated entity to use clip dropdowns and validation.");
-
-                    if (ImGui::CollapsingHeader("Parameters##animsm", ImGuiTreeNodeFlags_DefaultOpen))
-                    {
-                        if (ImGui::Button("Add Bool##animsmParam"))
-                            sm.parameters.push_back({ "NewBool", MyEngine::AnimationStateMachineParameterType::Bool, 0.0f, false });
-                        ImGui::SameLine();
-                        if (ImGui::Button("Add Float##animsmParam"))
-                            sm.parameters.push_back({ "NewFloat", MyEngine::AnimationStateMachineParameterType::Float, 0.0f, false });
-                        ImGui::SameLine();
-                        if (ImGui::Button("Add Trigger##animsmParam"))
-                            sm.parameters.push_back({ "NewTrigger", MyEngine::AnimationStateMachineParameterType::Trigger, 0.0f, false });
-
-                        const char* paramTypeNames[] = { "Bool", "Float", "Trigger" };
-                        for (size_t i = 0; i < sm.parameters.size(); ++i)
-                        {
-                            auto& param = sm.parameters[i];
-                            ImGui::PushID(static_cast<int>(i));
-                            char paramNameBuffer[128] = {};
-                            std::strncpy(paramNameBuffer, param.name.c_str(), sizeof(paramNameBuffer) - 1);
-                            if (ImGui::InputText("Name", paramNameBuffer, sizeof(paramNameBuffer)))
-                                param.name = paramNameBuffer;
-                            int typeIndex = static_cast<int>(param.type);
-                            if (ImGui::Combo("Type", &typeIndex, paramTypeNames, IM_ARRAYSIZE(paramTypeNames)))
-                                param.type = static_cast<MyEngine::AnimationStateMachineParameterType>(typeIndex);
-                            if (param.type == MyEngine::AnimationStateMachineParameterType::Float)
-                                ImGui::DragFloat("Default", &param.defaultFloatValue, 0.01f);
-                            else if (param.type == MyEngine::AnimationStateMachineParameterType::Bool)
-                                ImGui::Checkbox("Default", &param.defaultBoolValue);
-                            if (ImGui::Button("Remove Parameter"))
-                            {
-                                sm.parameters.erase(sm.parameters.begin() + static_cast<std::ptrdiff_t>(i));
-                                ImGui::PopID();
-                                break;
-                            }
-                            ImGui::Separator();
-                            ImGui::PopID();
-                        }
-                    }
-
-                    if (ImGui::CollapsingHeader("States##animsm", ImGuiTreeNodeFlags_DefaultOpen))
-                    {
-                        if (ImGui::Button("Add State##animsmState"))
-                        {
-                            MyEngine::AnimationStateMachineState state;
-                            state.name = "State " + std::to_string(sm.states.size());
-                            sm.states.push_back(state);
-                            if (sm.defaultStateIndex < 0)
-                                sm.defaultStateIndex = 0;
-                        }
-
-                        if (!sm.states.empty())
-                            ImGui::DragInt("Default State Index##animsm", &sm.defaultStateIndex, 1.0f, 0, static_cast<int>(sm.states.size()) - 1);
-
-                        for (size_t stateIndex = 0; stateIndex < sm.states.size(); ++stateIndex)
-                        {
-                            auto& state = sm.states[stateIndex];
-                            ImGui::PushID(static_cast<int>(stateIndex) + 1000);
-                            if (ImGui::TreeNode((state.name.empty() ? ("State " + std::to_string(stateIndex)) : state.name).c_str()))
-                            {
-                                char stateNameBuffer[128] = {};
-                                std::strncpy(stateNameBuffer, state.name.c_str(), sizeof(stateNameBuffer) - 1);
-                                if (ImGui::InputText("State Name", stateNameBuffer, sizeof(stateNameBuffer)))
-                                    state.name = stateNameBuffer;
-                                if (stateMachineEditorClips && !stateMachineEditorClips->empty())
-                                {
-                                    int resolvedClipIndex = sm.ResolveClipIndex(*stateMachineEditorClips, state);
-                                    std::string clipLabel = resolvedClipIndex >= 0
-                                        ? ((*stateMachineEditorClips)[resolvedClipIndex].name.empty()
-                                            ? ("Clip " + std::to_string(resolvedClipIndex))
-                                            : (*stateMachineEditorClips)[resolvedClipIndex].name)
-                                        : (state.clipName.empty() ? "<select clip>" : state.clipName + " (missing)");
-
-                                    if (ImGui::BeginCombo("Clip##animsm", clipLabel.c_str()))
-                                    {
-                                        for (int clipIndex = 0; clipIndex < static_cast<int>(stateMachineEditorClips->size()); ++clipIndex)
-                                        {
-                                            std::string availableClipName = (*stateMachineEditorClips)[clipIndex].name;
-                                            if (availableClipName.empty())
-                                                availableClipName = "Clip " + std::to_string(clipIndex);
-
-                                            bool isSelected = (resolvedClipIndex == clipIndex);
-                                            if (ImGui::Selectable(availableClipName.c_str(), isSelected))
-                                                state.clipName = (*stateMachineEditorClips)[clipIndex].name;
-                                            if (isSelected)
-                                                ImGui::SetItemDefaultFocus();
-                                        }
-                                        ImGui::EndCombo();
-                                    }
-                                }
-                                else
-                                {
-                                    char clipNameBuffer[128] = {};
-                                    std::strncpy(clipNameBuffer, state.clipName.c_str(), sizeof(clipNameBuffer) - 1);
-                                    if (ImGui::InputText("Clip Name", clipNameBuffer, sizeof(clipNameBuffer)))
-                                        state.clipName = clipNameBuffer;
-                                }
-
-                                if (state.clipName.empty())
-                                {
-                                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "No clip assigned.");
-                                }
-                                else if (stateMachineEditorClips)
-                                {
-                                    int validationClipIndex = sm.ResolveClipIndex(*stateMachineEditorClips, state);
-                                    if (validationClipIndex >= 0)
-                                        ImGui::TextDisabled("Resolved clip: %s", (*stateMachineEditorClips)[validationClipIndex].name.empty() ? "<unnamed clip>" : (*stateMachineEditorClips)[validationClipIndex].name.c_str());
-                                    else
-                                        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Assigned clip is not available on the selected entity.");
-                                }
-
-                                ImGui::Checkbox("Loop", &state.loop);
-                                ImGui::DragFloat("Playback Speed", &state.playbackSpeed, 0.01f, 0.0f, 4.0f, "%.2f");
-
-                                if (ImGui::Button("Add Transition"))
-                                    state.transitions.push_back({});
-
-                                for (size_t transitionIndex = 0; transitionIndex < state.transitions.size(); ++transitionIndex)
-                                {
-                                    auto& transition = state.transitions[transitionIndex];
-                                    ImGui::PushID(static_cast<int>(transitionIndex) + 2000);
-                                    if (ImGui::TreeNode(("Transition " + std::to_string(transitionIndex)).c_str()))
-                                    {
-                                        ImGui::DragInt("Target State Index", &transition.targetStateIndex, 1.0f, -1, static_cast<int>(sm.states.size()) - 1);
-                                        ImGui::DragFloat("Blend Duration", &transition.blendDuration, 0.01f, 0.0f, 5.0f, "%.2f");
-                                        ImGui::Checkbox("Requires Exit Time", &transition.requiresExitTime);
-                                        ImGui::SliderFloat("Exit Time", &transition.exitTimeNormalized, 0.0f, 1.0f, "%.2f");
-                                        ImGui::Checkbox("Reset Time On Enter", &transition.resetTimeOnEnter);
-                                        if (ImGui::Button("Add Condition"))
-                                            transition.conditions.push_back({});
-
-                                        const char* conditionOpNames[] = { "IfTrue", "IfFalse", "Greater", "Less", "Trigger" };
-                                        for (size_t conditionIndex = 0; conditionIndex < transition.conditions.size(); ++conditionIndex)
-                                        {
-                                            auto& condition = transition.conditions[conditionIndex];
-                                            ImGui::PushID(static_cast<int>(conditionIndex) + 3000);
-                                            char conditionParamBuffer[128] = {};
-                                            std::strncpy(conditionParamBuffer, condition.parameterName.c_str(), sizeof(conditionParamBuffer) - 1);
-                                            if (ImGui::InputText("Parameter", conditionParamBuffer, sizeof(conditionParamBuffer)))
-                                                condition.parameterName = conditionParamBuffer;
-                                            int opIndex = static_cast<int>(condition.op);
-                                            if (ImGui::Combo("Operator", &opIndex, conditionOpNames, IM_ARRAYSIZE(conditionOpNames)))
-                                                condition.op = static_cast<MyEngine::AnimationStateMachineConditionOperator>(opIndex);
-                                            if (condition.op == MyEngine::AnimationStateMachineConditionOperator::Greater || condition.op == MyEngine::AnimationStateMachineConditionOperator::Less)
-                                                ImGui::DragFloat("Threshold", &condition.threshold, 0.01f);
-                                            if (ImGui::Button("Remove Condition"))
-                                            {
-                                                transition.conditions.erase(transition.conditions.begin() + static_cast<std::ptrdiff_t>(conditionIndex));
-                                                ImGui::PopID();
-                                                break;
-                                            }
-                                            ImGui::Separator();
-                                            ImGui::PopID();
-                                        }
-
-                                        if (ImGui::Button("Remove Transition"))
-                                        {
-                                            state.transitions.erase(state.transitions.begin() + static_cast<std::ptrdiff_t>(transitionIndex));
-                                            ImGui::TreePop();
-                                            ImGui::PopID();
-                                            break;
-                                        }
-                                        ImGui::TreePop();
-                                    }
-                                    ImGui::PopID();
-                                }
-
-                                if (ImGui::Button("Remove State"))
-                                {
-                                    sm.states.erase(sm.states.begin() + static_cast<std::ptrdiff_t>(stateIndex));
-                                    if (sm.states.empty())
-                                        sm.defaultStateIndex = -1;
-                                    else
-                                        sm.defaultStateIndex = std::clamp(sm.defaultStateIndex, 0, static_cast<int>(sm.states.size()) - 1);
-                                    ImGui::TreePop();
-                                    ImGui::PopID();
-                                    break;
-                                }
-                                ImGui::TreePop();
-                            }
-                            ImGui::PopID();
-                        }
-                    }
-                }
-                ImGui::End();
-            }
-
-            if (showSceneHierarchy)
-            {
-                ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(300, 400), ImGuiCond_FirstUseEver);
-                ImGui::Begin("Scene Hierarchy", &showSceneHierarchy);
-
-                if (ImGui::Button("Create Empty Entity"))
-                {
-                    const std::string beforeState = captureSceneState();
-                    auto ent = scene.CreateEntity("Entity");
-                    ent->AddComponent<TransformComponent>();
-                    selectedEntity = ent.get();
-                    const std::string afterState = captureSceneState();
-                    if (!beforeState.empty() && !afterState.empty() && beforeState != afterState)
-                        pushSceneStateCommand(beforeState, afterState);
-                }
-
-                ImGui::Separator();
-
-                // Recursive hierarchy tree: root entities (parentID == 0) at top
-                // level, children nested underneath. Drag an entity onto another
-                // to reparent it; drop onto the "(root)" target to unparent.
-                std::function<void(const std::shared_ptr<Entity>&)> drawEntityNode =
-                    [&](const std::shared_ptr<Entity>& entity)
-                {
-                    bool hasChildren = false;
-                    for (auto& other : scene.GetEntities())
-                    {
-                        if (other && other != entity && other->HasComponent<TransformComponent>() &&
-                            other->GetComponent<TransformComponent>().parentID == entity->GetID())
-                        {
-                            hasChildren = true;
-                            break;
-                        }
-                    }
-
-                    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DefaultOpen;
-                    if (!hasChildren)
-                        flags |= ImGuiTreeNodeFlags_Leaf;
-                    if (selectedEntity == entity.get())
-                        flags |= ImGuiTreeNodeFlags_Selected;
-
-                    bool open = ImGui::TreeNodeEx(entity.get(), flags, "%s", entity->GetName().c_str());
-
-                    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
-                    {
-                        selectedEntity = entity.get();
-                    }
-
-                    // Drag source: carry the entity ID
-                    if (ImGui::BeginDragDropSource())
-                    {
-                        uint32_t draggedID = entity->GetID();
-                        ImGui::SetDragDropPayload("ENTITY_HIERARCHY", &draggedID, sizeof(uint32_t));
-                        ImGui::Text("%s", entity->GetName().c_str());
-                        ImGui::EndDragDropSource();
-                    }
-
-                    // Drop target: reparent the dragged entity under this one
-                    if (ImGui::BeginDragDropTarget())
-                    {
-                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY"))
-                        {
-                            uint32_t draggedID = *static_cast<const uint32_t*>(payload->Data);
-                            auto dragged = TransformHierarchy::FindEntityByID(scene, draggedID);
-                            if (dragged && dragged.get() != entity.get())
-                                TransformHierarchy::SetParent(scene, *dragged, entity->GetID());
-                        }
-                        ImGui::EndDragDropTarget();
-                    }
-
-                    // Right-click context menu for entity
-                    if (ImGui::BeginPopupContextItem())
-                    {
-                        if (ImGui::MenuItem("Unparent", nullptr, false,
-                            entity->HasComponent<TransformComponent>() &&
-                            entity->GetComponent<TransformComponent>().parentID != 0))
-                        {
-                            TransformHierarchy::SetParent(scene, *entity, 0);
-                        }
-                        if (ImGui::MenuItem("Delete"))
-                        {
-                            const std::string beforeState = captureSceneState();
-                            uint32_t idToDelete = entity->GetID();
-                            if (selectedEntity == entity.get())
-                                selectedEntity = nullptr;
-                            // Unparent any children so they don't reference a dead ID.
-                            for (auto& other : scene.GetEntities())
-                            {
-                                if (other && other->HasComponent<TransformComponent>() &&
-                                    other->GetComponent<TransformComponent>().parentID == idToDelete)
-                                    TransformHierarchy::SetParent(scene, *other, 0);
-                            }
-                            scene.DestroyEntity(idToDelete);
-                            const std::string afterState = captureSceneState();
-                            if (!beforeState.empty() && !afterState.empty() && beforeState != afterState)
-                                pushSceneStateCommand(beforeState, afterState);
-                        }
-                        ImGui::EndPopup();
-                    }
-
-                    if (open)
-                    {
-                        for (auto& child : scene.GetEntities())
-                        {
-                            if (child && child != entity && child->HasComponent<TransformComponent>() &&
-                                child->GetComponent<TransformComponent>().parentID == entity->GetID())
-                            {
-                                drawEntityNode(child);
-                            }
-                        }
-                        ImGui::TreePop();
-                    }
-                };
-
-                for (auto& entity : scene.GetEntities())
-                {
-                    if (!entity)
-                        continue;
-                    uint32_t parentID = entity->HasComponent<TransformComponent>()
-                        ? entity->GetComponent<TransformComponent>().parentID
-                        : 0;
-                    if (parentID == 0)
-                        drawEntityNode(entity);
-                }
-
-                // Drop area to unparent (drag onto empty space below the tree)
-                ImGui::Dummy(ImVec2(-1.0f, 30.0f));
-                if (ImGui::BeginDragDropTarget())
-                {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY"))
-                    {
-                        uint32_t draggedID = *static_cast<const uint32_t*>(payload->Data);
-                        auto dragged = TransformHierarchy::FindEntityByID(scene, draggedID);
-                        if (dragged)
-                            TransformHierarchy::SetParent(scene, *dragged, 0);
-                    }
-                    ImGui::EndDragDropTarget();
-                }
-
-                ImGui::End();
-            }
+            MyEngine::Editor::Panels::DrawAnimationStateMachinePanel(editorContext);
+            MyEngine::Editor::Panels::DrawSceneHierarchyPanel(editorContext);
 
             // ============================================================
             // Inspector Panel
@@ -2893,14 +1845,14 @@ int main()
 
                 if (selectedEntity)
                 {
-                    ImGui::Text("Entity: %s", selectedEntity->GetName().c_str());
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Save as Prefab"))
+                    ImGui::TextUnformatted(selectedEntity->GetName().c_str());
+                    ImGui::TextDisabled("Entity ID: %u", selectedEntity->GetID());
+                    if (InspectorActionButton("Save as Prefab"))
                     {
                         std::string prefabPath = MyEngine::FileDialog::SavePrefabFile();
                         if (!prefabPath.empty())
                         {
-                            if (MyEngine::Serialization::SavePrefab(selectedEntity, prefabPath))
+                            if (MyEngine::Serialization::SavePrefab(scene, selectedEntity, prefabPath))
                                 ImGui::OpenPopup("PrefabSaved");
                         }
                     }
@@ -2910,25 +1862,36 @@ int main()
                         if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
                         ImGui::EndPopup();
                     }
-                    ImGui::Separator();
 
-                    // --- Tag & Layer ---
+                    if (selectedEntity->HasComponent<PrefabInstanceComponent>())
                     {
-                        // Tag input
+                        InspectorGroupLabel("Prefab Instance");
+                        const auto& prefab = selectedEntity->GetComponent<PrefabInstanceComponent>();
+                        ImGui::TextWrapped("Source: %s", prefab.sourcePrefabPath.empty() ? "<unsaved>" : prefab.sourcePrefabPath.c_str());
+                        ImGui::Text("Source Entity ID: %u", prefab.sourceEntityID);
+                        auto overrides = describePrefabOverrides(selectedEntity);
+                        if (overrides.empty())
+                            ImGui::TextDisabled("No overrides detected.");
+                        else
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Overrides:");
+                            for (const auto& overrideName : overrides)
+                                ImGui::BulletText("%s", overrideName.c_str());
+                        }
+                    }
+
+                    InspectorGroupLabel("Entity Settings");
+                    {
                         static char tagBuf[64] = "";
                         strncpy_s(tagBuf, selectedEntity->GetTag().c_str(), sizeof(tagBuf) - 1);
-                        ImGui::SetNextItemWidth(140.0f);
+                        InspectorFullWidth();
                         if (ImGui::InputText("Tag##entityTag", tagBuf, sizeof(tagBuf)))
                             selectedEntity->SetTag(tagBuf);
 
-                        ImGui::SameLine();
-
-                        // Layer combo
-                        ImGui::SetNextItemWidth(140.0f);
                         int currentLayer = static_cast<int>(selectedEntity->GetLayer());
                         const auto& layerNames = MyEngine::LayerMask::GetNames();
-                        if (ImGui::BeginCombo("Layer##entityLayer",
-                                layerNames[currentLayer].c_str()))
+                        InspectorFullWidth();
+                        if (ImGui::BeginCombo("Layer##entityLayer", layerNames[currentLayer].c_str()))
                         {
                             for (int li = 0; li < MyEngine::MAX_LAYERS; ++li)
                             {
@@ -2940,7 +1903,7 @@ int main()
                             ImGui::EndCombo();
                         }
                     }
-                    ImGui::Separator();
+                    ImGui::Spacing();
 
                     // Transform Component
                     if (selectedEntity->HasComponent<TransformComponent>())
@@ -3575,69 +2538,57 @@ int main()
                     // Rigidbody Component
                     if (selectedEntity->HasComponent<RigidbodyComponent>())
                     {
-                        if (ImGui::CollapsingHeader("Rigidbody", ImGuiTreeNodeFlags_DefaultOpen))
+                        if (BeginInspectorSection("Rigidbody"))
                         {
                             auto& rb = selectedEntity->GetComponent<RigidbodyComponent>();
 
-                            ImGui::Text("Physics Properties");
-                            ImGui::Separator();
-
+                            InspectorGroupLabel("Material");
                             ImGui::DragFloat("Mass", &rb.mass, 0.1f, 0.1f, 1000.0f);
                             ImGui::DragFloat("Drag", &rb.drag, 0.01f, 0.0f, 10.0f);
                             ImGui::SliderFloat("Bounciness", &rb.bounciness, 0.0f, 1.0f);
 
-                            ImGui::Separator();
+                            InspectorGroupLabel("Motion");
                             ImGui::Checkbox("Use Gravity", &rb.useGravity);
                             ImGui::DragFloat("Gravity Scale", &rb.gravityScale, 0.1f, -10.0f, 10.0f);
-
-                            ImGui::Separator();
                             ImGui::Checkbox("Kinematic", &rb.isKinematic);
-                            ImGui::Text("Freeze Position:");
+                            ImGui::Checkbox("CCD (Continuous Collision)", &rb.useCCD);
+                            ImGui::SetItemTooltip("Sub-steps this body's sweep each tick to prevent tunnelling at high speeds");
+
+                            InspectorGroupLabel("Constraints");
+                            ImGui::TextDisabled("Freeze Position");
                             ImGui::Checkbox("X##freezeX", &rb.freezePositionX); ImGui::SameLine();
                             ImGui::Checkbox("Y##freezeY", &rb.freezePositionY); ImGui::SameLine();
                             ImGui::Checkbox("Z##freezeZ", &rb.freezePositionZ);
 
-                            ImGui::Separator();
-                            ImGui::Checkbox("CCD (Continuous Collision)", &rb.useCCD);
-                            ImGui::SetItemTooltip("Sub-steps this body's sweep each tick to prevent tunnelling at high speeds");
+                            InspectorGroupLabel("Debug");
+                            ImGui::Text("Velocity:  %.2f, %.2f, %.2f", rb.velocity.x, rb.velocity.y, rb.velocity.z);
 
-                            ImGui::Separator();
-                            ImGui::Text("Current Velocity:");
-                            ImGui::Text("  (%.2f, %.2f, %.2f)", rb.velocity.x, rb.velocity.y, rb.velocity.z);
-
-                            if (ImGui::Button("Reset Velocity"))
-                            {
-                                rb.velocity = glm::vec3(0.0f);
-                            }
-
-                            // Debug info
-                            ImGui::Separator();
-                            ImGui::Text("Debug Info:");
                             auto& transform = selectedEntity->GetComponent<TransformComponent>();
-                            ImGui::Text("Position: (%.2f, %.2f, %.2f)", 
+                            ImGui::Text("Position:  %.2f, %.2f, %.2f",
                                 transform.position.x, transform.position.y, transform.position.z);
 
                             if (selectedEntity->HasComponent<BoundingSphereComponent>())
                             {
                                 auto& bs = selectedEntity->GetComponent<BoundingSphereComponent>();
-                                ImGui::Text("Bounding Sphere Radius: %.2f", bs.radius);
+                                ImGui::Text("Sphere Radius: %.2f", bs.radius);
                                 ImGui::Text("Bottom Y: %.2f", transform.position.y - bs.radius);
                             }
                             if (selectedEntity->HasComponent<BoxColliderComponent>())
                             {
                                 auto& box = selectedEntity->GetComponent<BoxColliderComponent>();
-                                ImGui::Text("Box Half-Extents: (%.2f, %.2f, %.2f)", box.halfExtents.x, box.halfExtents.y, box.halfExtents.z);
+                                ImGui::Text("Box Half-Extents: %.2f, %.2f, %.2f", box.halfExtents.x, box.halfExtents.y, box.halfExtents.z);
                                 ImGui::Text("Bottom Y: %.2f", transform.position.y + box.center.y - box.halfExtents.y);
                             }
+
+                            if (InspectorActionButton("Reset Velocity"))
+                                rb.velocity = glm::vec3(0.0f);
                         }
                     }
                     else
                     {
-                        // Add Rigidbody button
-                        if (ImGui::Button("Add Rigidbody"))
+                        if (InspectorActionButton("Add Rigidbody"))
                         {
                             selectedEntity->AddComponent<RigidbodyComponent>();
-                            // Also ensure a collider shape exists for collisions
                             if (!selectedEntity->HasComponent<BoundingSphereComponent>() &&
                                 !selectedEntity->HasComponent<BoxColliderComponent>())
                             {
@@ -3649,48 +2600,46 @@ int main()
                     // Box Collider Component
                     if (selectedEntity->HasComponent<BoxColliderComponent>())
                     {
-                        if (ImGui::CollapsingHeader("Box Collider", ImGuiTreeNodeFlags_DefaultOpen))
+                        if (BeginInspectorSection("Box Collider"))
                         {
                             auto& box = selectedEntity->GetComponent<BoxColliderComponent>();
+                            InspectorGroupLabel("Shape");
                             ImGui::DragFloat3("Center Offset", &box.center.x, 0.05f);
                             ImGui::DragFloat3("Half Extents", &box.halfExtents.x, 0.05f, 0.01f, 100.0f);
+                            InspectorGroupLabel("Behavior");
                             ImGui::Checkbox("Is Trigger", &box.isTrigger);
-
-                            if (ImGui::Button("Remove Box Collider"))
-                            {
+                            if (InspectorDangerButton("Remove Box Collider"))
                                 selectedEntity->RemoveComponent<BoxColliderComponent>();
-                            }
                         }
                     }
                     else
                     {
-                        if (ImGui::Button("Add Box Collider"))
+                        if (InspectorActionButton("Add Box Collider"))
                         {
                             auto& box = selectedEntity->AddComponent<BoxColliderComponent>();
                             box.halfExtents = glm::vec3(0.5f);
-                            // A box collider replaces a bounding-sphere collider for physics purposes
                             if (selectedEntity->HasComponent<BoundingSphereComponent>())
-                            {
                                 selectedEntity->RemoveComponent<BoundingSphereComponent>();
-                            }
                         }
                     }
 
                     // Capsule Collider Component
                     if (selectedEntity->HasComponent<CapsuleColliderComponent>())
                     {
-                        if (ImGui::CollapsingHeader("Capsule Collider", ImGuiTreeNodeFlags_DefaultOpen))
+                        if (BeginInspectorSection("Capsule Collider"))
                         {
                             auto& capsule = selectedEntity->GetComponent<CapsuleColliderComponent>();
+                            InspectorGroupLabel("Shape");
                             ImGui::DragFloat3("Point A", &capsule.pointA.x, 0.02f);
                             ImGui::DragFloat3("Point B", &capsule.pointB.x, 0.02f);
                             ImGui::DragFloat("Radius", &capsule.radius, 0.01f, 0.01f, 100.0f, "%.3f");
+                            InspectorGroupLabel("Behavior");
                             ImGui::Checkbox("Is Trigger##capsule", &capsule.isTrigger);
 
                             if (selectedEntity->HasComponent<SkeletonComponent>())
                             {
-                                ImGui::Separator();
-                                if (ImGui::Button("Auto-Refit From Skeleton##capsule"))
+                                InspectorGroupLabel("Character Tools");
+                                if (InspectorActionButton("Auto-Refit From Skeleton##capsule"))
                                 {
                                     auto skeleton = selectedEntity->GetComponent<SkeletonComponent>().skeleton;
                                     glm::vec3 fitA(0.0f), fitB(0.0f);
@@ -3705,39 +2654,36 @@ int main()
                                 ImGui::TextDisabled("Use auto-refit for imported characters, then fine-tune manually.");
                             }
 
-                            if (ImGui::Button("Remove Capsule Collider"))
-                            {
+                            if (InspectorDangerButton("Remove Capsule Collider"))
                                 selectedEntity->RemoveComponent<CapsuleColliderComponent>();
-                            }
                         }
                     }
                     else
                     {
-                        if (ImGui::Button("Add Capsule Collider"))
+                        if (InspectorActionButton("Add Capsule Collider"))
                         {
                             auto& capsule = selectedEntity->AddComponent<CapsuleColliderComponent>();
                             capsule.pointA = glm::vec3(0.0f, -0.4f, 0.0f);
                             capsule.pointB = glm::vec3(0.0f, 0.4f, 0.0f);
                             capsule.radius = 0.5f;
                             if (selectedEntity->HasComponent<BoundingSphereComponent>())
-                            {
                                 selectedEntity->RemoveComponent<BoundingSphereComponent>();
-                            }
                         }
                     }
 
                     // Mesh Collider Component
                     if (selectedEntity->HasComponent<MeshColliderComponent>())
                     {
-                        if (ImGui::CollapsingHeader("Mesh Collider", ImGuiTreeNodeFlags_DefaultOpen))
+                        if (BeginInspectorSection("Mesh Collider"))
                         {
                             auto& mesh = selectedEntity->GetComponent<MeshColliderComponent>();
+                            InspectorGroupLabel("Source");
                             ImGui::Checkbox("Is Trigger##meshcol", &mesh.isTrigger);
                             ImGui::TextDisabled("Triangles: %d", static_cast<int>(mesh.triangles.size()));
                             if (!mesh.modelPath.empty())
-                                ImGui::TextDisabled("Source: %s", mesh.modelPath.c_str());
+                                ImGui::TextWrapped("Source: %s", mesh.modelPath.c_str());
 
-                            if (ImGui::Button("Build from Entity Mesh##meshcol"))
+                            if (InspectorActionButton("Build from Entity Mesh##meshcol"))
                             {
                                 if (selectedEntity->HasComponent<MeshComponent>())
                                 {
@@ -3762,38 +2708,35 @@ int main()
                             }
                             ImGui::SetItemTooltip("Extracts collision triangles from the entity's MeshComponent");
 
-                            if (ImGui::Button("Clear Triangles##meshcol"))
+                            if (InspectorActionButton("Clear Triangles##meshcol"))
                             {
                                 mesh.triangles.clear();
                                 mesh.RebuildAABB();
                             }
-
-                            if (ImGui::Button("Remove Mesh Collider##meshcol"))
+                            if (InspectorDangerButton("Remove Mesh Collider##meshcol"))
                                 selectedEntity->RemoveComponent<MeshColliderComponent>();
                         }
                     }
                     else
                     {
-                        if (ImGui::Button("Add Mesh Collider"))
+                        if (InspectorActionButton("Add Mesh Collider"))
                             selectedEntity->AddComponent<MeshColliderComponent>();
                     }
 
                     // Collision Events Component (trigger/collision callbacks for gameplay testing)
                     if (selectedEntity->HasComponent<CollisionEventsComponent>())
                     {
-                        if (ImGui::CollapsingHeader("Collision Events", ImGuiTreeNodeFlags_DefaultOpen))
+                        if (BeginInspectorSection("Collision Events"))
                         {
-                            ImGui::TextWrapped("Logs Enter/Exit events for collisions and triggers to the console.");
-
-                            if (ImGui::Button("Remove Collision Events"))
-                            {
+                            InspectorGroupLabel("Diagnostics");
+                            ImGui::TextWrapped("Logs collision and trigger enter/exit events to the console for gameplay debugging.");
+                            if (InspectorDangerButton("Remove Collision Events"))
                                 selectedEntity->RemoveComponent<CollisionEventsComponent>();
-                            }
                         }
                     }
                     else
                     {
-                        if (ImGui::Button("Add Collision Events"))
+                        if (InspectorActionButton("Add Collision Events"))
                         {
                             auto& events = selectedEntity->AddComponent<CollisionEventsComponent>();
                             uint32_t selfID = selectedEntity->GetID();
@@ -3824,20 +2767,18 @@ int main()
                     // Joint Component (Fixed/Spring/Hinge constraints between entities)
                     if (selectedEntity->HasComponent<JointComponent>())
                     {
-                        if (ImGui::CollapsingHeader("Joint", ImGuiTreeNodeFlags_DefaultOpen))
+                        if (BeginInspectorSection("Joint"))
                         {
                             auto& joint = selectedEntity->GetComponent<JointComponent>();
 
+                            InspectorGroupLabel("Setup");
                             ImGui::Checkbox("Enabled", &joint.enabled);
 
                             const char* jointTypeNames[] = { "Fixed", "Spring", "Hinge" };
                             int jointTypeIndex = static_cast<int>(joint.type);
                             if (ImGui::Combo("Type", &jointTypeIndex, jointTypeNames, IM_ARRAYSIZE(jointTypeNames)))
-                            {
                                 joint.type = static_cast<JointType>(jointTypeIndex);
-                            }
 
-                            // Connected entity selection (0 = world-space anchor point)
                             std::string connectedLabel = "<World Anchor>";
                             if (joint.connectedEntityID != 0)
                             {
@@ -3848,28 +2789,22 @@ int main()
                             {
                                 bool isWorldSelected = (joint.connectedEntityID == 0);
                                 if (ImGui::Selectable("<World Anchor>", isWorldSelected))
-                                {
                                     joint.connectedEntityID = 0;
-                                }
                                 for (const auto& other : scene.GetEntities())
                                 {
                                     if (!other || other->GetID() == selectedEntity->GetID())
                                         continue;
                                     bool isSelected = (other->GetID() == joint.connectedEntityID);
                                     if (ImGui::Selectable(other->GetName().c_str(), isSelected))
-                                    {
                                         joint.connectedEntityID = other->GetID();
-                                    }
                                 }
                                 ImGui::EndCombo();
                             }
 
+                            InspectorGroupLabel("Anchors");
                             ImGui::DragFloat3("Anchor Offset", &joint.anchor.x, 0.05f);
                             ImGui::DragFloat3("Connected Anchor", &joint.connectedAnchor.x, 0.05f);
-
-                            // Snap anchor button: sets anchor to the current relative offset
-                            // between this entity and the connected entity (or world origin).
-                            if (ImGui::Button("Snap Anchors to Current Offset##snapAnchor"))
+                            if (InspectorActionButton("Snap Anchors to Current Offset##snapAnchor"))
                             {
                                 if (selectedEntity->HasComponent<TransformComponent>())
                                 {
@@ -3893,14 +2828,14 @@ int main()
                             }
                             ImGui::SetItemTooltip("Computes connected anchor as the current relative offset between the two bodies");
 
-                            // Show computed world-space anchor positions (read-only)
                             if (selectedEntity->HasComponent<TransformComponent>())
                             {
-                                auto& selfTf   = selectedEntity->GetComponent<TransformComponent>();
+                                auto& selfTf = selectedEntity->GetComponent<TransformComponent>();
                                 glm::vec3 worldAnchor = selfTf.position + joint.anchor;
-                                ImGui::TextDisabled("World Anchor: (%.2f, %.2f, %.2f)", worldAnchor.x, worldAnchor.y, worldAnchor.z);
+                                ImGui::TextDisabled("World Anchor: %.2f, %.2f, %.2f", worldAnchor.x, worldAnchor.y, worldAnchor.z);
                             }
 
+                            InspectorGroupLabel("Constraint");
                             if (joint.type == JointType::Spring)
                             {
                                 ImGui::DragFloat("Rest Length", &joint.restLength, 0.05f, 0.0f, 100.0f);
@@ -3912,24 +2847,20 @@ int main()
                                 ImGui::DragFloat("Hinge Distance", &joint.hingeDistance, 0.05f, 0.0f, 100.0f);
                             }
 
-                            ImGui::Separator();
+                            InspectorGroupLabel("Break Settings");
                             ImGui::DragFloat("Break Force", &joint.breakForce, 0.5f, 0.0f, 10000.0f);
                             ImGui::SetItemTooltip("Joint is removed when corrective force exceeds this value. 0 = unbreakable.");
                             if (joint.breakForce > 0.0f)
                                 ImGui::TextDisabled("Joint will break above %.1f N", joint.breakForce);
 
-                            if (ImGui::Button("Remove Joint"))
-                            {
+                            if (InspectorDangerButton("Remove Joint"))
                                 selectedEntity->RemoveComponent<JointComponent>();
-                            }
                         }
                     }
                     else
                     {
-                        if (ImGui::Button("Add Joint"))
-                        {
+                        if (InspectorActionButton("Add Joint"))
                             selectedEntity->AddComponent<JointComponent>();
-                        }
                     }
 
                     // Animation Component
@@ -3944,7 +2875,7 @@ int main()
                                 anim.looping = true;
                             }
                         }
-                        else if (ImGui::CollapsingHeader("Animation", ImGuiTreeNodeFlags_DefaultOpen))
+                        else if (BeginInspectorSection("Animation"))
                         {
                             auto& anim = selectedEntity->GetComponent<AnimationComponent>();
                             std::shared_ptr<MyEngine::Skeleton> skeleton = selectedEntity->HasComponent<SkeletonComponent>()
@@ -3955,6 +2886,7 @@ int main()
                                 ? &selectedEntity->GetComponent<AnimationStateMachineComponent>()
                                 : nullptr;
 
+                            InspectorGroupLabel("Playback");
                             ImGui::Checkbox("Playing##anim", &anim.playing);
                             ImGui::SameLine();
                             ImGui::Checkbox("Looping##anim", &anim.looping);
@@ -3962,22 +2894,21 @@ int main()
 
                             if (smComponent)
                             {
-                                ImGui::Separator();
-                                ImGui::Text("State Machine: %s", smComponent->assetPath.empty() ? "<unsaved>" : smComponent->assetPath.c_str());
+                                InspectorGroupLabel("State Machine");
+                                ImGui::TextWrapped("State Machine: %s", smComponent->assetPath.empty() ? "<unsaved>" : smComponent->assetPath.c_str());
                                 ImGui::Checkbox("Auto Initialize##animsm", &smComponent->autoInitialize);
                                 ImGui::SameLine();
                                 ImGui::Checkbox("Pause Transitions##animsm", &smComponent->debugPauseTransitions);
 
                                 if (smComponent->stateMachine)
                                 {
-                                    if (ImGui::Button("Edit State Machine##animsm"))
+                                    if (InspectorActionButton("Edit State Machine##animsm"))
                                     {
                                         editingAnimationStateMachine = smComponent->stateMachine;
                                         selectedAnimationStateMachinePath = smComponent->assetPath;
                                     }
-                                    ImGui::SameLine();
                                 }
-                                if (ImGui::Button("Remove State Machine##animsm"))
+                                if (InspectorDangerButton("Remove State Machine##animsm"))
                                 {
                                     selectedEntity->RemoveComponent<AnimationStateMachineComponent>();
                                     smComponent = nullptr;
@@ -4039,7 +2970,8 @@ int main()
                             }
                             else
                             {
-                                if (ImGui::Button("Create State Machine##animsm"))
+                                InspectorGroupLabel("State Machine");
+                                if (InspectorActionButton("Create State Machine##animsm"))
                                 {
                                     auto& sm = selectedEntity->AddComponent<AnimationStateMachineComponent>();
                                     sm.stateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
@@ -4056,8 +2988,7 @@ int main()
                                     selectedAnimationStateMachinePath.clear();
                                     smComponent = &sm;
                                 }
-                                ImGui::SameLine();
-                                if (ImGui::Button("Assign State Machine...##animsm"))
+                                if (InspectorActionButton("Assign State Machine...##animsm"))
                                 {
                                     std::string path = MyEngine::FileDialog::OpenAnimationStateMachineFile();
                                     if (!path.empty())
@@ -4078,6 +3009,7 @@ int main()
                                 }
                             }
 
+                            InspectorGroupLabel("Clip Preview");
                             if (hasClips)
                             {
                                 if (anim.activeClipIndex < 0 || anim.activeClipIndex >= static_cast<int>(anim.clips->size()))
@@ -4128,20 +3060,20 @@ int main()
                                 ImGui::TextDisabled("No animation clips assigned.");
                             }
 
-                            if (ImGui::Button("Restart Clip##anim"))
+                            if (InspectorActionButton("Restart Clip##anim"))
                             {
                                 anim.time = 0.0f;
                                 anim.previousTime = 0.0f;
                                 anim.blendElapsed = 0.0f;
                             }
-                            ImGui::SameLine();
-                            if (ImGui::Button("Pause/Resume##anim"))
+                            if (InspectorActionButton("Pause/Resume##anim"))
                             {
                                 anim.playing = !anim.playing;
                             }
 
+                            InspectorGroupLabel("Import");
                             static std::string animationImportStatus;
-                            if (ImGui::Button("Import Animation File...##anim"))
+                            if (InspectorActionButton("Import Animation File...##anim"))
                             {
                                 std::string path = MyEngine::FileDialog::OpenModelFile();
                                 if (!path.empty())
@@ -4207,17 +3139,16 @@ int main()
                     // Audio Source Component
                     if (selectedEntity->HasComponent<AudioSourceComponent>())
                     {
-                        if (ImGui::CollapsingHeader("Audio Source", ImGuiTreeNodeFlags_DefaultOpen))
+                        if (BeginInspectorSection("Audio Source"))
                         {
                             auto& source = selectedEntity->GetComponent<AudioSourceComponent>();
 
-                            // Clip selection
+                            InspectorGroupLabel("Clip");
                             if (source.clip)
-                                ImGui::Text("Clip: %s", source.clipPath.c_str());
+                                ImGui::TextWrapped("Clip: %s", source.clipPath.c_str());
                             else
-                                ImGui::Text("No clip loaded");
+                                ImGui::TextDisabled("No clip loaded");
 
-                            // Cache the list of available clips found under assets/audio
                             static std::vector<std::string> availableClips;
                             static bool clipsScanned = false;
                             if (!clipsScanned)
@@ -4235,7 +3166,7 @@ int main()
                                 }
                             }
 
-                            if (ImGui::Button("Rescan Clips"))
+                            if (InspectorActionButton("Rescan Clips##audio"))
                                 clipsScanned = false;
 
                             if (ImGui::BeginCombo("Clip##audioClipCombo", source.clipPath.empty() ? "<select clip>" : source.clipPath.c_str()))
@@ -4248,8 +3179,6 @@ int main()
                                         auto newClip = AssetManager::LoadAudioClip(clipPath);
                                         if (newClip && newClip->IsValid())
                                         {
-                                            // Release the old OpenAL source so it gets recreated
-                                            // with the new buffer on the next AudioSystem update.
                                             if (source.sourceID != 0)
                                             {
                                                 alSourceStop(source.sourceID);
@@ -4267,12 +3196,13 @@ int main()
                                 ImGui::EndCombo();
                             }
 
+                            InspectorGroupLabel("Playback");
                             ImGui::SliderFloat("Volume", &source.volume, 0.0f, 1.0f);
                             ImGui::DragFloat("Pitch", &source.pitch, 0.01f, 0.1f, 4.0f);
                             ImGui::Checkbox("Loop", &source.loop);
                             ImGui::Checkbox("Auto Play", &source.autoPlay);
 
-                            ImGui::Separator();
+                            InspectorGroupLabel("Spatial");
                             ImGui::Checkbox("Spatial (3D)", &source.spatial);
                             if (source.spatial)
                             {
@@ -4280,24 +3210,27 @@ int main()
                                 ImGui::DragFloat("Max Distance", &source.maxDistance, 1.0f, 1.0f, 10000.0f);
                             }
 
-                            ImGui::Separator();
+                            InspectorGroupLabel("Transport");
                             if (source.clip && source.clip->IsValid())
                             {
                                 if (!source.isPlaying)
                                 {
-                                    if (ImGui::Button("Play"))
+                                    if (InspectorActionButton("Play##audio"))
                                         source.playRequested = true;
                                 }
                                 else
                                 {
-                                    if (ImGui::Button("Stop"))
+                                    if (InspectorDangerButton("Stop##audio"))
                                         source.stopRequested = true;
                                 }
-                                ImGui::SameLine();
-                                ImGui::Text(source.isPlaying ? "Playing" : "Stopped");
+                                ImGui::TextDisabled(source.isPlaying ? "Status: Playing" : "Status: Stopped");
+                            }
+                            else
+                            {
+                                ImGui::TextDisabled("Status: waiting for a valid clip");
                             }
 
-                            if (ImGui::Button("Remove Audio Source"))
+                            if (InspectorDangerButton("Remove Audio Source"))
                             {
                                 if (source.sourceID != 0)
                                 {
@@ -4311,7 +3244,7 @@ int main()
                     }
                     else
                     {
-                        if (ImGui::Button("Add Audio Source"))
+                        if (InspectorActionButton("Add Audio Source"))
                         {
                             selectedEntity->AddComponent<AudioSourceComponent>();
                         }
@@ -4320,13 +3253,15 @@ int main()
                     // Script Component
                     if (selectedEntity->HasComponent<ScriptComponent>())
                     {
-                        if (ImGui::CollapsingHeader("Script", ImGuiTreeNodeFlags_DefaultOpen))
+                        if (BeginInspectorSection("Script"))
                         {
                             auto& script = selectedEntity->GetComponent<ScriptComponent>();
 
+                            InspectorGroupLabel("Runtime");
                             ImGui::Checkbox("Enabled##script", &script.enabled);
                             ImGui::Checkbox("Auto Start##script", &script.autoStart);
 
+                            InspectorGroupLabel("Source");
                             if (script.scriptPath.find("rin_animation_hotkeys.lua") != std::string::npos)
                             {
                                 ImGui::TextWrapped("Hotkeys: press 1-9 to switch imported animation clips for this character.");
@@ -4334,8 +3269,9 @@ int main()
 
                             std::string scriptDisplay = script.scriptPath.empty() ? "(none)" : script.scriptPath;
                             ImGui::TextWrapped("Path: %s", scriptDisplay.c_str());
+                            ImGui::TextDisabled("Status: %s", script.scriptPath.empty() ? "No script assigned" : (script.requestReload ? "Reload pending" : "Ready"));
 
-                            if (ImGui::Button("Browse Script..."))
+                            if (InspectorActionButton("Browse Script...##script"))
                             {
                                 std::string path = MyEngine::FileDialog::OpenScriptFile();
                                 if (!path.empty())
@@ -4344,19 +3280,18 @@ int main()
                                     script.requestReload = true;
                                 }
                             }
-                            ImGui::SameLine();
-                            if (ImGui::Button("Reload Script"))
+                            if (InspectorActionButton("Reload Script##script"))
                             {
                                 script.requestReload = true;
                             }
 
-                            if (ImGui::Button("Clear Script Path"))
+                            if (InspectorActionButton("Clear Script Path##script"))
                             {
                                 script.scriptPath.clear();
                                 script.requestReload = true;
                             }
 
-                            if (ImGui::Button("Remove Script Component"))
+                            if (InspectorDangerButton("Remove Script Component"))
                             {
                                 selectedEntity->RemoveComponent<ScriptComponent>();
                             }
@@ -4364,7 +3299,7 @@ int main()
                     }
                     else
                     {
-                        if (ImGui::Button("Add Script Component"))
+                        if (InspectorActionButton("Add Script Component"))
                         {
                             selectedEntity->AddComponent<ScriptComponent>();
                         }
@@ -4405,16 +3340,18 @@ int main()
                     // ---- Particle Emitter Component ----
                     if (selectedEntity->HasComponent<ParticleEmitterComponent>())
                     {
-                        if (ImGui::CollapsingHeader("Particle Emitter", ImGuiTreeNodeFlags_DefaultOpen))
+                        if (BeginInspectorSection("Particle Emitter"))
                         {
                             auto& emitter = selectedEntity->GetComponent<ParticleEmitterComponent>();
 
+                            InspectorGroupLabel("Simulation");
                             bool emitting = emitter.emitting;
                             if (ImGui::Checkbox("Preview Emission", &emitting))
+                            {
                                 emitter.emitting = emitting;
-
-                            ImGui::SameLine();
-                            ImGui::TextDisabled("(toggle live particle spawning)");
+                                emitter.poolDirty = true;
+                            }
+                            ImGui::TextDisabled("Toggle live particle spawning for preview.");
 
                             if (ImGui::SliderInt("Max Particles", &emitter.maxParticles, 1, 10000))
                                 emitter.poolDirty = true;
@@ -4423,8 +3360,7 @@ int main()
                             ImGui::SliderFloat("Lifetime", &emitter.lifetime, 0.05f, 20.0f);
                             ImGui::SliderFloat("Lifetime Variance", &emitter.lifetimeVariance, 0.0f, 5.0f);
 
-                            ImGui::Separator();
-                            ImGui::Text("Emission Shape");
+                            InspectorGroupLabel("Shape");
                             int shape = static_cast<int>(emitter.shape);
                             const char* shapeNames[] = { "Point", "Sphere", "Box", "Cone" };
                             if (ImGui::Combo("Shape", &shape, shapeNames, IM_ARRAYSIZE(shapeNames)))
@@ -4449,31 +3385,27 @@ int main()
                                 break;
                             }
 
-                            ImGui::Separator();
-                            ImGui::Text("Render");
+                            InspectorGroupLabel("Rendering");
                             int blendMode = static_cast<int>(emitter.blendMode);
                             const char* blendNames[] = { "Alpha", "Additive" };
                             if (ImGui::Combo("Blend Mode", &blendMode, blendNames, IM_ARRAYSIZE(blendNames)))
                                 emitter.blendMode = static_cast<ParticleEmitterComponent::BlendMode>(blendMode);
 
-                            ImGui::Separator();
-                            ImGui::Text("Emission");
+                            InspectorGroupLabel("Emission");
                             ImGui::SliderFloat3("Direction##emit", &emitter.emitDirection.x, -1.0f, 1.0f);
                             ImGui::SliderFloat("Speed", &emitter.emitSpeed, 0.0f, 30.0f);
                             ImGui::SliderFloat("Speed Variance", &emitter.emitSpeedVariance, 0.0f, 10.0f);
                             ImGui::SliderFloat("Spread Angle", &emitter.spreadAngle, 0.0f, 180.0f);
                             ImGui::SliderFloat3("Gravity##emit", &emitter.gravity.x, -20.0f, 20.0f);
 
-                            ImGui::Separator();
-                            ImGui::Text("Appearance");
+                            InspectorGroupLabel("Appearance");
                             ImGui::ColorEdit4("Color Start", &emitter.colorStart.r);
                             ImGui::ColorEdit4("Color End",   &emitter.colorEnd.r);
                             ImGui::SliderFloat("Size Start", &emitter.sizeStart, 0.0f, 5.0f);
                             ImGui::SliderFloat("Size End",   &emitter.sizeEnd,   0.0f, 5.0f);
 
-                            ImGui::Separator();
-                            ImGui::Text("Presets");
-                            if (ImGui::Button("Fire"))
+                            InspectorGroupLabel("Presets");
+                            if (InspectorActionButton("Fire##particlePreset"))
                             {
                                 emitter.emitting = true;
                                 emitter.shape = ParticleEmitterComponent::EmissionShape::Cone;
@@ -4493,8 +3425,7 @@ int main()
                                 emitter.gravity = glm::vec3(0.0f, 1.0f, 0.0f);
                                 emitter.poolDirty = true;
                             }
-                            ImGui::SameLine();
-                            if (ImGui::Button("Smoke"))
+                            if (InspectorActionButton("Smoke##particlePreset"))
                             {
                                 emitter.emitting = true;
                                 emitter.shape = ParticleEmitterComponent::EmissionShape::Sphere;
@@ -4513,8 +3444,7 @@ int main()
                                 emitter.gravity = glm::vec3(0.0f, 0.3f, 0.0f);
                                 emitter.poolDirty = true;
                             }
-                            ImGui::SameLine();
-                            if (ImGui::Button("Sparks"))
+                            if (InspectorActionButton("Sparks##particlePreset"))
                             {
                                 emitter.emitting = true;
                                 emitter.shape = ParticleEmitterComponent::EmissionShape::Point;
@@ -4533,10 +3463,7 @@ int main()
                                 emitter.poolDirty = true;
                             }
 
-                            ImGui::Separator();
-                            ImGui::Text("Texture");
-                            ImGui::Separator();
-                            ImGui::Text("Texture");
+                            InspectorGroupLabel("Texture");
                             static char particleTexturePathBuf[256] = "";
                             if (particleTexturePathBuf[0] == '\0' && !emitter.texturePath.empty())
                             {
@@ -4547,7 +3474,7 @@ int main()
                                 emitter.texturePath = particleTexturePathBuf;
                                 emitter.poolDirty = true;
                             }
-                            if (ImGui::Button("Browse Texture"))
+                            if (InspectorActionButton("Browse Texture##particle"))
                             {
                                 std::string picked = MyEngine::FileDialog::OpenImageFile();
                                 if (!picked.empty())
@@ -4557,8 +3484,7 @@ int main()
                                     emitter.poolDirty = true;
                                 }
                             }
-                            ImGui::SameLine();
-                            if (ImGui::Button("Clear Texture"))
+                            if (InspectorActionButton("Clear Texture##particle"))
                             {
                                 emitter.texturePath.clear();
                                 particleTexturePathBuf[0] = '\0';
@@ -4570,19 +3496,19 @@ int main()
                                 ImGui::TextWrapped("%s", emitter.texturePath.c_str());
                             }
 
-                            // Count alive particles for debug info
+                            InspectorGroupLabel("Debug");
                             int alive = 0;
                             for (const auto& p : emitter.particles)
                                 if (p.alive) ++alive;
                             ImGui::Text("Alive: %d / %d", alive, emitter.maxParticles);
 
-                            if (ImGui::Button("Remove Particle Emitter"))
+                            if (InspectorDangerButton("Remove Particle Emitter"))
                                 selectedEntity->RemoveComponent<ParticleEmitterComponent>();
                         }
                     }
                     else
                     {
-                        if (ImGui::Button("Add Particle Emitter"))
+                        if (InspectorActionButton("Add Particle Emitter"))
                         {
                             auto& emitter = selectedEntity->AddComponent<ParticleEmitterComponent>();
                             emitter.poolDirty = true;
@@ -4862,8 +3788,11 @@ int main()
                 ImGui::SetNextWindowSize(ImVec2(320, 200), ImGuiCond_FirstUseEver);
                 ImGui::Begin("Post-Processing", &showPostProcessPanel);
 
+                ImGui::TextDisabled("Tune full-screen post effects and ambient occlusion.");
+                InspectorGroupLabel("General");
                 ImGui::Checkbox("Enabled", &postProcessEnabled);
 
+                InspectorGroupLabel("Bloom & Exposure");
                 bool bloom = postProcess.GetBloomEnabled();
                 if (ImGui::Checkbox("Bloom", &bloom))
                     postProcess.SetBloomEnabled(bloom);
@@ -4880,8 +3809,7 @@ int main()
                 if (ImGui::SliderFloat("Bloom Intensity", &bloomIntensity, 0.0f, 3.0f))
                     postProcess.SetBloomIntensity(bloomIntensity);
 
-                ImGui::Separator();
-                ImGui::Text("SSAO");
+                InspectorGroupLabel("SSAO");
 
                 bool ssaoEnabled = renderSystem.GetSSAOEnabled();
                 if (ImGui::Checkbox("SSAO Enabled", &ssaoEnabled))
@@ -4911,12 +3839,13 @@ int main()
                 ImGui::SetNextWindowSize(ImVec2(360, 260), ImGuiCond_FirstUseEver);
                 ImGui::Begin("Skybox", &showSkyboxPanel);
 
+                InspectorGroupLabel("General");
                 ImGui::Checkbox("Enabled", &skyboxEnabled);
                 ImGui::TextWrapped(skybox.IsLoaded()
                     ? "Cubemap loaded."
                     : "No cubemap loaded - assign all 6 face images below.");
 
-                if (ImGui::Button("Use assets/skybox defaults"))
+                if (InspectorActionButton("Use assets/skybox defaults##skybox"))
                 {
                     skyboxFacePaths[0] = "assets/skybox/right.png";
                     skyboxFacePaths[1] = "assets/skybox/left.png";
@@ -4925,23 +3854,22 @@ int main()
                     skyboxFacePaths[4] = "assets/skybox/front.png";
                     skyboxFacePaths[5] = "assets/skybox/back.png";
                 }
-                ImGui::SameLine();
-                if (ImGui::Button("Clear Faces"))
+                if (InspectorActionButton("Clear Faces##skybox"))
                 {
                     for (auto& p : skyboxFacePaths)
                         p.clear();
                 }
 
+                InspectorGroupLabel("Faces");
                 static const char* faceLabels[6] = { "Right (+X)", "Left (-X)", "Top (+Y)", "Bottom (-Y)", "Front (+Z)", "Back (-Z)" };
                 bool anyChanged = false;
                 for (int i = 0; i < 6; ++i)
                 {
                     ImGui::PushID(i);
                     ImGui::Text("%s", faceLabels[i]);
-                    ImGui::SameLine(140);
                     std::string displayPath = skyboxFacePaths[i].empty() ? "(none)" : skyboxFacePaths[i];
                     ImGui::TextWrapped("%s", displayPath.c_str());
-                    if (ImGui::Button("Browse..."))
+                    if (InspectorActionButton("Browse...##skyface"))
                     {
                         std::string path = MyEngine::FileDialog::OpenImageFile();
                         if (!path.empty())
@@ -4960,7 +3888,7 @@ int main()
                     ImGui::TextDisabled("Assign all 6 faces to enable loading.");
 
                 ImGui::BeginDisabled(!allAssigned);
-                if (ImGui::Button("Load Skybox") || (anyChanged && allAssigned))
+                if (InspectorActionButton("Load Skybox##skybox") || (anyChanged && allAssigned))
                 {
                     std::array<std::string, 6> faces = {
                         skyboxFacePaths[0], skyboxFacePaths[1], skyboxFacePaths[2],
@@ -4979,113 +3907,7 @@ int main()
             // ============================================================
             // Scripting Panel
             // ============================================================
-            if (showScriptingPanel)
-            {
-                ImGui::SetNextWindowPos(ImVec2(710, 800), ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(420, 260), ImGuiCond_FirstUseEver);
-                ImGui::Begin("Scripting", &showScriptingPanel);
-
-                ImGui::TextWrapped("Global scripts run once per frame (OnGlobalStart / OnGlobalUpdate). Entity scripts still run from ScriptComponent.");
-                ImGui::Separator();
-
-                for (size_t i = 0; i < globalScripts.size(); ++i)
-                {
-                    ImGui::PushID(static_cast<int>(i));
-                    const auto scriptsBeforeEdit = globalScripts;
-                    auto& gs = globalScripts[i];
-                    bool scriptListChanged = false;
-
-                    ImGui::Text("Global Script %zu", i + 1);
-                    if (ImGui::Checkbox("Enabled", &gs.enabled))
-                        scriptListChanged = true;
-                    ImGui::SameLine();
-                    if (ImGui::Checkbox("Auto Start", &gs.autoStart))
-                        scriptListChanged = true;
-
-                    std::string displayPath = gs.scriptPath.empty() ? "(none)" : gs.scriptPath;
-                    ImGui::TextWrapped("Path: %s", displayPath.c_str());
-
-                    const bool hasPath = !gs.scriptPath.empty();
-                    const char* statusText = !hasPath ? "Missing script path" : (!gs.enabled ? "Disabled" : (gs.requestReload ? "Reload pending" : "Ready"));
-                    ImVec4 statusColor = !hasPath ? ImVec4(1.00f, 0.60f, 0.20f, 1.0f) : (!gs.enabled ? ImVec4(0.75f, 0.75f, 0.75f, 1.0f) : (gs.requestReload ? ImVec4(1.00f, 0.90f, 0.20f, 1.0f) : ImVec4(0.30f, 1.00f, 0.50f, 1.0f)));
-                    ImGui::TextColored(statusColor, "Status: %s", statusText);
-
-                    if (ImGui::Button("Browse Lua..."))
-                    {
-                        std::string path = MyEngine::FileDialog::OpenScriptFile();
-                        if (!path.empty())
-                        {
-                            gs.scriptPath = path;
-                            gs.requestReload = true;
-                            scriptListChanged = true;
-                        }
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Reload"))
-                    {
-                        gs.requestReload = true;
-                        scriptListChanged = true;
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Clear"))
-                    {
-                        gs.scriptPath.clear();
-                        gs.requestReload = true;
-                        scriptListChanged = true;
-                    }
-
-                    if (globalScripts.size() > 1)
-                    {
-                        if (i > 0)
-                        {
-                            ImGui::SameLine();
-                            if (ImGui::Button("Move Up"))
-                            {
-                                std::swap(globalScripts[i], globalScripts[i - 1]);
-                                pushGlobalScriptsCommand(scriptsBeforeEdit, globalScripts);
-                                ImGui::PopID();
-                                break;
-                            }
-                        }
-
-                        if (i + 1 < globalScripts.size())
-                        {
-                            ImGui::SameLine();
-                            if (ImGui::Button("Move Down"))
-                            {
-                                std::swap(globalScripts[i], globalScripts[i + 1]);
-                                pushGlobalScriptsCommand(scriptsBeforeEdit, globalScripts);
-                                ImGui::PopID();
-                                break;
-                            }
-                        }
-                    }
-
-                    ImGui::SameLine();
-                    if (ImGui::Button("Remove"))
-                    {
-                        globalScripts.erase(globalScripts.begin() + static_cast<std::ptrdiff_t>(i));
-                        pushGlobalScriptsCommand(scriptsBeforeEdit, globalScripts);
-                        ImGui::PopID();
-                        break;
-                    }
-
-                    if (scriptListChanged)
-                        pushGlobalScriptsCommand(scriptsBeforeEdit, globalScripts);
-
-                    ImGui::Separator();
-                    ImGui::PopID();
-                }
-
-                if (ImGui::Button("Add Global Script"))
-                {
-                    const auto scriptsBeforeAdd = globalScripts;
-                    globalScripts.emplace_back();
-                    pushGlobalScriptsCommand(scriptsBeforeAdd, globalScripts);
-                }
-
-                ImGui::End();
-            }
+            MyEngine::Editor::Panels::DrawScriptingPanel(editorContext);
 
             // ============================================================
             // Performance Panel
@@ -5093,12 +3915,30 @@ int main()
             if (showPerformancePanel)
             {
                 ImGui::SetNextWindowPos(ImVec2(10, 440), ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(300, 250), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(420, 520), ImGuiCond_FirstUseEver);
                 ImGui::Begin("Performance", &showPerformancePanel);
 
                 float fps = 1.0f / std::max(0.0001f, deltaTime);
                 ImGui::Text("FPS: %.1f", fps);
-                ImGui::Text("Frame Time: %.3f ms", deltaTime * 1000.0f);
+                ImGui::Text("CPU Frame: %.3f ms", deltaTime * 1000.0f);
+                ImGui::Text("GPU Frame: %.3f ms", gpuFrameMs);
+                ImGui::Text("CPU Physics: %.3f ms", cpuPhysicsMs);
+                ImGui::Text("CPU Animation+Particles: %.3f ms", cpuAnimationMs);
+                ImGui::Text("CPU Render: %.3f ms", cpuRenderMs);
+#ifdef _WIN32
+                ImGui::Text("Memory Working Set: %.1f MB", memoryWorkingSetMB);
+                ImGui::Text("Memory Private: %.1f MB", memoryPrivateMB);
+#endif
+
+                ImGui::PlotLines("Frame (ms)", frameMsHistory.data(), static_cast<int>(frameMsHistory.size()), perfHistoryIndex, nullptr, 0.0f, 50.0f, ImVec2(0, 70));
+                ImGui::PlotLines("Physics (ms)", physicsMsHistory.data(), static_cast<int>(physicsMsHistory.size()), perfHistoryIndex, nullptr, 0.0f, 20.0f, ImVec2(0, 50));
+                ImGui::PlotLines("Animation (ms)", animationMsHistory.data(), static_cast<int>(animationMsHistory.size()), perfHistoryIndex, nullptr, 0.0f, 20.0f, ImVec2(0, 50));
+                ImGui::PlotLines("Render (ms)", renderMsHistory.data(), static_cast<int>(renderMsHistory.size()), perfHistoryIndex, nullptr, 0.0f, 30.0f, ImVec2(0, 50));
+                if (ImGui::Button("Export CSV##perfExport"))
+                {
+                    if (!exportPerformanceCsv())
+                        std::cerr << "Failed to export performance_metrics.csv" << std::endl;
+                }
 
                 // Mouse mode indicator
                 ImGui::Separator();
@@ -5362,6 +4202,25 @@ int main()
             postProcess.Composite();
         }
 
+        glEndQuery(GL_TIME_ELAPSED);
+        gpuQueryWriteIndex = (gpuQueryWriteIndex + 1) % 2;
+        cpuRenderMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuRenderStart).count();
+
+#ifdef _WIN32
+        PROCESS_MEMORY_COUNTERS_EX memoryCounters{};
+        if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memoryCounters), sizeof(memoryCounters)))
+        {
+            memoryWorkingSetMB = static_cast<float>(memoryCounters.WorkingSetSize / (1024.0 * 1024.0));
+            memoryPrivateMB = static_cast<float>(memoryCounters.PrivateUsage / (1024.0 * 1024.0));
+        }
+#endif
+
+        frameMsHistory[perfHistoryIndex] = deltaTime * 1000.0f;
+        physicsMsHistory[perfHistoryIndex] = cpuPhysicsMs;
+        animationMsHistory[perfHistoryIndex] = cpuAnimationMs;
+        renderMsHistory[perfHistoryIndex] = cpuRenderMs;
+        perfHistoryIndex = (perfHistoryIndex + 1) % kPerfHistory;
+
 #ifdef USE_IMGUI
         if (selectedEntity && selectedEntity->HasComponent<TransformComponent>())
         {
@@ -5373,6 +4232,17 @@ int main()
             glm::vec3 overlayRight = glm::normalize(glm::vec3(overlayWorld[0]));
             if (glm::length(overlayRight) < 0.0001f)
                 overlayRight = glm::vec3(1.0f, 0.0f, 0.0f);
+
+            auto drawLabelBox = [&](const ImVec2& anchor, const char* text, ImU32 color)
+            {
+                ImVec2 textSize = ImGui::CalcTextSize(text);
+                ImVec2 padding(8.0f, 4.0f);
+                ImVec2 boxMin(anchor.x - padding.x, anchor.y - textSize.y - padding.y * 0.5f);
+                ImVec2 boxMax(anchor.x + textSize.x + padding.x, anchor.y + padding.y * 0.5f);
+                overlayDrawList->AddRectFilled(boxMin, boxMax, IM_COL32(15, 18, 24, 210), 6.0f);
+                overlayDrawList->AddRect(boxMin, boxMax, IM_COL32(255, 255, 255, 35), 6.0f, 0, 1.0f);
+                overlayDrawList->AddText(ImVec2(anchor.x, anchor.y - textSize.y), color, text);
+            };
 
             auto drawCapsuleOverlay = [&](const glm::vec3& localA, const glm::vec3& localB, float localRadius, ImU32 color, const char* label)
             {
@@ -5392,11 +4262,11 @@ int main()
 
                 float radiusA = std::max(4.0f, std::sqrt((screenARadius.x - screenA.x) * (screenARadius.x - screenA.x) + (screenARadius.y - screenA.y) * (screenARadius.y - screenA.y)));
                 float radiusB = std::max(4.0f, std::sqrt((screenBRadius.x - screenB.x) * (screenBRadius.x - screenB.x) + (screenBRadius.y - screenB.y) * (screenBRadius.y - screenB.y)));
-                overlayDrawList->AddLine(screenA, screenB, color, 2.0f);
+                overlayDrawList->AddLine(screenA, screenB, color, 2.5f);
                 overlayDrawList->AddCircle(screenA, radiusA, color, 24, 2.0f);
                 overlayDrawList->AddCircle(screenB, radiusB, color, 24, 2.0f);
-                ImVec2 labelPos((screenA.x + screenB.x) * 0.5f + 8.0f, (screenA.y + screenB.y) * 0.5f - 10.0f);
-                overlayDrawList->AddText(labelPos, color, label);
+                ImVec2 labelPos((screenA.x + screenB.x) * 0.5f + 10.0f, (screenA.y + screenB.y) * 0.5f - 6.0f);
+                drawLabelBox(labelPos, label, color);
             };
 
             if (selectedEntity->HasComponent<CapsuleColliderComponent>())
@@ -5418,6 +4288,7 @@ int main()
             {
                 const auto& sm = selectedEntity->GetComponent<AnimationStateMachineComponent>();
                 std::string stateText;
+                std::string blockedReason;
                 ImU32 textColor = IM_COL32(255, 255, 255, 255);
                 if (!sm.debugPendingStateName.empty())
                 {
@@ -5430,6 +4301,9 @@ int main()
                 {
                     stateText = "State: " + sm.debugCurrentStateName;
                 }
+
+                if (!sm.debugLastBlockedReason.empty())
+                    blockedReason = sm.debugLastBlockedReason;
 
                 if (!stateText.empty())
                 {
@@ -5444,14 +4318,14 @@ int main()
                     if (ProjectWorldPointToScreen(textWorld, view, projection, windowW, windowH, textScreen))
                     {
                         overlayDrawList->AddCircleFilled(textScreen, 5.0f, textColor);
-                        overlayDrawList->AddLine(textScreen, ImVec2(textScreen.x + 8.0f, textScreen.y - 2.0f), textColor, 2.0f);
-                        overlayDrawList->AddText(ImVec2(textScreen.x + 10.0f, textScreen.y - 12.0f), textColor, stateText.c_str());
-                        if (!sm.debugLastBlockedReason.empty())
+                        overlayDrawList->AddLine(textScreen, ImVec2(textScreen.x + 10.0f, textScreen.y - 2.0f), textColor, 2.0f);
+
+                        ImVec2 labelAnchor(textScreen.x + 14.0f, textScreen.y - 10.0f);
+                        drawLabelBox(labelAnchor, stateText.c_str(), textColor);
+                        if (!blockedReason.empty())
                         {
-                            overlayDrawList->AddText(
-                                ImVec2(textScreen.x + 10.0f, textScreen.y + 6.0f),
-                                IM_COL32(255, 210, 90, 255),
-                                sm.debugLastBlockedReason.c_str());
+                            ImVec2 blockedAnchor(textScreen.x + 14.0f, textScreen.y + 10.0f);
+                            drawLabelBox(blockedAnchor, blockedReason.c_str(), IM_COL32(255, 210, 90, 255));
                         }
                     }
                 }
@@ -5474,6 +4348,9 @@ int main()
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 #endif
+
+    if (gpuFrameQueries[0] != 0 || gpuFrameQueries[1] != 0)
+        glDeleteQueries(2, gpuFrameQueries);
 
     Input::Shutdown();
 

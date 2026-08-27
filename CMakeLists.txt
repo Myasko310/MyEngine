@@ -131,10 +131,18 @@ set(SOURCES
     src/renderer/FrustumCuller.cpp
     src/core/Input.cpp
     src/core/AssetManager.cpp
+    src/core/AssetPipeline.cpp
     src/core/Raycast.cpp
     src/core/FileDialog.cpp
     src/core/LayerMask.cpp
     src/core/CollisionMatrix.cpp
+    src/editor/EditorStyle.cpp
+    src/editor/panels/AnimationStateMachinePanel.cpp
+    src/editor/panels/AssetBrowserPanel.cpp
+    src/editor/panels/MaterialBrowserPanel.cpp
+    src/editor/panels/SceneHierarchyPanel.cpp
+    src/editor/panels/ScriptingPanel.cpp
+    src/editor/panels/ToolbarPanel.cpp
 
     src/rendering/SSAOPass.cpp
 

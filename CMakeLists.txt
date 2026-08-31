@@ -130,6 +130,7 @@ set(SOURCES
     src/systems/NavMeshSystem.cpp
     src/renderer/FrustumCuller.cpp
     src/core/Input.cpp
+    src/core/InputActions.cpp
     src/core/AssetManager.cpp
     src/core/AssetPipeline.cpp
     src/core/Raycast.cpp

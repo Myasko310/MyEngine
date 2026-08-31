@@ -32,6 +32,17 @@ struct MeshRendererSystem::Impl
 	// (matches LightComponent::shadowBias default).
 	float pointShadowBias = 0.005f;
 	bool pointShadowsEnabled = true;
+	int pointShadowPCFSamples = 20;
+	float pointShadowPCFRadius = 0.02f;
+	int pointShadowLightBudget = 4;
+
+	// Spot light shadow maps (one 2D depth map per shadow-casting spot light)
+	std::array<MyEngine::ShadowMap, 4> spotShadowMaps;
+	unsigned int spotShadowSize = 1024;
+	bool spotShadowsEnabled = true;
+	float spotShadowPCFRadius = 1.0f;
+	int spotShadowLightBudget = 4;
+	bool shadowStabilizationEnabled = true;
 
 	bool wireframe = false;
 

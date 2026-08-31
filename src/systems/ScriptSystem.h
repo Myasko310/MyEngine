@@ -98,6 +98,11 @@ namespace MyEngine
 		static int LuaGetMouseWheel(lua_State* L);
 		static int LuaGetMousePosition(lua_State* L);
 		static int LuaIsMouseCaptured(lua_State* L);
+		static int LuaIsAction(lua_State* L);
+		static int LuaIsActionPressed(lua_State* L);
+		static int LuaIsActionReleased(lua_State* L);
+		static int LuaGetAxis(lua_State* L);
+		static int LuaIsGamepadConnected(lua_State* L);
 		static int LuaHasRigidbody(lua_State* L);
 		static int LuaGetVelocity(lua_State* L);
 		static int LuaSetVelocity(lua_State* L);

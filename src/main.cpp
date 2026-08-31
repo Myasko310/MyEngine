@@ -16,8 +16,10 @@
 #include <functional>
 #include <fstream>
 #include <cmath>
+#include <unordered_set>
 
 #include "core/Input.h"
+#include "core/InputActions.h"
 #include "core/FileDialog.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
@@ -348,6 +350,10 @@ int main()
     // Input init
     // ------------------------------------------------------------
     Input::Init(window, true);
+
+    // Action/axis mapping layer: defaults first, then optional user overrides
+    MyEngine::InputActions::RegisterDefaults();
+    MyEngine::InputActions::LoadBindings("bindings.json");
 
     // ------------------------------------------------------------
     // Scene setup
@@ -815,6 +821,7 @@ int main()
     auto& showSceneHierarchy = editorUI.showSceneHierarchy;
     auto& showInspector = editorUI.showInspector;
     auto& showLightingPanel = editorUI.showLightingPanel;
+    auto& showInputBindingsPanel = editorUI.showInputBindingsPanel;
     auto& showPostProcessPanel = editorUI.showPostProcessPanel;
     auto& showSkyboxPanel = editorUI.showSkyboxPanel;
     auto& showScriptingPanel = editorUI.showScriptingPanel;
@@ -1159,6 +1166,7 @@ int main()
         // --------------------------------------------------------
         Input::Update();
         glfwPollEvents();
+        MyEngine::InputActions::Update();
 
         // --------------------------------------------------------
         // Global controls
@@ -1691,6 +1699,7 @@ int main()
                     ImGui::MenuItem("Scene Hierarchy", nullptr, &showSceneHierarchy);
                     ImGui::MenuItem("Inspector", nullptr, &showInspector);
                     ImGui::MenuItem("Lighting", nullptr, &showLightingPanel);
+                    ImGui::MenuItem("Input Bindings", nullptr, &showInputBindingsPanel);
                     ImGui::MenuItem("IBL", nullptr, &showIBLPanel);
                     ImGui::MenuItem("Layer Manager", nullptr, &showLayerManager);
                     ImGui::MenuItem("Post-Processing", nullptr, &showPostProcessPanel);
@@ -2010,10 +2019,23 @@ int main()
                                 ImGui::Checkbox("Cast Shadows##light", &light.castShadows);
                                 ImGui::DragFloat("Shadow Bias##light", &light.shadowBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
 
+                                ImGui::Separator();
+                                ImGui::Text("Per-Light Shadow Overrides");
+                                ImGui::TextDisabled("0 or negative values use global lighting panel settings.");
+
+                                if (light.type == LightComponent::Type::Point)
+                                {
+                                    ImGui::DragInt("Point Shadow Size Override", &light.pointShadowSizeOverride, 1.0f, 0, 4096);
+                                    ImGui::DragInt("Point PCF Samples Override", &light.pointShadowPCFSamplesOverride, 1.0f, 0, 20);
+                                    ImGui::DragFloat("Point PCF Radius Override", &light.pointShadowPCFRadiusOverride, 0.001f, -1.0f, 0.25f, "%.3f");
+                                }
+
                                 if (light.type == LightComponent::Type::Spot)
                                 {
                                     ImGui::DragFloat("Inner Cone", &light.innerCone, 1.0f, 0.0f, 89.0f);
                                     ImGui::DragFloat("Outer Cone", &light.outerCone, 1.0f, 0.0f, 90.0f);
+                                    ImGui::DragInt("Spot Shadow Size Override", &light.spotShadowSizeOverride, 1.0f, 0, 4096);
+                                    ImGui::DragFloat("Spot PCF Radius Override", &light.spotShadowPCFRadiusOverride, 0.01f, -1.0f, 4.0f, "%.2f");
                                 }
                             }
                         }
@@ -3541,6 +3563,548 @@ int main()
                 }
 
             // ============================================================
+            // Input Bindings Panel
+            // ============================================================
+            if (showInputBindingsPanel)
+            {
+                ImGui::SetNextWindowPos(ImVec2(370, g_WindowHeight - 460), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(420, 440), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Input Bindings", &showInputBindingsPanel);
+
+                static char bindingsPath[256] = "bindings.json";
+                static char bindingsStatus[128] = "";
+
+                ImGui::InputText("Bindings File", bindingsPath, sizeof(bindingsPath));
+                if (ImGui::Button("Load Bindings"))
+                {
+                    if (MyEngine::InputActions::LoadBindings(bindingsPath))
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Loaded %s", bindingsPath);
+                    else
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Failed to load %s", bindingsPath);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Save Bindings"))
+                {
+                    if (MyEngine::InputActions::SaveBindings(bindingsPath))
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Saved %s", bindingsPath);
+                    else
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Failed to save %s", bindingsPath);
+                }
+                ImGui::TextUnformatted(bindingsStatus);
+
+                float gamepadDeadzone = MyEngine::InputActions::GetGamepadDeadzone();
+                if (ImGui::SliderFloat("Gamepad Deadzone", &gamepadDeadzone, 0.0f, 0.5f, "%.2f"))
+                    MyEngine::InputActions::SetGamepadDeadzone(gamepadDeadzone);
+                ImGui::Text("Gamepad: %s", MyEngine::InputActions::IsGamepadConnected() ? "Connected" : "Not connected");
+
+                auto profileNames = MyEngine::InputActions::GetProfileNames();
+                std::string activeProfile = MyEngine::InputActions::GetActiveProfileName();
+                if (activeProfile.empty() && !profileNames.empty())
+                    activeProfile = profileNames.front();
+
+                if (ImGui::BeginCombo("Active Profile", activeProfile.c_str()))
+                {
+                    for (const auto& profileName : profileNames)
+                    {
+                        bool selected = (profileName == activeProfile);
+                        if (ImGui::Selectable(profileName.c_str(), selected))
+                            MyEngine::InputActions::SetActiveProfile(profileName);
+                        if (selected) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                static char newProfileName[64] = "";
+                ImGui::InputText("New Profile", newProfileName, sizeof(newProfileName));
+                if (ImGui::Button("Create Profile (Copy Current)"))
+                {
+                    if (MyEngine::InputActions::CreateProfile(newProfileName, true))
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Created profile %s", newProfileName);
+                    else
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Failed to create profile %s", newProfileName);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Delete Active Profile"))
+                {
+                    if (MyEngine::InputActions::DeleteProfile(MyEngine::InputActions::GetActiveProfileName()))
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Deleted active profile");
+                    else
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Failed to delete active profile");
+                }
+
+                static const std::array<std::pair<int, const char*>, 15> keyOptions = {{
+                    { -1, "None" },
+                    { GLFW_KEY_W, "W" }, { GLFW_KEY_A, "A" }, { GLFW_KEY_S, "S" }, { GLFW_KEY_D, "D" },
+                    { GLFW_KEY_Q, "Q" }, { GLFW_KEY_E, "E" }, { GLFW_KEY_R, "R" }, { GLFW_KEY_F, "F" },
+                    { GLFW_KEY_SPACE, "Space" }, { GLFW_KEY_LEFT_SHIFT, "Left Shift" }, { GLFW_KEY_LEFT_CONTROL, "Left Ctrl" },
+                    { GLFW_KEY_TAB, "Tab" }, { GLFW_KEY_ESCAPE, "Escape" }, { GLFW_KEY_ENTER, "Enter" }
+                }};
+                static const std::array<std::pair<int, const char*>, 4> mouseOptions = {{
+                    { -1, "None" },
+                    { GLFW_MOUSE_BUTTON_LEFT, "Mouse Left" },
+                    { GLFW_MOUSE_BUTTON_RIGHT, "Mouse Right" },
+                    { GLFW_MOUSE_BUTTON_MIDDLE, "Mouse Middle" }
+                }};
+                static const std::array<std::pair<int, const char*>, 12> gamepadButtonOptions = {{
+                    { -1, "None" },
+                    { GLFW_GAMEPAD_BUTTON_A, "A" }, { GLFW_GAMEPAD_BUTTON_B, "B" },
+                    { GLFW_GAMEPAD_BUTTON_X, "X" }, { GLFW_GAMEPAD_BUTTON_Y, "Y" },
+                    { GLFW_GAMEPAD_BUTTON_LEFT_BUMPER, "LB" }, { GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER, "RB" },
+                    { GLFW_GAMEPAD_BUTTON_BACK, "Back" }, { GLFW_GAMEPAD_BUTTON_START, "Start" },
+                    { GLFW_GAMEPAD_BUTTON_LEFT_THUMB, "L3" }, { GLFW_GAMEPAD_BUTTON_RIGHT_THUMB, "R3" },
+                    { GLFW_GAMEPAD_BUTTON_DPAD_UP, "DPad Up" }
+                }};
+                static const std::array<std::pair<int, const char*>, 7> gamepadAxisOptions = {{
+                    { -1, "None" },
+                    { GLFW_GAMEPAD_AXIS_LEFT_X, "Left Stick X" },
+                    { GLFW_GAMEPAD_AXIS_LEFT_Y, "Left Stick Y" },
+                    { GLFW_GAMEPAD_AXIS_RIGHT_X, "Right Stick X" },
+                    { GLFW_GAMEPAD_AXIS_RIGHT_Y, "Right Stick Y" },
+                    { GLFW_GAMEPAD_AXIS_LEFT_TRIGGER, "Left Trigger" },
+                    { GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER, "Right Trigger" }
+                }};
+
+                auto findOptionIndex = [](auto& options, int value)
+                {
+                    for (int i = 0; i < static_cast<int>(options.size()); ++i)
+                    {
+                        if (options[i].first == value)
+                            return i;
+                    }
+                    return 0;
+                };
+                auto findOptionLabel = [](auto& options, int value) -> const char*
+                {
+                    for (int i = 0; i < static_cast<int>(options.size()); ++i)
+                    {
+                        if (options[i].first == value)
+                            return options[i].second;
+                    }
+                    return "Unknown";
+                };
+
+                const auto actionNames = MyEngine::InputActions::GetActionNames();
+                const auto axisNames = MyEngine::InputActions::GetAxisNames();
+
+                // Capture rebinding state
+                enum CaptureMode
+                {
+                    CaptureNone = 0,
+                    CaptureActionKey,
+                    CaptureActionMouse,
+                    CaptureActionGamepad,
+                    CaptureAxisPositiveKey,
+                    CaptureAxisNegativeKey,
+                    CaptureAxisGamepadAxis
+                };
+                static int captureMode = CaptureNone;
+                static std::string captureTarget;
+
+                int capturedKey = -1;
+                int capturedMouse = -1;
+                int capturedGamepadButton = -1;
+                int capturedGamepadAxis = -1;
+
+                for (size_t i = 1; i < keyOptions.size(); ++i)
+                {
+                    if (Input::IsKeyPressed(keyOptions[i].first))
+                    {
+                        capturedKey = keyOptions[i].first;
+                        break;
+                    }
+                }
+                for (size_t i = 1; i < mouseOptions.size(); ++i)
+                {
+                    if (Input::IsMouseButtonPressed(mouseOptions[i].first))
+                    {
+                        capturedMouse = mouseOptions[i].first;
+                        break;
+                    }
+                }
+                for (size_t i = 1; i < gamepadButtonOptions.size(); ++i)
+                {
+                    if (MyEngine::InputActions::IsGamepadButtonPressed(gamepadButtonOptions[i].first))
+                    {
+                        capturedGamepadButton = gamepadButtonOptions[i].first;
+                        break;
+                    }
+                }
+                for (size_t i = 1; i < gamepadAxisOptions.size(); ++i)
+                {
+                    float axisValue = MyEngine::InputActions::GetGamepadAxisRaw(gamepadAxisOptions[i].first);
+                    if (std::fabs(axisValue) > 0.6f)
+                    {
+                        capturedGamepadAxis = gamepadAxisOptions[i].first;
+                        break;
+                    }
+                }
+
+                if (captureMode != CaptureNone)
+                {
+                    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.3f, 1.0f), "Capture armed for %s", captureTarget.c_str());
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel Capture"))
+                    {
+                        captureMode = CaptureNone;
+                        captureTarget.clear();
+                    }
+                }
+
+                bool hasConflictWarnings = false;
+                for (size_t i = 0; i < actionNames.size(); ++i)
+                {
+                    MyEngine::InputActions::ActionBinding a;
+                    if (!MyEngine::InputActions::TryGetActionBinding(actionNames[i], a))
+                        continue;
+                    int aKey = a.keys.empty() ? -1 : a.keys[0];
+                    int aMouse = a.mouseButtons.empty() ? -1 : a.mouseButtons[0];
+                    int aPad = a.gamepadButtons.empty() ? -1 : a.gamepadButtons[0];
+
+                    for (size_t j = i + 1; j < actionNames.size(); ++j)
+                    {
+                        MyEngine::InputActions::ActionBinding b;
+                        if (!MyEngine::InputActions::TryGetActionBinding(actionNames[j], b))
+                            continue;
+                        int bKey = b.keys.empty() ? -1 : b.keys[0];
+                        int bMouse = b.mouseButtons.empty() ? -1 : b.mouseButtons[0];
+                        int bPad = b.gamepadButtons.empty() ? -1 : b.gamepadButtons[0];
+
+                        if (aKey >= 0 && aKey == bKey)
+                        {
+                            hasConflictWarnings = true;
+                            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.25f, 1.0f),
+                                "Conflict: %s and %s share key %s",
+                                actionNames[i].c_str(), actionNames[j].c_str(), findOptionLabel(keyOptions, aKey));
+                        }
+                        if (aMouse >= 0 && aMouse == bMouse)
+                        {
+                            hasConflictWarnings = true;
+                            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.25f, 1.0f),
+                                "Conflict: %s and %s share mouse %s",
+                                actionNames[i].c_str(), actionNames[j].c_str(), findOptionLabel(mouseOptions, aMouse));
+                        }
+                        if (aPad >= 0 && aPad == bPad)
+                        {
+                            hasConflictWarnings = true;
+                            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.25f, 1.0f),
+                                "Conflict: %s and %s share gamepad %s",
+                                actionNames[i].c_str(), actionNames[j].c_str(), findOptionLabel(gamepadButtonOptions, aPad));
+                        }
+                    }
+                }
+
+                for (size_t i = 0; i < axisNames.size(); ++i)
+                {
+                    MyEngine::InputActions::AxisBinding a;
+                    if (!MyEngine::InputActions::TryGetAxisBinding(axisNames[i], a))
+                        continue;
+                    int aPos = (!a.keyPairs.empty()) ? a.keyPairs[0].first : -1;
+                    int aNeg = (!a.keyPairs.empty()) ? a.keyPairs[0].second : -1;
+                    int aAxis = a.gamepadAxes.empty() ? -1 : a.gamepadAxes[0];
+
+                    for (size_t j = i + 1; j < axisNames.size(); ++j)
+                    {
+                        MyEngine::InputActions::AxisBinding b;
+                        if (!MyEngine::InputActions::TryGetAxisBinding(axisNames[j], b))
+                            continue;
+                        int bPos = (!b.keyPairs.empty()) ? b.keyPairs[0].first : -1;
+                        int bNeg = (!b.keyPairs.empty()) ? b.keyPairs[0].second : -1;
+                        int bAxis = b.gamepadAxes.empty() ? -1 : b.gamepadAxes[0];
+
+                        if ((aPos >= 0 && (aPos == bPos || aPos == bNeg)) || (aNeg >= 0 && (aNeg == bPos || aNeg == bNeg)))
+                        {
+                            hasConflictWarnings = true;
+                            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.25f, 1.0f),
+                                "Conflict: %s and %s share keyboard axis keys",
+                                axisNames[i].c_str(), axisNames[j].c_str());
+                        }
+                        if (aAxis >= 0 && aAxis == bAxis)
+                        {
+                            hasConflictWarnings = true;
+                            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.25f, 1.0f),
+                                "Conflict: %s and %s share gamepad axis %s",
+                                axisNames[i].c_str(), axisNames[j].c_str(), findOptionLabel(gamepadAxisOptions, aAxis));
+                        }
+                    }
+                }
+
+                if (!hasConflictWarnings)
+                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "No binding conflicts detected.");
+
+                if (hasConflictWarnings)
+                {
+                    if (ImGui::Button("Auto-Fix Conflicts (Keep First)"))
+                        MyEngine::InputActions::ResolveConflictsKeepFirst();
+
+                    if (ImGui::Button("Auto-Fix Conflicts (Keep Last)"))
+                        MyEngine::InputActions::ResolveConflictsKeepLast();
+                }
+
+                ImGui::Separator();
+
+                if (ImGui::CollapsingHeader("Actions", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    for (const auto& actionName : actionNames)
+                    {
+                        MyEngine::InputActions::ActionBinding binding;
+                        if (!MyEngine::InputActions::TryGetActionBinding(actionName, binding))
+                            continue;
+
+                        int keyCode = binding.keys.empty() ? -1 : binding.keys[0];
+                        int mouseCode = binding.mouseButtons.empty() ? -1 : binding.mouseButtons[0];
+                        int gamepadCode = binding.gamepadButtons.empty() ? -1 : binding.gamepadButtons[0];
+                        int gamepadAxisAction = binding.gamepadAxes.empty() ? -1 : binding.gamepadAxes[0];
+                        float actionAxisThreshold = binding.axisThreshold;
+                        bool actionInvertAxis = binding.invertAxis;
+
+                        if (ImGui::TreeNode(actionName.c_str()))
+                        {
+                            int keyIdx = findOptionIndex(keyOptions, keyCode);
+                            if (ImGui::BeginCombo("Keyboard", keyOptions[keyIdx].second))
+                            {
+                                for (int i = 0; i < static_cast<int>(keyOptions.size()); ++i)
+                                {
+                                    bool selected = (i == keyIdx);
+                                    if (ImGui::Selectable(keyOptions[i].second, selected))
+                                        keyCode = keyOptions[i].first;
+                                    if (selected) ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            int mouseIdx = findOptionIndex(mouseOptions, mouseCode);
+                            if (ImGui::BeginCombo("Mouse", mouseOptions[mouseIdx].second))
+                            {
+                                for (int i = 0; i < static_cast<int>(mouseOptions.size()); ++i)
+                                {
+                                    bool selected = (i == mouseIdx);
+                                    if (ImGui::Selectable(mouseOptions[i].second, selected))
+                                        mouseCode = mouseOptions[i].first;
+                                    if (selected) ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            int gamepadIdx = findOptionIndex(gamepadButtonOptions, gamepadCode);
+                            if (ImGui::BeginCombo("Gamepad", gamepadButtonOptions[gamepadIdx].second))
+                            {
+                                for (int i = 0; i < static_cast<int>(gamepadButtonOptions.size()); ++i)
+                                {
+                                    bool selected = (i == gamepadIdx);
+                                    if (ImGui::Selectable(gamepadButtonOptions[i].second, selected))
+                                        gamepadCode = gamepadButtonOptions[i].first;
+                                    if (selected) ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            if (ImGui::Button("Capture Key"))
+                            {
+                                captureMode = CaptureActionKey;
+                                captureTarget = actionName;
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Capture Mouse"))
+                            {
+                                captureMode = CaptureActionMouse;
+                                captureTarget = actionName;
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Capture Pad"))
+                            {
+                                captureMode = CaptureActionGamepad;
+                                captureTarget = actionName;
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Capture Axis"))
+                            {
+                                captureMode = CaptureAxisGamepadAxis;
+                                captureTarget = actionName;
+                            }
+
+                            if (captureTarget == actionName)
+                            {
+                                if (captureMode == CaptureActionKey && capturedKey >= 0)
+                                {
+                                    keyCode = capturedKey;
+                                    captureMode = CaptureNone;
+                                    captureTarget.clear();
+                                }
+                                else if (captureMode == CaptureActionMouse && capturedMouse >= 0)
+                                {
+                                    mouseCode = capturedMouse;
+                                    captureMode = CaptureNone;
+                                    captureTarget.clear();
+                                }
+                                else if (captureMode == CaptureActionGamepad && capturedGamepadButton >= 0)
+                                {
+                                    gamepadCode = capturedGamepadButton;
+                                    captureMode = CaptureNone;
+                                    captureTarget.clear();
+                                }
+                                else if (captureMode == CaptureAxisGamepadAxis && capturedGamepadAxis >= 0)
+                                {
+                                    gamepadAxisAction = capturedGamepadAxis;
+                                    captureMode = CaptureNone;
+                                    captureTarget.clear();
+                                }
+                            }
+
+                            int actionAxisIdx = findOptionIndex(gamepadAxisOptions, gamepadAxisAction);
+                            if (ImGui::BeginCombo("Gamepad Axis (Action)", gamepadAxisOptions[actionAxisIdx].second))
+                            {
+                                for (int i = 0; i < static_cast<int>(gamepadAxisOptions.size()); ++i)
+                                {
+                                    bool selected = (i == actionAxisIdx);
+                                    if (ImGui::Selectable(gamepadAxisOptions[i].second, selected))
+                                        gamepadAxisAction = gamepadAxisOptions[i].first;
+                                    if (selected) ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+                            ImGui::SliderFloat("Axis Threshold", &actionAxisThreshold, 0.01f, 1.0f, "%.2f");
+                            ImGui::Checkbox("Invert Action Axis", &actionInvertAxis);
+
+                            MyEngine::InputActions::ActionBinding updated;
+                            if (keyCode >= 0) updated.keys.push_back(keyCode);
+                            if (mouseCode >= 0) updated.mouseButtons.push_back(mouseCode);
+                            if (gamepadCode >= 0) updated.gamepadButtons.push_back(gamepadCode);
+                            if (gamepadAxisAction >= 0) updated.gamepadAxes.push_back(gamepadAxisAction);
+                            updated.axisThreshold = actionAxisThreshold;
+                            updated.invertAxis = actionInvertAxis;
+                            MyEngine::InputActions::BindAction(actionName, updated);
+
+                            ImGui::Text("Down: %s", MyEngine::InputActions::IsAction(actionName) ? "Yes" : "No");
+                            ImGui::TreePop();
+                        }
+                    }
+                }
+
+                if (ImGui::CollapsingHeader("Axes", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    for (const auto& axisName : axisNames)
+                    {
+                        MyEngine::InputActions::AxisBinding binding;
+                        if (!MyEngine::InputActions::TryGetAxisBinding(axisName, binding))
+                            continue;
+
+                        int positiveKey = -1;
+                        int negativeKey = -1;
+                        if (!binding.keyPairs.empty())
+                        {
+                            positiveKey = binding.keyPairs[0].first;
+                            negativeKey = binding.keyPairs[0].second;
+                        }
+                        int gamepadAxis = binding.gamepadAxes.empty() ? -1 : binding.gamepadAxes[0];
+                        bool invert = binding.invert;
+                        float axisDeadzone = binding.deadzone;
+                        float axisSensitivity = binding.sensitivity;
+
+                        if (ImGui::TreeNode(axisName.c_str()))
+                        {
+                            int posIdx = findOptionIndex(keyOptions, positiveKey);
+                            if (ImGui::BeginCombo("Positive Key", keyOptions[posIdx].second))
+                            {
+                                for (int i = 0; i < static_cast<int>(keyOptions.size()); ++i)
+                                {
+                                    bool selected = (i == posIdx);
+                                    if (ImGui::Selectable(keyOptions[i].second, selected))
+                                        positiveKey = keyOptions[i].first;
+                                    if (selected) ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            int negIdx = findOptionIndex(keyOptions, negativeKey);
+                            if (ImGui::BeginCombo("Negative Key", keyOptions[negIdx].second))
+                            {
+                                for (int i = 0; i < static_cast<int>(keyOptions.size()); ++i)
+                                {
+                                    bool selected = (i == negIdx);
+                                    if (ImGui::Selectable(keyOptions[i].second, selected))
+                                        negativeKey = keyOptions[i].first;
+                                    if (selected) ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            int axisIdx = findOptionIndex(gamepadAxisOptions, gamepadAxis);
+                            if (ImGui::BeginCombo("Gamepad Axis", gamepadAxisOptions[axisIdx].second))
+                            {
+                                for (int i = 0; i < static_cast<int>(gamepadAxisOptions.size()); ++i)
+                                {
+                                    bool selected = (i == axisIdx);
+                                    if (ImGui::Selectable(gamepadAxisOptions[i].second, selected))
+                                        gamepadAxis = gamepadAxisOptions[i].first;
+                                    if (selected) ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            if (ImGui::Button("Capture +Key"))
+                            {
+                                captureMode = CaptureAxisPositiveKey;
+                                captureTarget = axisName;
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Capture -Key"))
+                            {
+                                captureMode = CaptureAxisNegativeKey;
+                                captureTarget = axisName;
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Capture Axis"))
+                            {
+                                captureMode = CaptureAxisGamepadAxis;
+                                captureTarget = axisName;
+                            }
+
+                            if (captureTarget == axisName)
+                            {
+                                if (captureMode == CaptureAxisPositiveKey && capturedKey >= 0)
+                                {
+                                    positiveKey = capturedKey;
+                                    captureMode = CaptureNone;
+                                    captureTarget.clear();
+                                }
+                                else if (captureMode == CaptureAxisNegativeKey && capturedKey >= 0)
+                                {
+                                    negativeKey = capturedKey;
+                                    captureMode = CaptureNone;
+                                    captureTarget.clear();
+                                }
+                                else if (captureMode == CaptureAxisGamepadAxis && capturedGamepadAxis >= 0)
+                                {
+                                    gamepadAxis = capturedGamepadAxis;
+                                    captureMode = CaptureNone;
+                                    captureTarget.clear();
+                                }
+                            }
+
+                            ImGui::Checkbox("Invert", &invert);
+                            ImGui::SliderFloat("Per-Axis Deadzone", &axisDeadzone, -1.0f, 0.5f, "%.2f");
+                            ImGui::SliderFloat("Sensitivity", &axisSensitivity, 0.01f, 3.0f, "%.2f");
+
+                            MyEngine::InputActions::AxisBinding updated;
+                            if (positiveKey >= 0 || negativeKey >= 0)
+                                updated.keyPairs.emplace_back(positiveKey, negativeKey);
+                            if (gamepadAxis >= 0)
+                                updated.gamepadAxes.push_back(gamepadAxis);
+                            updated.invert = invert;
+                            updated.deadzone = axisDeadzone;
+                            updated.sensitivity = axisSensitivity;
+                            MyEngine::InputActions::BindAxis(axisName, updated);
+
+                            ImGui::Text("Value: %.2f", MyEngine::InputActions::GetAxis(axisName));
+                            ImGui::TreePop();
+                        }
+                    }
+                }
+
+                ImGui::End();
+            }
+
+            // ============================================================
             // Lighting Panel
             // ============================================================
             if (showLightingPanel)
@@ -3593,6 +4157,10 @@ int main()
                 if (ImGui::SliderFloat("Cascade Split Lambda", &splitLambda, 0.0f, 1.0f, "%.2f"))
                     renderSystem.SetSplitLambda(splitLambda);
 
+                bool shadowStabilization = renderSystem.GetShadowStabilizationEnabled();
+                if (ImGui::Checkbox("Shadow Stabilization (Texel Snap)", &shadowStabilization))
+                    renderSystem.SetShadowStabilizationEnabled(shadowStabilization);
+
                 bool pointShadowsEnabled = renderSystem.GetPointShadowsEnabled();
                 if (ImGui::Checkbox("Point Light Shadows", &pointShadowsEnabled))
                     renderSystem.SetPointShadowsEnabled(pointShadowsEnabled);
@@ -3613,10 +4181,100 @@ int main()
                 if (ImGui::SliderFloat("Point Shadow Bias", &pointShadowBias, 0.001f, 0.1f, "%.4f"))
                     renderSystem.SetPointShadowBias(pointShadowBias);
 
+                bool spotShadowsEnabled = renderSystem.GetSpotShadowsEnabled();
+                if (ImGui::Checkbox("Spot Light Shadows", &spotShadowsEnabled))
+                    renderSystem.SetSpotShadowsEnabled(spotShadowsEnabled);
+
+                unsigned int spotShadowSize = renderSystem.GetSpotShadowSize();
+                int spotShadowSizeInt = static_cast<int>(spotShadowSize);
+                if (ImGui::SliderInt("Spot Shadow Size", &spotShadowSizeInt, 256, 2048))
+                {
+                    unsigned int snapped = static_cast<unsigned int>(spotShadowSizeInt);
+                    if (snapped <= 384) snapped = 256;
+                    else if (snapped <= 768) snapped = 512;
+                    else if (snapped <= 1536) snapped = 1024;
+                    else snapped = 2048;
+                    renderSystem.SetSpotShadowSize(snapped);
+                }
+
+                ImGui::Separator();
+                ImGui::Text("Shadow Quality");
+                if (ImGui::Button("Low"))
+                {
+                    renderSystem.SetPointShadowPCFSamples(8);
+                    renderSystem.SetPointShadowPCFRadius(0.015f);
+                    renderSystem.SetSpotShadowPCFRadius(0.75f);
+                    renderSystem.ApplyShadowAutoBudget();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Medium"))
+                {
+                    renderSystem.SetPointShadowPCFSamples(14);
+                    renderSystem.SetPointShadowPCFRadius(0.02f);
+                    renderSystem.SetSpotShadowPCFRadius(1.0f);
+                    renderSystem.ApplyShadowAutoBudget();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("High"))
+                {
+                    renderSystem.SetPointShadowPCFSamples(20);
+                    renderSystem.SetPointShadowPCFRadius(0.03f);
+                    renderSystem.SetSpotShadowPCFRadius(1.35f);
+                    renderSystem.ApplyShadowAutoBudget();
+                }
+
+                int pointPCFSamples = renderSystem.GetPointShadowPCFSamples();
+                if (ImGui::SliderInt("Point PCF Samples", &pointPCFSamples, 1, 20))
+                    renderSystem.SetPointShadowPCFSamples(pointPCFSamples);
+
+                float pointPCFRadius = renderSystem.GetPointShadowPCFRadius();
+                if (ImGui::SliderFloat("Point PCF Radius", &pointPCFRadius, 0.001f, 0.08f, "%.3f"))
+                    renderSystem.SetPointShadowPCFRadius(pointPCFRadius);
+
+                float spotPCFRadius = renderSystem.GetSpotShadowPCFRadius();
+                if (ImGui::SliderFloat("Spot PCF Radius", &spotPCFRadius, 0.1f, 4.0f, "%.2f"))
+                    renderSystem.SetSpotShadowPCFRadius(spotPCFRadius);
+
+                if (ImGui::Button("Apply Shadow Auto-Budget"))
+                    renderSystem.ApplyShadowAutoBudget();
+                ImGui::TextDisabled("Auto-budget prioritizes nearest shadowed lights and limits heavy PCF cost.");
+
                 if (ImGui::TreeNode("Shadow Debug View"))
                 {
                     const float previewSize = 96.0f;
                     ImVec2 previewDim(previewSize, previewSize);
+
+                    int directionalCasters = 0;
+                    int pointCasters = 0;
+                    int spotCasters = 0;
+                    for (const auto& e : scene.GetEntities())
+                    {
+                        if (!e || !e->HasComponent<LightComponent>())
+                            continue;
+                        const auto& l = e->GetComponent<LightComponent>();
+                        if (!l.castShadows)
+                            continue;
+                        if (l.type == LightComponent::Type::Directional) ++directionalCasters;
+                        if (l.type == LightComponent::Type::Point) ++pointCasters;
+                        if (l.type == LightComponent::Type::Spot) ++spotCasters;
+                    }
+
+                    int activeCascadeMaps = 0;
+                    for (int i = 0; i < renderSystem.GetNumCascades(); ++i)
+                        if (renderSystem.GetCascadeTexture(i) != 0) ++activeCascadeMaps;
+
+                    int activePointMaps = 0;
+                    for (int i = 0; i < 4; ++i)
+                        if (renderSystem.GetPointShadowTexture(i) != 0) ++activePointMaps;
+
+                    int activeSpotMaps = 0;
+                    for (int i = 0; i < 4; ++i)
+                        if (renderSystem.GetSpotShadowTexture(i) != 0) ++activeSpotMaps;
+
+                    ImGui::Text("Directional Casters: %d | Active Maps: %d", directionalCasters, activeCascadeMaps);
+                    ImGui::Text("Point Casters: %d | Active Maps: %d", pointCasters, activePointMaps);
+                    ImGui::Text("Spot Casters: %d | Active Maps: %d", spotCasters, activeSpotMaps);
+                    ImGui::Separator();
 
                     ImGui::Text("Directional Cascades");
                     for (int cascade = 0; cascade < renderSystem.GetNumCascades(); ++cascade)
@@ -3638,6 +4296,20 @@ int main()
                         ImGui::PushID(i);
                         unsigned int tex = renderSystem.GetPointShadowTexture(i);
                         ImGui::Text("Point Light %d", i);
+                        if (tex != 0)
+                            ImGui::Image((ImTextureID)(intptr_t)tex, previewDim, ImVec2(0, 1), ImVec2(1, 0));
+                        else
+                            ImGui::TextDisabled("Unavailable");
+                        ImGui::PopID();
+                    }
+
+                    ImGui::Separator();
+                    ImGui::Text("Spot Shadow Maps");
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        ImGui::PushID(i + 100);
+                        unsigned int tex = renderSystem.GetSpotShadowTexture(i);
+                        ImGui::Text("Spot Light %d", i);
                         if (tex != 0)
                             ImGui::Image((ImTextureID)(intptr_t)tex, previewDim, ImVec2(0, 1), ImVec2(1, 0));
                         else

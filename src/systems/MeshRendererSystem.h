@@ -28,6 +28,8 @@ public:
     int  GetNumCascades() const;
     void SetSplitLambda(float lambda);
     float GetSplitLambda() const;
+    void SetShadowStabilizationEnabled(bool enabled);
+    bool GetShadowStabilizationEnabled() const;
 
     // Point light shadow
     void SetPointShadowsEnabled(bool enabled);
@@ -38,6 +40,20 @@ public:
 
     void SetPointShadowBias(float bias);
     float GetPointShadowBias() const;
+    void SetPointShadowPCFSamples(int samples);
+    int GetPointShadowPCFSamples() const;
+    void SetPointShadowPCFRadius(float radius);
+    float GetPointShadowPCFRadius() const;
+
+    // Spot light shadows
+    void SetSpotShadowsEnabled(bool enabled);
+    bool GetSpotShadowsEnabled() const;
+
+    void SetSpotShadowSize(unsigned int size);
+    unsigned int GetSpotShadowSize() const;
+    void SetSpotShadowPCFRadius(float radius);
+    float GetSpotShadowPCFRadius() const;
+    void ApplyShadowAutoBudget();
 
     // Wireframe rendering: scoped to only the main color pass (not the
     // shadow depth pass, post-processing, or ImGui) so toggling it doesn't
@@ -67,6 +83,7 @@ public:
     unsigned int GetCascadeTexture(int cascade) const;
     unsigned int GetShadowTexture() const; // compat: returns cascade 0
     unsigned int GetPointShadowTexture(int lightIndex) const;
+    unsigned int GetSpotShadowTexture(int lightIndex) const;
 
 private:
     struct Impl;

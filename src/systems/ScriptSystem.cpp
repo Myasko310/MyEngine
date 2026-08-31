@@ -7,6 +7,7 @@
 #include "components/TransformComponent.h"
 #include "components/AnimationComponent.h"
 #include "core/Input.h"
+#include "core/InputActions.h"
 #include "ecs/Entity.h"
 #include "ecs/Scene.h"
 
@@ -87,6 +88,11 @@ engine.get_mouse_delta = engine_get_mouse_delta
 engine.get_mouse_wheel = engine_get_mouse_wheel
 engine.get_mouse_position = engine_get_mouse_position
 engine.is_mouse_captured = engine_is_mouse_captured
+engine.is_action = engine_is_action
+engine.is_action_pressed = engine_is_action_pressed
+engine.is_action_released = engine_is_action_released
+engine.get_axis = engine_get_axis
+engine.is_gamepad_connected = engine_is_gamepad_connected
 engine.find_entity_by_name = engine_find_entity_by_name
 engine.entity_exists = engine_entity_exists
 engine.get_entity_name = engine_get_entity_name
@@ -165,6 +171,11 @@ engine.get_mouse_delta = engine_get_mouse_delta
 engine.get_mouse_wheel = engine_get_mouse_wheel
 engine.get_mouse_position = engine_get_mouse_position
 engine.is_mouse_captured = engine_is_mouse_captured
+engine.is_action = engine_is_action
+engine.is_action_pressed = engine_is_action_pressed
+engine.is_action_released = engine_is_action_released
+engine.get_axis = engine_get_axis
+engine.is_gamepad_connected = engine_is_gamepad_connected
 engine.find_entity_by_name = engine_find_entity_by_name
 engine.entity_exists = engine_entity_exists
 engine.get_entity_name = engine_get_entity_name
@@ -804,6 +815,21 @@ scene.log = engine_log
 		lua_pushcfunction(L, &ScriptSystem::LuaSetLightCastShadows);
 		lua_setglobal(L, "engine_set_light_cast_shadows");
 
+		lua_pushcfunction(L, &ScriptSystem::LuaIsAction);
+		lua_setglobal(L, "engine_is_action");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaIsActionPressed);
+		lua_setglobal(L, "engine_is_action_pressed");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaIsActionReleased);
+		lua_setglobal(L, "engine_is_action_released");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetAxis);
+		lua_setglobal(L, "engine_get_axis");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaIsGamepadConnected);
+		lua_setglobal(L, "engine_is_gamepad_connected");
+
 		InstallLuaHelpers(L, true);
 	}
 
@@ -961,6 +987,21 @@ scene.log = engine_log
 
 		lua_pushcfunction(L, &ScriptSystem::LuaSetLightCastShadows);
 		lua_setglobal(L, "engine_set_light_cast_shadows");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaIsAction);
+		lua_setglobal(L, "engine_is_action");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaIsActionPressed);
+		lua_setglobal(L, "engine_is_action_pressed");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaIsActionReleased);
+		lua_setglobal(L, "engine_is_action_released");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetAxis);
+		lua_setglobal(L, "engine_get_axis");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaIsGamepadConnected);
+		lua_setglobal(L, "engine_is_gamepad_connected");
 
 		InstallLuaHelpers(L, false);
 	}
@@ -1504,6 +1545,36 @@ scene.log = engine_log
 	int ScriptSystem::LuaIsMouseCaptured(lua_State* L)
 	{
 		lua_pushboolean(L, Input::IsMouseCaptured());
+		return 1;
+	}
+
+	int ScriptSystem::LuaIsAction(lua_State* L)
+	{
+		lua_pushboolean(L, MyEngine::InputActions::IsAction(luaL_checkstring(L, 1)));
+		return 1;
+	}
+
+	int ScriptSystem::LuaIsActionPressed(lua_State* L)
+	{
+		lua_pushboolean(L, MyEngine::InputActions::IsActionPressed(luaL_checkstring(L, 1)));
+		return 1;
+	}
+
+	int ScriptSystem::LuaIsActionReleased(lua_State* L)
+	{
+		lua_pushboolean(L, MyEngine::InputActions::IsActionReleased(luaL_checkstring(L, 1)));
+		return 1;
+	}
+
+	int ScriptSystem::LuaGetAxis(lua_State* L)
+	{
+		lua_pushnumber(L, MyEngine::InputActions::GetAxis(luaL_checkstring(L, 1)));
+		return 1;
+	}
+
+	int ScriptSystem::LuaIsGamepadConnected(lua_State* L)
+	{
+		lua_pushboolean(L, MyEngine::InputActions::IsGamepadConnected());
 		return 1;
 	}
 

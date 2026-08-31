@@ -6,7 +6,13 @@
 #include "components/RigidbodyComponent.h"
 #include "components/LightComponent.h"
 #include "components/ScriptComponent.h"
+#include "components/SkeletonComponent.h"
+#include "components/CollisionEventsComponent.h"
+#include "core/InputActions.h"
 
+#include <GLFW/glfw3.h>
+
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -31,6 +37,18 @@ namespace
 		auto child = scene.CreateEntity("SerializerChild");
 		auto& childTransform = child->AddComponent<TransformComponent>();
 		childTransform.parentID = parent->GetID();
+		child->AddComponent<SkeletonComponent>();
+		child->AddComponent<CollisionEventsComponent>();
+
+		auto lightEntity = scene.CreateEntity("SerializerLight");
+		auto& lightTransform = lightEntity->AddComponent<TransformComponent>();
+		lightTransform.position = { -2.0f, 1.0f, 0.5f };
+		auto& light = lightEntity->AddComponent<MyEngine::LightComponent>();
+		light.type = MyEngine::LightComponent::Type::Point;
+		light.castShadows = true;
+		light.pointShadowSizeOverride = 768;
+		light.pointShadowPCFSamplesOverride = 11;
+		light.pointShadowPCFRadiusOverride = 0.031f;
 
 		std::vector<MyEngine::ScriptSystem::GlobalScriptConfig> globalScripts;
 		globalScripts.push_back({"assets/scripts/a.lua", true, true, false});
@@ -76,7 +94,7 @@ namespace
 			return false;
 		}
 
-		if (loaded.GetEntities().size() != 2)
+		if (loaded.GetEntities().size() != 3)
 		{
 			std::cerr << "SerializerSmokeTest: expected loaded scene to replace old entities" << std::endl;
 			return false;
@@ -84,6 +102,7 @@ namespace
 
 		Entity* loadedParent = nullptr;
 		Entity* loadedChild = nullptr;
+		Entity* loadedLight = nullptr;
 		for (const auto& e : loaded.GetEntities())
 		{
 			if (!e)
@@ -93,6 +112,8 @@ namespace
 				loadedParent = e.get();
 			else if (e->GetName() == "SerializerChild")
 				loadedChild = e.get();
+			else if (e->GetName() == "SerializerLight")
+				loadedLight = e.get();
 		}
 
 		if (!loadedParent || !loadedChild || !loadedChild->HasComponent<TransformComponent>())
@@ -104,6 +125,33 @@ namespace
 		if (loadedChild->GetComponent<TransformComponent>().parentID != loadedParent->GetID())
 		{
 			std::cerr << "SerializerSmokeTest: parent relationship was not preserved" << std::endl;
+			return false;
+		}
+
+		if (!loadedChild->HasComponent<SkeletonComponent>())
+		{
+			std::cerr << "SerializerSmokeTest: SkeletonComponent did not survive roundtrip" << std::endl;
+			return false;
+		}
+
+		if (!loadedChild->HasComponent<CollisionEventsComponent>())
+		{
+			std::cerr << "SerializerSmokeTest: CollisionEventsComponent did not survive roundtrip" << std::endl;
+			return false;
+		}
+
+		if (!loadedLight || !loadedLight->HasComponent<MyEngine::LightComponent>())
+		{
+			std::cerr << "SerializerSmokeTest: SerializerLight missing after roundtrip" << std::endl;
+			return false;
+		}
+
+		auto& loadedLightComp = loadedLight->GetComponent<MyEngine::LightComponent>();
+		if (loadedLightComp.pointShadowSizeOverride != 768 ||
+			loadedLightComp.pointShadowPCFSamplesOverride != 11 ||
+			!NearlyEqual(loadedLightComp.pointShadowPCFRadiusOverride, 0.031f))
+		{
+			std::cerr << "SerializerSmokeTest: light shadow override fields were not preserved" << std::endl;
 			return false;
 		}
 
@@ -173,14 +221,175 @@ namespace
 		std::filesystem::remove(scriptPath, ec);
 		return true;
 	}
+
+	bool InputProfilesSmokeTest()
+	{
+		MyEngine::InputActions::RegisterDefaults();
+		if (!MyEngine::InputActions::CreateProfile("Alt", true))
+		{
+			std::cerr << "InputProfilesSmokeTest: failed to create Alt profile" << std::endl;
+			return false;
+		}
+
+		if (!MyEngine::InputActions::SetActiveProfile("Alt"))
+		{
+			std::cerr << "InputProfilesSmokeTest: failed to activate Alt profile" << std::endl;
+			return false;
+		}
+
+		MyEngine::InputActions::ActionBinding altJump;
+		altJump.keys = { GLFW_KEY_E };
+		altJump.gamepadAxes = { GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER };
+		altJump.axisThreshold = 0.65f;
+		altJump.invertAxis = true;
+		MyEngine::InputActions::BindAction("Jump", altJump);
+
+		MyEngine::InputActions::AxisBinding altMove;
+		altMove.keyPairs = { { GLFW_KEY_D, GLFW_KEY_A } };
+		altMove.gamepadAxes = { GLFW_GAMEPAD_AXIS_LEFT_X };
+		altMove.deadzone = 0.23f;
+		altMove.sensitivity = 1.8f;
+		MyEngine::InputActions::BindAxis("MoveRight", altMove);
+
+		if (!MyEngine::InputActions::SetActiveProfile("Default"))
+		{
+			std::cerr << "InputProfilesSmokeTest: failed to switch back to Default" << std::endl;
+			return false;
+		}
+
+		MyEngine::InputActions::ActionBinding defaultJump;
+		if (!MyEngine::InputActions::TryGetActionBinding("Jump", defaultJump) || defaultJump.keys.empty() || defaultJump.keys[0] == GLFW_KEY_E)
+		{
+			std::cerr << "InputProfilesSmokeTest: profile switch did not isolate bindings" << std::endl;
+			return false;
+		}
+
+		if (!MyEngine::InputActions::SetActiveProfile("Alt"))
+		{
+			std::cerr << "InputProfilesSmokeTest: failed to re-activate Alt" << std::endl;
+			return false;
+		}
+
+		MyEngine::InputActions::ActionBinding loadedAltJump;
+		if (!MyEngine::InputActions::TryGetActionBinding("Jump", loadedAltJump) || loadedAltJump.keys.empty() || loadedAltJump.keys[0] != GLFW_KEY_E)
+		{
+			std::cerr << "InputProfilesSmokeTest: Alt Jump binding mismatch" << std::endl;
+			return false;
+		}
+		if (loadedAltJump.gamepadAxes.empty() || loadedAltJump.gamepadAxes[0] != GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER || !NearlyEqual(loadedAltJump.axisThreshold, 0.65f) || !loadedAltJump.invertAxis)
+		{
+			std::cerr << "InputProfilesSmokeTest: action metadata mismatch" << std::endl;
+			return false;
+		}
+
+		MyEngine::InputActions::AxisBinding loadedAltMove;
+		if (!MyEngine::InputActions::TryGetAxisBinding("MoveRight", loadedAltMove) || !NearlyEqual(loadedAltMove.deadzone, 0.23f) || !NearlyEqual(loadedAltMove.sensitivity, 1.8f))
+		{
+			std::cerr << "InputProfilesSmokeTest: axis metadata mismatch" << std::endl;
+			return false;
+		}
+
+		const std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "myengine_input_bindings_smoke.json";
+		if (!MyEngine::InputActions::SaveBindings(tempPath.string()))
+		{
+			std::cerr << "InputProfilesSmokeTest: SaveBindings failed" << std::endl;
+			return false;
+		}
+
+		MyEngine::InputActions::RegisterDefaults();
+		if (!MyEngine::InputActions::LoadBindings(tempPath.string()))
+		{
+			std::cerr << "InputProfilesSmokeTest: LoadBindings failed" << std::endl;
+			return false;
+		}
+
+		auto profiles = MyEngine::InputActions::GetProfileNames();
+		if (std::find(profiles.begin(), profiles.end(), "Alt") == profiles.end())
+		{
+			std::cerr << "InputProfilesSmokeTest: Alt profile missing after load" << std::endl;
+			return false;
+		}
+
+		if (MyEngine::InputActions::GetActiveProfileName() != "Alt")
+		{
+			std::cerr << "InputProfilesSmokeTest: active profile not restored" << std::endl;
+			return false;
+		}
+
+		std::error_code ec;
+		std::filesystem::remove(tempPath, ec);
+		return true;
+	}
+
+	bool InputConflictResolutionSmokeTest()
+	{
+		MyEngine::InputActions::RegisterDefaults();
+
+		MyEngine::InputActions::ActionBinding a0;
+		a0.keys = { GLFW_KEY_Q };
+		MyEngine::InputActions::BindAction("AAction", a0);
+		MyEngine::InputActions::ActionBinding a1;
+		a1.keys = { GLFW_KEY_Q };
+		MyEngine::InputActions::BindAction("BAction", a1);
+
+		MyEngine::InputActions::AxisBinding ax0;
+		ax0.keyPairs = { { GLFW_KEY_W, GLFW_KEY_S } };
+		ax0.gamepadAxes = { GLFW_GAMEPAD_AXIS_LEFT_X };
+		MyEngine::InputActions::BindAxis("AAxis", ax0);
+		MyEngine::InputActions::AxisBinding ax1;
+		ax1.keyPairs = { { GLFW_KEY_W, GLFW_KEY_D } };
+		ax1.gamepadAxes = { GLFW_GAMEPAD_AXIS_LEFT_X };
+		MyEngine::InputActions::BindAxis("BAxis", ax1);
+
+		MyEngine::InputActions::ResolveConflictsKeepFirst();
+
+		MyEngine::InputActions::ActionBinding bAfterFirst;
+		if (!MyEngine::InputActions::TryGetActionBinding("BAction", bAfterFirst) || !bAfterFirst.keys.empty())
+		{
+			std::cerr << "InputConflictResolutionSmokeTest: keep-first action conflict resolution failed" << std::endl;
+			return false;
+		}
+
+		MyEngine::InputActions::AxisBinding bAxisAfterFirst;
+		if (!MyEngine::InputActions::TryGetAxisBinding("BAxis", bAxisAfterFirst) || !bAxisAfterFirst.gamepadAxes.empty())
+		{
+			std::cerr << "InputConflictResolutionSmokeTest: keep-first axis conflict resolution failed" << std::endl;
+			return false;
+		}
+
+		MyEngine::InputActions::BindAction("AAction", a0);
+		MyEngine::InputActions::BindAction("BAction", a1);
+		MyEngine::InputActions::BindAxis("AAxis", ax0);
+		MyEngine::InputActions::BindAxis("BAxis", ax1);
+
+		MyEngine::InputActions::ResolveConflictsKeepLast();
+
+		MyEngine::InputActions::ActionBinding aAfterLast;
+		if (!MyEngine::InputActions::TryGetActionBinding("AAction", aAfterLast) || !aAfterLast.keys.empty())
+		{
+			std::cerr << "InputConflictResolutionSmokeTest: keep-last action conflict resolution failed" << std::endl;
+			return false;
+		}
+
+		MyEngine::InputActions::AxisBinding aAxisAfterLast;
+		if (!MyEngine::InputActions::TryGetAxisBinding("AAxis", aAxisAfterLast) || !aAxisAfterLast.gamepadAxes.empty())
+		{
+			std::cerr << "InputConflictResolutionSmokeTest: keep-last axis conflict resolution failed" << std::endl;
+			return false;
+		}
+
+		return true;
+	}
 }
 
 int main()
 {
 	const bool serializerOk = SerializerSmokeTest();
 	const bool luaApiOk = LuaApiSmokeTest();
+	const bool inputProfilesOk = InputProfilesSmokeTest();
+	const bool inputConflictsOk = InputConflictResolutionSmokeTest();
 
-	if (!serializerOk || !luaApiOk)
+	if (!serializerOk || !luaApiOk || !inputProfilesOk || !inputConflictsOk)
 		return 1;
 
 	std::cout << "Smoke tests passed" << std::endl;

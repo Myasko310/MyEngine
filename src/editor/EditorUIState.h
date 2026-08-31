@@ -18,6 +18,7 @@ namespace MyEngine
 			bool showSceneHierarchy = true;
 			bool showInspector = true;
 			bool showLightingPanel = true;
+			bool showInputBindingsPanel = true;
 			bool showPostProcessPanel = true;
 			bool showSkyboxPanel = true;
 			bool showScriptingPanel = true;

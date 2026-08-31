@@ -43,6 +43,10 @@ uniform bool u_PointLightCastShadows[MAX_POINT_LIGHTS];
 uniform samplerCube u_PointShadowMap[MAX_POINT_LIGHTS];
 uniform float u_PointShadowFarPlane[MAX_POINT_LIGHTS];
 uniform float u_PointShadowBias[MAX_POINT_LIGHTS];
+uniform int u_PointShadowPCFSamples;
+uniform float u_PointShadowPCFRadius;
+uniform int u_PointShadowPCFSamplesPerLight[MAX_POINT_LIGHTS];
+uniform float u_PointShadowPCFRadiusPerLight[MAX_POINT_LIGHTS];
 
 uniform int u_NumSpotLights;
 uniform vec3 u_SpotLightPos[MAX_SPOT_LIGHTS];
@@ -51,6 +55,12 @@ uniform vec3 u_SpotLightColor[MAX_SPOT_LIGHTS];
 uniform float u_SpotLightRange[MAX_SPOT_LIGHTS];
 uniform float u_SpotLightInnerCos[MAX_SPOT_LIGHTS];
 uniform float u_SpotLightOuterCos[MAX_SPOT_LIGHTS];
+uniform bool u_SpotLightCastShadows[MAX_SPOT_LIGHTS];
+uniform mat4 u_SpotLightSpace[MAX_SPOT_LIGHTS];
+uniform sampler2D u_SpotShadowMap[MAX_SPOT_LIGHTS];
+uniform float u_SpotShadowBias[MAX_SPOT_LIGHTS];
+uniform float u_SpotShadowPCFRadius;
+uniform float u_SpotShadowPCFRadiusPerLight[MAX_SPOT_LIGHTS];
 
 float AttenuationFromRange(float dist, float range)
 {
@@ -138,14 +148,66 @@ float PointShadowCalculation(int lightIndex, vec3 lightPos, vec3 normal)
 	if (currentDepth >= farPlane)
 		return 0.0;
 
-	float closestDepth = texture(u_PointShadowMap[lightIndex], fragToLight).r * farPlane;
-	if (closestDepth >= farPlane - 0.001)
-		return 0.0;
-
 	vec3 lightDir = normalize(lightPos - v_Position);
 	float angularBias = max(0.02 * (1.0 - max(dot(normalize(normal), lightDir), 0.0)), 0.002);
 	float bias = max(u_PointShadowBias[lightIndex], angularBias);
-	return (currentDepth - bias > closestDepth) ? 1.0 : 0.0;
+
+	// PCF: sample the cubemap in a small disk of offset directions. The disk
+	// radius scales with distance so penumbra stays visually consistent.
+	const vec3 sampleOffsetDirections[20] = vec3[](
+		vec3( 1,  1,  1), vec3( 1, -1,  1), vec3(-1, -1,  1), vec3(-1,  1,  1),
+		vec3( 1,  1, -1), vec3( 1, -1, -1), vec3(-1, -1, -1), vec3(-1,  1, -1),
+		vec3( 1,  1,  0), vec3( 1, -1,  0), vec3(-1, -1,  0), vec3(-1,  1,  0),
+		vec3( 1,  0,  1), vec3(-1,  0,  1), vec3( 1,  0, -1), vec3(-1,  0, -1),
+		vec3( 0,  1,  1), vec3( 0, -1,  1), vec3( 0, -1, -1), vec3( 0,  1, -1)
+	);
+
+	int sampleCount = clamp(u_PointShadowPCFSamplesPerLight[lightIndex] > 0 ? u_PointShadowPCFSamplesPerLight[lightIndex] : u_PointShadowPCFSamples, 1, 20);
+	float baseRadius = u_PointShadowPCFRadiusPerLight[lightIndex] > 0.0 ? u_PointShadowPCFRadiusPerLight[lightIndex] : u_PointShadowPCFRadius;
+	float diskRadius = (1.0 + currentDepth / farPlane) * max(baseRadius, 0.0001);
+	float shadow = 0.0;
+	for (int s = 0; s < sampleCount; ++s)
+	{
+		float closestDepth = texture(u_PointShadowMap[lightIndex], fragToLight + sampleOffsetDirections[s] * diskRadius).r * farPlane;
+		if (closestDepth < farPlane - 0.001 && currentDepth - bias > closestDepth)
+			shadow += 1.0;
+	}
+	return shadow / float(sampleCount);
+}
+
+float SpotShadowCalculation(int lightIndex, vec3 normal)
+{
+	if (!u_SpotLightCastShadows[lightIndex])
+		return 0.0;
+
+	vec4 fragPosLightSpace = u_SpotLightSpace[lightIndex] * vec4(v_Position, 1.0);
+	vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+	projCoords = projCoords * 0.5 + 0.5;
+
+	if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
+		projCoords.y < 0.0 || projCoords.y > 1.0 ||
+		projCoords.z < 0.0 || projCoords.z > 1.0)
+	{
+		return 0.0;
+	}
+
+	vec3 lightDir = normalize(u_SpotLightPos[lightIndex] - v_Position);
+	float bias = max(u_SpotShadowBias[lightIndex] * 5.0 * (1.0 - max(dot(normalize(normal), lightDir), 0.0)), u_SpotShadowBias[lightIndex]);
+
+	// 3x3 PCF
+	float spotRadius = u_SpotShadowPCFRadiusPerLight[lightIndex] > 0.0 ? u_SpotShadowPCFRadiusPerLight[lightIndex] : u_SpotShadowPCFRadius;
+	vec2 texelSize = (1.0 / vec2(textureSize(u_SpotShadowMap[lightIndex], 0))) * max(spotRadius, 0.1);
+	float currentDepth = projCoords.z;
+	float shadow = 0.0;
+	for (int x = -1; x <= 1; ++x)
+	{
+		for (int y = -1; y <= 1; ++y)
+		{
+			float pcfDepth = texture(u_SpotShadowMap[lightIndex], projCoords.xy + vec2(x, y) * texelSize).r;
+			shadow += (currentDepth - bias > pcfDepth) ? 1.0 : 0.0;
+		}
+	}
+	return shadow / 9.0;
 }
 
 void main()
@@ -213,7 +275,8 @@ void main()
 		float specS = pow(max(dot(N, Hs), 0.0), u_MaterialShininess);
 		vec3 specularS = specS * u_SpotLightColor[i];
 
-		lighting += (diffuseS + specularS) * atten * coneFactor;
+		float spotShadow = SpotShadowCalculation(i, N);
+		lighting += (1.0 - spotShadow) * (diffuseS + specularS) * atten * coneFactor;
 	}
 
 	vec3 color = u_UseTexture ? lighting : lighting * v_Color;

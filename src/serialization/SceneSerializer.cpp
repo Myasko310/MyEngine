@@ -28,6 +28,7 @@
 #include "components/NavigationAgentComponent.h"
 #include "components/ParticleEmitterComponent.h"
 #include "components/PrefabInstanceComponent.h"
+#include "components/CollisionEventsComponent.h"
 #include "core/LayerMask.h"
 #include "rendering/MeshPrimitives.h"
 #include "rendering/Texture.h"
@@ -198,6 +199,11 @@ namespace MyEngine
 					writer.Key("outerCone"); writer.Double(l.outerCone);
 					writer.Key("shadowBias"); writer.Double(l.shadowBias);
 					writer.Key("castShadows"); writer.Bool(l.castShadows);
+					writer.Key("pointShadowSizeOverride"); writer.Int(l.pointShadowSizeOverride);
+					writer.Key("pointShadowPCFSamplesOverride"); writer.Int(l.pointShadowPCFSamplesOverride);
+					writer.Key("pointShadowPCFRadiusOverride"); writer.Double(l.pointShadowPCFRadiusOverride);
+					writer.Key("spotShadowSizeOverride"); writer.Int(l.spotShadowSizeOverride);
+					writer.Key("spotShadowPCFRadiusOverride"); writer.Double(l.spotShadowPCFRadiusOverride);
 					writer.EndObject();
 				}
 
@@ -214,6 +220,16 @@ namespace MyEngine
 					// instead of the plain static LoadModel path, which would
 					// silently drop the skeleton/animation clips.
 					writer.Key("isSkinned"); writer.Bool(e->HasComponent<SkeletonComponent>());
+					writer.EndObject();
+				}
+
+				if (e->HasComponent<SkeletonComponent>())
+				{
+					// Skeleton data itself is reconstructed from skinned model assets;
+					// persist explicit component presence for completeness/forward compatibility.
+					writer.Key("SkeletonComponent");
+					writer.StartObject();
+					writer.Key("present"); writer.Bool(true);
 					writer.EndObject();
 				}
 
@@ -543,6 +559,15 @@ namespace MyEngine
 					writer.EndObject();
 				}
 
+				if (e->HasComponent<CollisionEventsComponent>())
+				{
+					// Runtime callbacks are not serializable; persist component presence.
+					writer.Key("CollisionEvents");
+					writer.StartObject();
+					writer.Key("enabled"); writer.Bool(true);
+					writer.EndObject();
+				}
+
 				if (e->HasComponent<ScriptComponent>())
 				{
 					auto& sc = e->GetComponent<ScriptComponent>();
@@ -810,6 +835,11 @@ namespace MyEngine
 					if (lo.HasMember("outerCone")) l.outerCone = static_cast<float>(lo["outerCone"].GetDouble());
 					if (lo.HasMember("shadowBias")) l.shadowBias = static_cast<float>(lo["shadowBias"].GetDouble());
 					if (lo.HasMember("castShadows")) l.castShadows = lo["castShadows"].GetBool();
+					if (lo.HasMember("pointShadowSizeOverride") && lo["pointShadowSizeOverride"].IsInt()) l.pointShadowSizeOverride = lo["pointShadowSizeOverride"].GetInt();
+					if (lo.HasMember("pointShadowPCFSamplesOverride") && lo["pointShadowPCFSamplesOverride"].IsInt()) l.pointShadowPCFSamplesOverride = lo["pointShadowPCFSamplesOverride"].GetInt();
+					if (lo.HasMember("pointShadowPCFRadiusOverride") && lo["pointShadowPCFRadiusOverride"].IsNumber()) l.pointShadowPCFRadiusOverride = static_cast<float>(lo["pointShadowPCFRadiusOverride"].GetDouble());
+					if (lo.HasMember("spotShadowSizeOverride") && lo["spotShadowSizeOverride"].IsInt()) l.spotShadowSizeOverride = lo["spotShadowSizeOverride"].GetInt();
+					if (lo.HasMember("spotShadowPCFRadiusOverride") && lo["spotShadowPCFRadiusOverride"].IsNumber()) l.spotShadowPCFRadiusOverride = static_cast<float>(lo["spotShadowPCFRadiusOverride"].GetDouble());
 				}
 
 				if (v.HasMember("MeshComponent") && v["MeshComponent"].IsObject())
@@ -957,6 +987,12 @@ namespace MyEngine
 						mr.texture = MyEngine::AssetManager::LoadTexture(mo["texturePath"].GetString());
 					}
 					if (mo.HasMember("useTexture")) mr.useTexture = mo["useTexture"].GetBool();
+				}
+
+				if (v.HasMember("SkeletonComponent") && v["SkeletonComponent"].IsObject())
+				{
+					if (!ent->HasComponent<SkeletonComponent>())
+						ent->AddComponent<SkeletonComponent>();
 				}
 
 				// AnimationComponent playback state: only meaningful if the
@@ -1234,6 +1270,12 @@ namespace MyEngine
 					if (so.HasMember("enabled")) sc.enabled = so["enabled"].GetBool();
 					if (so.HasMember("autoStart")) sc.autoStart = so["autoStart"].GetBool();
 				}
+
+				if (v.HasMember("CollisionEvents") && v["CollisionEvents"].IsObject())
+				{
+					if (!ent->HasComponent<CollisionEventsComponent>())
+						ent->AddComponent<CollisionEventsComponent>();
+				}
 			}
 
 			for (auto& [ent, savedParentID] : pendingParents)
@@ -1340,6 +1382,7 @@ namespace MyEngine
 									COPY_COMPONENT(TerrainComponent);
 									COPY_COMPONENT(NavigationAgentComponent);
 									COPY_COMPONENT(ParticleEmitterComponent);
+									COPY_COMPONENT(CollisionEventsComponent);
 								#undef COPY_COMPONENT
 
 									if (clone->HasComponent<TransformComponent>())
@@ -1446,6 +1489,7 @@ namespace MyEngine
 									COPY_COMPONENT(TerrainComponent);
 									COPY_COMPONENT(NavigationAgentComponent);
 									COPY_COMPONENT(ParticleEmitterComponent);
+									COPY_COMPONENT(CollisionEventsComponent);
 								#undef COPY_COMPONENT
 
 									spawnedBySourceID[source->GetID()] = spawned;

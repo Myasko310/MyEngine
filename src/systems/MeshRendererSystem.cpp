@@ -8,6 +8,7 @@
 #include "components/TransformComponent.h"
 #include "components/LightComponent.h"
 #include "components/AnimationComponent.h"
+#include "components/TerrainComponent.h"
 #include "core/AssetManager.h"
 #include "ecs/Scene.h"
 #include "ecs/TransformHierarchy.h"
@@ -17,6 +18,7 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <numeric>
 #include <string>
 #include <vector>
 #include <glad/glad.h>
@@ -24,6 +26,7 @@
 #include "rendering/PointShadowMap.h"
 #include "rendering/Shader.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/norm.hpp>
 #include "renderer/FrustumCuller.h"
 #include "MeshRendererSystem_Impl.h"
 
@@ -51,11 +54,12 @@ bool MeshRendererSystem::GetShadowsEnabled() const
 void MeshRendererSystem::SetShadowSize(unsigned int size)
 {
     if (!m_Impl) m_Impl = std::make_unique<Impl>();
-    m_Impl->shadowSize = size;
+    unsigned int clamped = std::clamp(size, 256u, 4096u);
+    m_Impl->shadowSize = clamped;
     for (auto& cm : m_Impl->cascadeMaps)
     {
-        if (cm.GetDepthTexture() == 0)
-            cm.Init(size, size);
+        if (cm.GetDepthTexture() == 0 || cm.GetWidth() != clamped)
+            cm.Init(clamped, clamped);
     }
 }
 
@@ -89,11 +93,12 @@ bool MeshRendererSystem::GetPointShadowsEnabled() const
 void MeshRendererSystem::SetPointShadowSize(unsigned int size)
 {
     if (!m_Impl) m_Impl = std::make_unique<Impl>();
-    m_Impl->pointShadowSize = size;
+    unsigned int clamped = std::clamp(size, 128u, 2048u);
+    m_Impl->pointShadowSize = clamped;
     for (auto& pointShadowMap : m_Impl->pointShadowMaps)
     {
-        if (pointShadowMap.GetDepthCubemap() == 0 || pointShadowMap.GetSize() != size)
-            pointShadowMap.Init(size);
+        if (pointShadowMap.GetDepthCubemap() == 0 || pointShadowMap.GetSize() != clamped)
+            pointShadowMap.Init(clamped);
     }
 }
 
@@ -111,6 +116,74 @@ void MeshRendererSystem::SetPointShadowBias(float bias)
 float MeshRendererSystem::GetPointShadowBias() const
 {
     return m_Impl ? m_Impl->pointShadowBias : 0.0f;
+}
+
+void MeshRendererSystem::SetPointShadowPCFSamples(int samples)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->pointShadowPCFSamples = std::clamp(samples, 1, 20);
+}
+
+int MeshRendererSystem::GetPointShadowPCFSamples() const
+{
+    return m_Impl ? m_Impl->pointShadowPCFSamples : 20;
+}
+
+void MeshRendererSystem::SetPointShadowPCFRadius(float radius)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->pointShadowPCFRadius = std::clamp(radius, 0.001f, 0.25f);
+}
+
+float MeshRendererSystem::GetPointShadowPCFRadius() const
+{
+    return m_Impl ? m_Impl->pointShadowPCFRadius : 0.02f;
+}
+
+void MeshRendererSystem::SetSpotShadowsEnabled(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->spotShadowsEnabled = enabled;
+}
+
+bool MeshRendererSystem::GetSpotShadowsEnabled() const
+{
+    return m_Impl ? m_Impl->spotShadowsEnabled : false;
+}
+
+void MeshRendererSystem::SetSpotShadowSize(unsigned int size)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    unsigned int clamped = std::clamp(size, 128u, 2048u);
+    m_Impl->spotShadowSize = clamped;
+    for (auto& sm : m_Impl->spotShadowMaps)
+    {
+        if (sm.GetDepthTexture() == 0 || sm.GetWidth() != clamped)
+            sm.Init(clamped, clamped);
+    }
+}
+
+unsigned int MeshRendererSystem::GetSpotShadowSize() const
+{
+    return m_Impl ? m_Impl->spotShadowSize : 0;
+}
+
+void MeshRendererSystem::SetSpotShadowPCFRadius(float radius)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->spotShadowPCFRadius = std::clamp(radius, 0.1f, 4.0f);
+}
+
+float MeshRendererSystem::GetSpotShadowPCFRadius() const
+{
+    return m_Impl ? m_Impl->spotShadowPCFRadius : 1.0f;
+}
+
+unsigned int MeshRendererSystem::GetSpotShadowTexture(int lightIndex) const
+{
+    if (!m_Impl || lightIndex < 0 || lightIndex >= static_cast<int>(m_Impl->spotShadowMaps.size()))
+        return 0;
+    return m_Impl->spotShadowMaps[lightIndex].GetDepthTexture();
 }
 
 void MeshRendererSystem::SetWireframe(bool enabled)
@@ -157,6 +230,45 @@ void MeshRendererSystem::SetSplitLambda(float lambda)
 {
     if (!m_Impl) m_Impl = std::make_unique<Impl>();
     m_Impl->splitLambda = std::clamp(lambda, 0.0f, 1.0f);
+}
+
+void MeshRendererSystem::SetShadowStabilizationEnabled(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->shadowStabilizationEnabled = enabled;
+}
+
+bool MeshRendererSystem::GetShadowStabilizationEnabled() const
+{
+    return m_Impl ? m_Impl->shadowStabilizationEnabled : true;
+}
+
+void MeshRendererSystem::ApplyShadowAutoBudget()
+{
+    if (!m_Impl)
+        m_Impl = std::make_unique<Impl>();
+
+    // Keep total texel load controlled while preserving quality hierarchy.
+    if (m_Impl->pointShadowPCFSamples > 18)
+    {
+        m_Impl->pointShadowSize = std::min(m_Impl->pointShadowSize, 1024u);
+        m_Impl->spotShadowSize = std::min(m_Impl->spotShadowSize, 1024u);
+    }
+    if (m_Impl->pointShadowPCFSamples > 14)
+    {
+        m_Impl->pointShadowLightBudget = 2;
+        m_Impl->spotShadowLightBudget = 2;
+    }
+    else if (m_Impl->pointShadowPCFSamples > 10)
+    {
+        m_Impl->pointShadowLightBudget = 3;
+        m_Impl->spotShadowLightBudget = 3;
+    }
+    else
+    {
+        m_Impl->pointShadowLightBudget = 4;
+        m_Impl->spotShadowLightBudget = 4;
+    }
 }
 
 float MeshRendererSystem::GetSplitLambda() const
@@ -257,8 +369,12 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             cm.Init(m_Impl->shadowSize, m_Impl->shadowSize);
         for (auto& pointShadowMap : m_Impl->pointShadowMaps)
             pointShadowMap.Init(m_Impl->pointShadowSize);
+        for (auto& spotShadowMap : m_Impl->spotShadowMaps)
+            spotShadowMap.Init(m_Impl->spotShadowSize, m_Impl->spotShadowSize);
         initialized = true;
     }
+
+    ApplyShadowAutoBudget();
 
     // (Re-)initialize SSAO if viewport size changed or first use
     {
@@ -322,6 +438,18 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     static const std::array<std::string, kMaxSpotLights> spotLightOuterCosUniformNames = {
         "u_SpotLightOuterCos[0]", "u_SpotLightOuterCos[1]", "u_SpotLightOuterCos[2]", "u_SpotLightOuterCos[3]"
     };
+    static const std::array<std::string, kMaxSpotLights> spotLightCastShadowUniformNames = {
+        "u_SpotLightCastShadows[0]", "u_SpotLightCastShadows[1]", "u_SpotLightCastShadows[2]", "u_SpotLightCastShadows[3]"
+    };
+    static const std::array<std::string, kMaxSpotLights> spotLightSpaceUniformNames = {
+        "u_SpotLightSpace[0]", "u_SpotLightSpace[1]", "u_SpotLightSpace[2]", "u_SpotLightSpace[3]"
+    };
+    static const std::array<std::string, kMaxSpotLights> spotShadowMapUniformNames = {
+        "u_SpotShadowMap[0]", "u_SpotShadowMap[1]", "u_SpotShadowMap[2]", "u_SpotShadowMap[3]"
+    };
+    static const std::array<std::string, kMaxSpotLights> spotShadowBiasUniformNames = {
+        "u_SpotShadowBias[0]", "u_SpotShadowBias[1]", "u_SpotShadowBias[2]", "u_SpotShadowBias[3]"
+    };
     static const std::array<std::string, MAX_CASCADES> cascadeLightSpaceUniformNames = {
         "u_CascadeLightSpace[0]", "u_CascadeLightSpace[1]", "u_CascadeLightSpace[2]", "u_CascadeLightSpace[3]"
     };
@@ -332,8 +460,8 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         "u_CascadeShadowMap[0]", "u_CascadeShadowMap[1]", "u_CascadeShadowMap[2]", "u_CascadeShadowMap[3]"
     };
 
-    struct PointLightData { glm::vec3 pos; glm::vec3 color; float range; float shadowBias; bool castShadows; };
-    struct SpotLightData { glm::vec3 pos; glm::vec3 dir; glm::vec3 color; float range; float innerCos; float outerCos; };
+    struct PointLightData { glm::vec3 pos; glm::vec3 color; float range; float shadowBias; bool castShadows; int shadowSizeOverride; int pcfSamplesOverride; float pcfRadiusOverride; };
+    struct SpotLightData { glm::vec3 pos; glm::vec3 dir; glm::vec3 color; float range; float innerCos; float outerCos; float outerConeDeg; float shadowBias; bool castShadows; int shadowSizeOverride; float pcfRadiusOverride; };
 
     std::vector<PointLightData> pointLights;
     pointLights.reserve(kMaxPointLights);
@@ -343,6 +471,10 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     pointShadowMapIndices.fill(-1);
     std::array<float, kMaxPointLights> pointShadowFarPlanes;
     pointShadowFarPlanes.fill(1.0f);
+    std::array<int, kMaxSpotLights> spotShadowMapIndices;
+    spotShadowMapIndices.fill(-1);
+    std::array<glm::mat4, kMaxSpotLights> spotLightSpaceMatrices;
+    spotLightSpaceMatrices.fill(glm::mat4(1.0f));
     bool foundDirectional = false;
     bool directionalCastShadows = false;
 
@@ -374,7 +506,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         else if (L.type == MyEngine::LightComponent::Type::Point)
         {
             if (static_cast<int>(pointLights.size()) < kMaxPointLights)
-                pointLights.push_back({ L.position, L.color * L.intensity, L.range, L.shadowBias, L.castShadows });
+                pointLights.push_back({ L.position, L.color * L.intensity, L.range, L.shadowBias, L.castShadows, L.pointShadowSizeOverride, L.pointShadowPCFSamplesOverride, L.pointShadowPCFRadiusOverride });
         }
         else if (L.type == MyEngine::LightComponent::Type::Spot)
         {
@@ -382,7 +514,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             {
                 float innerCos = glm::cos(glm::radians(L.innerCone));
                 float outerCos = glm::cos(glm::radians(L.outerCone));
-                spotLights.push_back({ L.position, L.direction, L.color * L.intensity, L.range, innerCos, outerCos });
+                spotLights.push_back({ L.position, L.direction, L.color * L.intensity, L.range, innerCos, outerCos, L.outerCone, L.shadowBias, L.castShadows, L.spotShadowSizeOverride, L.spotShadowPCFRadiusOverride });
             }
         }
     }
@@ -476,12 +608,15 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         glm::mat4 lightView = glm::lookAt(center - lightDir * radius, center, up);
 
         // Texel-snapping to eliminate shadow shimmering as the camera moves
-        float texelSize = (2.0f * radius) / static_cast<float>(m_Impl->shadowSize);
         glm::mat4 lightViewSnap = lightView;
-        glm::vec3 shadowOrigin  = glm::vec3(lightView * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-        float snapX = std::round(shadowOrigin.x / texelSize) * texelSize - shadowOrigin.x;
-        float snapY = std::round(shadowOrigin.y / texelSize) * texelSize - shadowOrigin.y;
-        lightViewSnap = glm::translate(glm::mat4(1.0f), glm::vec3(snapX, snapY, 0.0f)) * lightView;
+        if (m_Impl->shadowStabilizationEnabled)
+        {
+            float texelSize = (2.0f * radius) / static_cast<float>(m_Impl->shadowSize);
+            glm::vec3 shadowOrigin  = glm::vec3(lightView * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+            float snapX = std::round(shadowOrigin.x / texelSize) * texelSize - shadowOrigin.x;
+            float snapY = std::round(shadowOrigin.y / texelSize) * texelSize - shadowOrigin.y;
+            lightViewSnap = glm::translate(glm::mat4(1.0f), glm::vec3(snapX, snapY, 0.0f)) * lightView;
+        }
 
         glm::mat4 lightProj = glm::ortho(-radius, radius, -radius, radius,
                                           -radius * 6.0f,  radius * 6.0f);
@@ -608,6 +743,27 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 meshComponent.mesh->Draw();
             }
 
+            // Terrain casts shadows too (uses the static depth shader)
+            for (const auto& entity : scene.GetEntities())
+            {
+                if (!entity || !entity->HasComponent<TransformComponent>() || !entity->HasComponent<TerrainComponent>())
+                    continue;
+
+                auto& terrain = entity->GetComponent<TerrainComponent>();
+                if (!terrain.mesh)
+                    continue;
+
+                if (activeDepthShader != depthShader.get())
+                {
+                    depthShader->Use();
+                    activeDepthShader = depthShader.get();
+                }
+
+                depthShader->SetMat4("u_LightSpace", cascadeLightSpaceMatrices[ci]);
+                depthShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
+                terrain.mesh->Draw();
+            }
+
             m_Impl->cascadeMaps[ci].Unbind();
         }
 
@@ -620,14 +776,34 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         constexpr float pointNearPlane = 0.1f;
         int pointShadowIndex = 0;
 
-        for (size_t i = 0; i < pointLights.size() && pointShadowIndex < static_cast<int>(m_Impl->pointShadowMaps.size()); ++i)
+        int pointBudget = std::clamp(m_Impl->pointShadowLightBudget, 0, static_cast<int>(m_Impl->pointShadowMaps.size()));
+        std::vector<size_t> pointShadowCandidates;
+        pointShadowCandidates.reserve(pointLights.size());
+        for (size_t i = 0; i < pointLights.size(); ++i)
         {
-            if (!pointLights[i].castShadows)
-                continue;
+            if (pointLights[i].castShadows)
+                pointShadowCandidates.push_back(i);
+        }
+        std::sort(pointShadowCandidates.begin(), pointShadowCandidates.end(),
+            [&](size_t a, size_t b)
+            {
+                float da = glm::length2(pointLights[a].pos - viewPos);
+                float db = glm::length2(pointLights[b].pos - viewPos);
+                return da < db;
+            });
 
+        for (size_t candidate = 0; candidate < pointShadowCandidates.size() && pointShadowIndex < pointBudget; ++candidate)
+        {
+            size_t i = pointShadowCandidates[candidate];
             float pointFarPlane = std::max(pointLights[i].range, 1.0f);
             pointShadowMapIndices[i] = pointShadowIndex;
             pointShadowFarPlanes[i] = pointFarPlane;
+
+            unsigned int effectivePointShadowSize = m_Impl->pointShadowSize;
+            if (pointLights[i].shadowSizeOverride > 0)
+                effectivePointShadowSize = static_cast<unsigned int>(pointLights[i].shadowSizeOverride);
+            if (m_Impl->pointShadowMaps[pointShadowIndex].GetDepthCubemap() == 0 || m_Impl->pointShadowMaps[pointShadowIndex].GetSize() != effectivePointShadowSize)
+                m_Impl->pointShadowMaps[pointShadowIndex].Init(effectivePointShadowSize);
             glm::mat4 shadowProj = glm::perspective(glm::radians(90.0f), 1.0f, pointNearPlane, pointFarPlane);
             std::array<glm::mat4, 6> shadowTransforms = {
                 shadowProj * glm::lookAt(pointLights[i].pos, pointLights[i].pos + glm::vec3(1.0f, 0.0f, 0.0f),  glm::vec3(0.0f, -1.0f, 0.0f)),
@@ -666,11 +842,157 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 meshComponent.mesh->Draw();
             }
 
+            // Terrain casts point light shadows too
+            for (const auto& entity : scene.GetEntities())
+            {
+                if (!entity || !entity->HasComponent<TransformComponent>() || !entity->HasComponent<TerrainComponent>())
+                    continue;
+
+                auto& terrain = entity->GetComponent<TerrainComponent>();
+                if (!terrain.mesh)
+                    continue;
+
+                pointDepthShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
+                terrain.mesh->Draw();
+            }
+
             m_Impl->pointShadowMaps[pointShadowIndex].Unbind();
             ++pointShadowIndex;
         }
 
         // Restore the previous viewport (window size) after point shadow passes.
+        glViewport(lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3]);
+    }
+
+    // 2b) Render spot light shadow maps (2D depth map per shadow-casting spot)
+    if (m_Impl && m_Impl->spotShadowsEnabled)
+    {
+        constexpr float spotNearPlane = 0.1f;
+        int spotShadowIndex = 0;
+
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(2.0f, 4.0f);
+
+        int spotBudget = std::clamp(m_Impl->spotShadowLightBudget, 0, static_cast<int>(m_Impl->spotShadowMaps.size()));
+        std::vector<size_t> spotShadowCandidates;
+        spotShadowCandidates.reserve(spotLights.size());
+        for (size_t i = 0; i < spotLights.size(); ++i)
+        {
+            if (spotLights[i].castShadows)
+                spotShadowCandidates.push_back(i);
+        }
+        std::sort(spotShadowCandidates.begin(), spotShadowCandidates.end(),
+            [&](size_t a, size_t b)
+            {
+                float da = glm::length2(spotLights[a].pos - viewPos);
+                float db = glm::length2(spotLights[b].pos - viewPos);
+                return da < db;
+            });
+
+        for (size_t candidate = 0; candidate < spotShadowCandidates.size() && spotShadowIndex < spotBudget; ++candidate)
+        {
+            size_t i = spotShadowCandidates[candidate];
+            float dirLen = glm::length(spotLights[i].dir);
+            glm::vec3 spotDir = dirLen > 0.0001f ? spotLights[i].dir / dirLen : glm::vec3(0.0f, -1.0f, 0.0f);
+            glm::vec3 spotUp = glm::vec3(0.0f, 1.0f, 0.0f);
+            if (fabs(glm::dot(spotDir, spotUp)) > 0.99f)
+                spotUp = glm::vec3(0.0f, 0.0f, 1.0f);
+
+            float spotFarPlane = std::max(spotLights[i].range, 1.0f);
+            unsigned int effectiveSpotShadowSize = m_Impl->spotShadowSize;
+            if (spotLights[i].shadowSizeOverride > 0)
+                effectiveSpotShadowSize = static_cast<unsigned int>(spotLights[i].shadowSizeOverride);
+            if (m_Impl->spotShadowMaps[spotShadowIndex].GetDepthTexture() == 0 || m_Impl->spotShadowMaps[spotShadowIndex].GetWidth() != effectiveSpotShadowSize)
+                m_Impl->spotShadowMaps[spotShadowIndex].Init(effectiveSpotShadowSize, effectiveSpotShadowSize);
+
+            float fov = glm::radians(std::clamp(spotLights[i].outerConeDeg * 2.0f, 1.0f, 175.0f));
+            glm::mat4 spotProj = glm::perspective(fov, 1.0f, spotNearPlane, spotFarPlane);
+            glm::mat4 spotView = glm::lookAt(spotLights[i].pos, spotLights[i].pos + spotDir, spotUp);
+            glm::mat4 spotLightSpace = spotProj * spotView;
+
+            spotShadowMapIndices[i] = spotShadowIndex;
+            spotLightSpaceMatrices[i] = spotLightSpace;
+
+            m_Impl->spotShadowMaps[spotShadowIndex].BindForWriting();
+
+            lightCuller.Update(spotLightSpace);
+
+            depthShader->Use();
+            MyEngine::Shader* activeSpotDepthShader = depthShader.get();
+
+            for (const auto& entity : scene.GetEntities())
+            {
+                if (!entity || !entity->HasComponent<TransformComponent>() || !entity->HasComponent<MeshComponent>() || !entity->HasComponent<MeshRendererComponent>())
+                    continue;
+
+                auto& meshComponent = entity->GetComponent<MeshComponent>();
+                auto& renderer = entity->GetComponent<MeshRendererComponent>();
+                if (!meshComponent.mesh || !renderer.visible)
+                    continue;
+
+                glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
+                if (entity->HasComponent<BoundingSphereComponent>())
+                {
+                    auto& bs = entity->GetComponent<BoundingSphereComponent>();
+                    glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(bs.center, 1.0f));
+                    glm::vec3 worldScale(
+                        glm::length(glm::vec3(worldMatrix[0])),
+                        glm::length(glm::vec3(worldMatrix[1])),
+                        glm::length(glm::vec3(worldMatrix[2]))
+                    );
+                    float worldRadius = bs.radius * glm::compMax(worldScale);
+                    if (!lightCuller.IsSphereVisible(worldCenter, worldRadius))
+                        continue;
+                }
+
+                bool isAnimated = entity->HasComponent<AnimationComponent>();
+                MyEngine::Shader* shaderToUse = isAnimated ? depthSkinnedShader.get() : depthShader.get();
+                if (shaderToUse != activeSpotDepthShader)
+                {
+                    shaderToUse->Use();
+                    activeSpotDepthShader = shaderToUse;
+                }
+
+                shaderToUse->SetMat4("u_LightSpace", spotLightSpace);
+                shaderToUse->SetMat4("u_Model", worldMatrix);
+
+                if (isAnimated)
+                {
+                    auto& anim = entity->GetComponent<AnimationComponent>();
+                    int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
+                    for (int b = 0; b < boneCount; ++b)
+                        shaderToUse->SetMat4(boneMatrixUniformNames[b], anim.boneMatrices[b]);
+                }
+
+                meshComponent.mesh->Draw();
+            }
+
+            // Terrain casts spot light shadows too
+            for (const auto& entity : scene.GetEntities())
+            {
+                if (!entity || !entity->HasComponent<TransformComponent>() || !entity->HasComponent<TerrainComponent>())
+                    continue;
+
+                auto& terrain = entity->GetComponent<TerrainComponent>();
+                if (!terrain.mesh)
+                    continue;
+
+                if (activeSpotDepthShader != depthShader.get())
+                {
+                    depthShader->Use();
+                    activeSpotDepthShader = depthShader.get();
+                }
+
+                depthShader->SetMat4("u_LightSpace", spotLightSpace);
+                depthShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
+                terrain.mesh->Draw();
+            }
+
+            m_Impl->spotShadowMaps[spotShadowIndex].Unbind();
+            ++spotShadowIndex;
+        }
+
         glViewport(lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3]);
     }
 
@@ -914,6 +1236,8 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
         // Point lights
         activeShader->SetInt("u_NumPointLights", static_cast<int>(pointLights.size()));
+        activeShader->SetInt("u_PointShadowPCFSamples", m_Impl ? m_Impl->pointShadowPCFSamples : 20);
+        activeShader->SetFloat("u_PointShadowPCFRadius", m_Impl ? m_Impl->pointShadowPCFRadius : 0.02f);
         for (size_t i = 0; i < pointLights.size(); ++i)
         {
             activeShader->SetVec3(pointLightPosUniformNames[i], pointLights[i].pos);
@@ -929,6 +1253,15 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             float effectivePointBias = std::max(pointLights[i].shadowBias * biasScale, 0.0001f);
             activeShader->SetFloat(pointLightShadowBiasUniformNames[i], effectivePointBias);
 
+            int effectiveSamples = (pointLights[i].pcfSamplesOverride > 0)
+                ? std::clamp(pointLights[i].pcfSamplesOverride, 1, 20)
+                : (m_Impl ? m_Impl->pointShadowPCFSamples : 20);
+            float effectiveRadius = (pointLights[i].pcfRadiusOverride > 0.0f)
+                ? pointLights[i].pcfRadiusOverride
+                : (m_Impl ? m_Impl->pointShadowPCFRadius : 0.02f);
+            activeShader->SetInt(("u_PointShadowPCFSamplesPerLight[" + std::to_string(i) + "]").c_str(), effectiveSamples);
+            activeShader->SetFloat(("u_PointShadowPCFRadiusPerLight[" + std::to_string(i) + "]").c_str(), effectiveRadius);
+
             int pointShadowUnit = std::max(nextTextureUnit, 1);
             activeShader->SetInt(pointLightShadowMapUniformNames[i], pointShadowUnit);
             if (pointShadowMapIndices[i] >= 0 && m_Impl && m_Impl->pointShadowsEnabled)
@@ -940,6 +1273,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
         // Spot lights
         activeShader->SetInt("u_NumSpotLights", static_cast<int>(spotLights.size()));
+        activeShader->SetFloat("u_SpotShadowPCFRadius", m_Impl ? m_Impl->spotShadowPCFRadius : 1.0f);
         for (size_t i = 0; i < spotLights.size(); ++i)
         {
             activeShader->SetVec3(spotLightPosUniformNames[i], spotLights[i].pos);
@@ -948,6 +1282,23 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             activeShader->SetFloat(spotLightRangeUniformNames[i], spotLights[i].range);
             activeShader->SetFloat(spotLightInnerCosUniformNames[i], spotLights[i].innerCos);
             activeShader->SetFloat(spotLightOuterCosUniformNames[i], spotLights[i].outerCos);
+
+            bool hasSpotShadow = spotShadowMapIndices[i] >= 0 && m_Impl && m_Impl->spotShadowsEnabled;
+            activeShader->SetBool(spotLightCastShadowUniformNames[i], hasSpotShadow);
+            activeShader->SetMat4(spotLightSpaceUniformNames[i], spotLightSpaceMatrices[i]);
+            activeShader->SetFloat(spotShadowBiasUniformNames[i], std::max(spotLights[i].shadowBias, 0.0001f));
+            float effectiveSpotRadius = (spotLights[i].pcfRadiusOverride > 0.0f)
+                ? spotLights[i].pcfRadiusOverride
+                : (m_Impl ? m_Impl->spotShadowPCFRadius : 1.0f);
+            activeShader->SetFloat(("u_SpotShadowPCFRadiusPerLight[" + std::to_string(i) + "]").c_str(), effectiveSpotRadius);
+
+            int spotShadowUnit = std::max(nextTextureUnit, 1);
+            activeShader->SetInt(spotShadowMapUniformNames[i], spotShadowUnit);
+            if (hasSpotShadow)
+            {
+                m_Impl->spotShadowMaps[spotShadowMapIndices[i]].BindForReading(spotShadowUnit);
+            }
+            nextTextureUnit = spotShadowUnit + 1;
         }
 
         // CSM shadow uniforms

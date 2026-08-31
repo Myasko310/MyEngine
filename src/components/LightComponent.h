@@ -31,5 +31,14 @@ namespace MyEngine
 		// Shadow quality
 		float shadowBias = 0.005f;
 		bool castShadows = false;
+
+		// Optional per-light point shadow overrides (0 / negative = use global)
+		int pointShadowSizeOverride = 0;
+		int pointShadowPCFSamplesOverride = 0;
+		float pointShadowPCFRadiusOverride = -1.0f;
+
+		// Optional per-light spot shadow overrides (0 / negative = use global)
+		int spotShadowSizeOverride = 0;
+		float spotShadowPCFRadiusOverride = -1.0f;
 	};
 }

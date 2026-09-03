@@ -29,6 +29,7 @@ namespace MyEngine
 		// Render all live particles as instanced, camera-facing billboards.
 		// view/projection should match the primary camera for this frame.
 		void Render(Scene& scene, const glm::mat4& view, const glm::mat4& projection);
+		void SetDeterministicSeed(unsigned int seed);
 
 	private:
 		struct Impl;

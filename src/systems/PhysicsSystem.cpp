@@ -556,6 +556,42 @@ namespace MyEngine
 			if (parameter.type == AnimationStateMachineParameterType::Trigger && controller.jumpedThisFrame)
 				value.triggerValue = true;
 		});
+
+		// Update Crouch parameter based on input
+		if (MyEngine::Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL))
+		{
+			int crouchIdx = sm.stateMachine->FindParameterIndex("IsCrouching");
+			if (crouchIdx >= 0 && static_cast<size_t>(crouchIdx) < sm.parameterValues.size())
+			{
+				sm.parameterValues[crouchIdx].boolValue = true;
+			}
+		}
+		else
+		{
+			int crouchIdx = sm.stateMachine->FindParameterIndex("IsCrouching");
+			if (crouchIdx >= 0 && static_cast<size_t>(crouchIdx) < sm.parameterValues.size())
+			{
+				sm.parameterValues[crouchIdx].boolValue = false;
+			}
+		}
+
+		// Update Fight parameter based on input
+		if (MyEngine::Input::IsKeyPressed(GLFW_KEY_F))
+		{
+			int fightIdx = sm.stateMachine->FindParameterIndex("IsFighting");
+			if (fightIdx >= 0 && static_cast<size_t>(fightIdx) < sm.parameterValues.size())
+			{
+				sm.parameterValues[fightIdx].boolValue = true;
+			}
+		}
+		else if (MyEngine::Input::IsKeyReleased(GLFW_KEY_F))
+		{
+			int fightIdx = sm.stateMachine->FindParameterIndex("IsFighting");
+			if (fightIdx >= 0 && static_cast<size_t>(fightIdx) < sm.parameterValues.size())
+			{
+				sm.parameterValues[fightIdx].boolValue = false;
+			}
+		}
 	}
 
 	void PhysicsSystem::UpdateCharacterControllers(Scene& scene, float dt)

@@ -201,6 +201,13 @@ namespace MyEngine
 
 	ParticleSystem::~ParticleSystem() = default;
 
+	void ParticleSystem::SetDeterministicSeed(unsigned int seed)
+	{
+		if (!m_Impl)
+			return;
+		m_Impl->rng.seed(seed);
+	}
+
 	void ParticleSystem::Update(Scene& scene, float deltaTime)
 	{
 		for (auto& entityPtr : scene.GetEntities())
@@ -240,22 +247,16 @@ namespace MyEngine
 				p.position  += p.velocity * deltaTime;
 			}
 
-			// --- Spawn new particles ---
-			if (emitter.emitting)
+			auto spawnParticles = [&](int toSpawn)
 			{
-				emitter.spawnAccum += emitter.spawnRate * deltaTime;
-				int toSpawn = static_cast<int>(emitter.spawnAccum);
-				emitter.spawnAccum -= static_cast<float>(toSpawn);
-
 				for (int i = 0; i < toSpawn; ++i)
 				{
-					// Find a dead slot
 					Particle* slot = nullptr;
 					for (auto& p : emitter.particles)
 					{
 						if (!p.alive) { slot = &p; break; }
 					}
-					if (!slot) break; // pool full
+					if (!slot) break;
 
 					slot->alive      = true;
 					slot->age        = 0.0f;
@@ -281,6 +282,21 @@ namespace MyEngine
 											 emitter.emitSpeedVariance);
 					slot->velocity = dir * speed;
 				}
+			};
+
+			// --- Spawn new particles ---
+			if (emitter.emitting)
+			{
+				emitter.spawnAccum += emitter.spawnRate * deltaTime;
+				int toSpawn = static_cast<int>(emitter.spawnAccum);
+				emitter.spawnAccum -= static_cast<float>(toSpawn);
+				spawnParticles(toSpawn);
+			}
+
+			if (emitter.burstRequestCount > 0)
+			{
+				spawnParticles(emitter.burstRequestCount);
+				emitter.burstRequestCount = 0;
 			}
 		}
 	}

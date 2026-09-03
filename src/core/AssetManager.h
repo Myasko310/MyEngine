@@ -45,6 +45,18 @@ namespace MyEngine
 		// external animation clips to an existing animated entity.
 		static std::shared_ptr<std::vector<AnimationClip>> LoadAnimationClips(const std::string& path);
 
+		// Retarget an animation clip from one skeleton to another using
+		// name-based mapping heuristics and bind-pose scale normalization.
+		static bool RetargetAnimationClip(
+			const AnimationClip& sourceClip,
+			const std::shared_ptr<Skeleton>& sourceSkeleton,
+			const std::shared_ptr<Skeleton>& targetSkeleton,
+			AnimationClip& outRetargetedClip);
+		static std::shared_ptr<std::vector<AnimationClip>> RetargetAnimationClips(
+			const std::shared_ptr<std::vector<AnimationClip>>& sourceClips,
+			const std::shared_ptr<Skeleton>& sourceSkeleton,
+			const std::shared_ptr<Skeleton>& targetSkeleton);
+
 		// Returns true if a clip has enough track overlap with the given skeleton
 		// to be considered compatible for import/runtime playback.
 		static bool IsAnimationClipCompatible(const AnimationClip& clip, const std::shared_ptr<Skeleton>& skeleton, float minimumTrackMatchRatio = 0.35f);
@@ -52,11 +64,26 @@ namespace MyEngine
 		// Counts how many tracks in the clip resolve to bones on the skeleton.
 		static int CountMatchingAnimationTracks(const AnimationClip& clip, const std::shared_ptr<Skeleton>& skeleton);
 
+		enum class TextureStreamingQuality
+		{
+			FullResolution = 0,
+			HalfResolution = 1,
+			QuarterResolution = 2
+		};
+
 		// Load texture (cached)
 		static std::shared_ptr<Texture> LoadTexture(const std::string& path, bool generateMipmaps = true);
+		static void SetTextureStreamingQuality(TextureStreamingQuality quality);
+		static TextureStreamingQuality GetTextureStreamingQuality();
+		static void SetTextureStreamingEnabled(bool enabled);
+		static bool GetTextureStreamingEnabled();
 
 		// Load/create a shader from vertex+fragment paths (cached by combined path)
 		static std::shared_ptr<Shader> LoadShader(const std::string& vertexPath, const std::string& fragmentPath);
+		static bool ReloadAllShaders(bool onlyDirty = false);
+		static bool SetShaderAutoHotReloadEnabled(bool enabled);
+		static bool GetShaderAutoHotReloadEnabled();
+		static std::vector<std::string> GetShaderErrorReport();
 
 		// Load a material asset (cached by path)
 		static std::shared_ptr<Material> LoadMaterial(const std::string& path);
@@ -105,7 +132,10 @@ namespace MyEngine
 		static std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> s_ModelCache;
 		static std::unordered_map<std::string, SkinnedModelData> s_SkinnedModelCache;
 		static std::unordered_map<std::string, std::shared_ptr<Texture>> s_TextureCache;
+		static bool s_TextureStreamingEnabled;
+		static TextureStreamingQuality s_TextureStreamingQuality;
 		static std::unordered_map<std::string, std::shared_ptr<Shader>> s_ShaderCache;
+		static bool s_ShaderAutoHotReloadEnabled;
 		static std::unordered_map<std::string, std::shared_ptr<Material>> s_MaterialCache;
 		static std::unordered_map<std::string, std::shared_ptr<AudioClip>> s_AudioClipCache;
 	};

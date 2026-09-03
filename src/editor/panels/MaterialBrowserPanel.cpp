@@ -293,6 +293,66 @@ namespace MyEngine::Editor::Panels
 			}
 
 			ImGui::Separator();
+			if (ImGui::CollapsingHeader("Material Instance", ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				EditorUndo::MaterialSnapshot beforeInstanceSnapshot = EditorUndo::MaterialEditCommand::Capture(mat);
+				bool instanceEdited = false;
+				instanceEdited |= ImGui::Checkbox("Use Base Material##matBase", &mat.useBaseMaterial);
+				if (mat.useBaseMaterial)
+				{
+					if (mat.baseMaterialPath.empty())
+						mat.baseMaterialPath = ui.materialBrowserPath;
+					ImGui::TextWrapped("Base: %s", mat.baseMaterialPath.empty() ? "<none>" : mat.baseMaterialPath.c_str());
+					if (ImGui::Button("Pick Base Material##matBasePick"))
+					{
+						std::string p = MyEngine::FileDialog::OpenMaterialFile();
+						if (!p.empty() && p != ui.selectedMaterialPath)
+						{
+							mat.baseMaterialPath = p;
+							mat.baseMaterial = MyEngine::AssetManager::LoadMaterial(p);
+							instanceEdited = true;
+						}
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Clear Base##matBaseClear"))
+					{
+						mat.baseMaterialPath.clear();
+						mat.baseMaterial = nullptr;
+						instanceEdited = true;
+					}
+
+					instanceEdited |= ImGui::Checkbox("Override Shader##matOvShader", &mat.overrideShader);
+					instanceEdited |= ImGui::Checkbox("Override Surface##matOvSurface", &mat.overrideSurface);
+					instanceEdited |= ImGui::Checkbox("Override Textures##matOvTextures", &mat.overrideTextures);
+					instanceEdited |= ImGui::Checkbox("Override PBR##matOvPbr", &mat.overridePBR);
+					instanceEdited |= ImGui::Checkbox("Override Render Flags##matOvFlags", &mat.overrideRenderFlags);
+				}
+				if (instanceEdited && ImGui::IsItemDeactivatedAfterEdit())
+					pushMaterialUndo(beforeInstanceSnapshot);
+			}
+
+			if (mat.useBaseMaterial)
+			{
+				ImGui::TextDisabled("Resolved Shader: %s / %s",
+					mat.GetResolvedShader() ? mat.GetResolvedShader()->GetVertexPath().c_str() : "<none>",
+					mat.GetResolvedShader() ? mat.GetResolvedShader()->GetFragmentPath().c_str() : "<none>");
+				const glm::vec3 resolvedAlbedo = mat.GetResolvedAlbedo();
+				ImGui::TextDisabled("Resolved Surface: Albedo(%.2f, %.2f, %.2f)  Shininess %.1f",
+					resolvedAlbedo.x, resolvedAlbedo.y, resolvedAlbedo.z, mat.GetResolvedShininess());
+				ImGui::TextDisabled("Resolved PBR: Use=%s  Metallic=%.2f  Roughness=%.2f  AO=%.2f",
+					mat.GetResolvedUsePBR() ? "yes" : "no",
+					mat.GetResolvedMetallic(),
+					mat.GetResolvedRoughness(),
+					mat.GetResolvedAOStrength());
+				ImGui::TextDisabled("Resolved Render Flags: Blend=%d  Cull=%d  DepthW=%s  DepthT=%s  Queue=%d",
+					static_cast<int>(mat.GetResolvedBlendMode()),
+					static_cast<int>(mat.GetResolvedCullMode()),
+					mat.GetResolvedDepthWrite() ? "on" : "off",
+					mat.GetResolvedDepthTest() ? "on" : "off",
+					mat.GetResolvedRenderQueue());
+				ImGui::Separator();
+			}
+
 			if (ImGui::CollapsingHeader("Shader", ImGuiTreeNodeFlags_DefaultOpen))
 			{
 				static char vertBuf[256];
@@ -336,6 +396,15 @@ namespace MyEngine::Editor::Panels
 					fragBuf[sizeof(fragBuf) - 1] = '\0';
 				}
 				ImGui::TextDisabled("Loaded: %s", mat.shader ? "yes" : "no");
+				if (mat.useBaseMaterial && ImGui::Button("Revert Shader To Base##matRevertShader"))
+				{
+					EditorUndo::MaterialSnapshot beforeSnapshot = EditorUndo::MaterialEditCommand::Capture(mat);
+					mat.overrideShader = false;
+					mat.shader = nullptr;
+					mat.shaderVertexPath.clear();
+					mat.shaderFragmentPath.clear();
+					pushMaterialUndo(beforeSnapshot);
+				}
 			}
 
 			if (ImGui::CollapsingHeader("Surface", ImGuiTreeNodeFlags_DefaultOpen))
@@ -408,6 +477,11 @@ namespace MyEngine::Editor::Panels
 						catch (...) {}
 					}
 				}
+				if (mat.useBaseMaterial && ImGui::Button("Revert Surface To Base##matRevertSurface"))
+				{
+					mat.overrideSurface = false;
+					surfaceEdited = true;
+				}
 				if (surfaceEdited && ImGui::IsItemDeactivatedAfterEdit())
 					pushMaterialUndo(beforeSurfaceSnapshot);
 			}
@@ -475,6 +549,11 @@ namespace MyEngine::Editor::Panels
 					pbrEdited |= texPicker2("AO Map##matAO", mat.aoMap);
 					pbrEdited |= texPicker2("Emissive Map##matEmissive", mat.emissiveMap);
 				}
+				if (mat.useBaseMaterial && ImGui::Button("Revert PBR To Base##matRevertPBR"))
+				{
+					mat.overridePBR = false;
+					pbrEdited = true;
+				}
 				if (pbrEdited && ImGui::IsItemDeactivatedAfterEdit())
 					pushMaterialUndo(beforePbrSnapshot);
 			}
@@ -505,6 +584,11 @@ namespace MyEngine::Editor::Panels
 				renderEdited |= ImGui::DragInt("Render Queue##matRQ", &mat.renderQueue, 1.0f, 0, 5000);
 				ImGui::SameLine();
 				ImGui::TextDisabled("(Opaque~2000, Transparent~3000)");
+				if (mat.useBaseMaterial && ImGui::Button("Revert Render Flags To Base##matRevertFlags"))
+				{
+					mat.overrideRenderFlags = false;
+					renderEdited = true;
+				}
 				if (renderEdited && ImGui::IsItemDeactivatedAfterEdit())
 					pushMaterialUndo(beforeRenderSnapshot);
 			}

@@ -284,6 +284,30 @@ namespace MyEngine
 					writer.Key("playbackSpeed"); writer.Double(ac.playbackSpeed);
 					writer.Key("playing"); writer.Bool(ac.playing);
 					writer.Key("looping"); writer.Bool(ac.looping);
+					writer.Key("events");
+					writer.StartArray();
+					for (const auto& evt : ac.events)
+					{
+						writer.StartObject();
+						writer.Key("timeSeconds"); writer.Double(evt.timeSeconds);
+						writer.Key("name"); writer.String(evt.name.c_str());
+						writer.Key("enabled"); writer.Bool(evt.enabled);
+						writer.Key("triggerAudio"); writer.Bool(evt.triggerAudio);
+						writer.Key("audioClipPath"); writer.String(evt.audioClipPath.c_str());
+						writer.Key("audioVolume"); writer.Double(evt.audioVolume);
+						writer.Key("audioPitch"); writer.Double(evt.audioPitch);
+						writer.Key("triggerParticleBurst"); writer.Bool(evt.triggerParticleBurst);
+						writer.Key("particleBurstCount"); writer.Int(evt.particleBurstCount);
+						writer.Key("triggerScriptCallback"); writer.Bool(evt.triggerScriptCallback);
+						writer.Key("scriptCallbackName"); writer.String(evt.scriptCallbackName.c_str());
+						writer.EndObject();
+					}
+					writer.EndArray();
+					writer.Key("importedAnimationFiles");
+					writer.StartArray();
+					for (const auto& filePath : ac.importedAnimationFilePaths)
+						writer.String(filePath.c_str());
+					writer.EndArray();
 					writer.EndObject();
 				}
 
@@ -320,6 +344,18 @@ namespace MyEngine
 					writer.StartObject();
 					writer.Key("sourcePrefabPath"); writer.String(prefab.sourcePrefabPath.c_str());
 					writer.Key("sourceEntityID"); writer.Uint(prefab.sourceEntityID);
+					writer.Key("isVariantInstance"); writer.Bool(prefab.isVariantInstance);
+					writer.Key("variantBasePrefabPath"); writer.String(prefab.variantBasePrefabPath.c_str());
+					writer.Key("variantBaseEntityID"); writer.Uint(prefab.variantBaseEntityID);
+					writer.Key("overrideName"); writer.Bool(prefab.overrideName);
+					writer.Key("overrideTag"); writer.Bool(prefab.overrideTag);
+					writer.Key("overrideLayer"); writer.Bool(prefab.overrideLayer);
+					writer.Key("overrideTransform"); writer.Bool(prefab.overrideTransform);
+					writer.Key("overrideMeshRenderer"); writer.Bool(prefab.overrideMeshRenderer);
+					writer.Key("overrideLight"); writer.Bool(prefab.overrideLight);
+					writer.Key("overrideRigidbody"); writer.Bool(prefab.overrideRigidbody);
+					writer.Key("overrideScript"); writer.Bool(prefab.overrideScript);
+					writer.Key("overrideAnimation"); writer.Bool(prefab.overrideAnimation);
 					writer.EndObject();
 				}
 
@@ -496,6 +532,8 @@ namespace MyEngine
 					writer.Key("spatial"); writer.Bool(as.spatial);
 					writer.Key("minDistance"); writer.Double(as.minDistance);
 					writer.Key("maxDistance"); writer.Double(as.maxDistance);
+					writer.Key("busName"); writer.String(as.busName.c_str());
+					writer.Key("eventName"); writer.String(as.eventName.c_str());
 					writer.EndObject();
 				}
 
@@ -995,20 +1033,118 @@ namespace MyEngine
 						ent->AddComponent<SkeletonComponent>();
 				}
 
-				// AnimationComponent playback state: only meaningful if the
-				// skinned-model reload above (MeshComponent.isSkinned) already
-				// attached a SkeletonComponent/AnimationComponent with the
-				// clips/skeleton restored; this just overlays saved playback
-				// state (current clip/time/speed/flags) onto it.
-				if (v.HasMember("AnimationComponent") && v["AnimationComponent"].IsObject() && ent->HasComponent<AnimationComponent>())
+				// AnimationComponent playback state. If the entity did not get an
+				// animation component from skinned-model reload, create one so
+				// serialized event tracks/playback flags still roundtrip.
+				if (v.HasMember("AnimationComponent") && v["AnimationComponent"].IsObject())
 				{
-					auto& ac = ent->GetComponent<AnimationComponent>();
+					auto& ac = ent->HasComponent<AnimationComponent>()
+						? ent->GetComponent<AnimationComponent>()
+						: ent->AddComponent<AnimationComponent>();
 					const auto& aco = v["AnimationComponent"];
 					if (aco.HasMember("activeClipIndex")) ac.activeClipIndex = aco["activeClipIndex"].GetInt();
 					if (aco.HasMember("time")) ac.time = static_cast<float>(aco["time"].GetDouble());
 					if (aco.HasMember("playbackSpeed")) ac.playbackSpeed = static_cast<float>(aco["playbackSpeed"].GetDouble());
 					if (aco.HasMember("playing")) ac.playing = aco["playing"].GetBool();
 					if (aco.HasMember("looping")) ac.looping = aco["looping"].GetBool();
+					if (aco.HasMember("events") && aco["events"].IsArray())
+					{
+						ac.events.clear();
+						for (const auto& evtValue : aco["events"].GetArray())
+						{
+							if (!evtValue.IsObject())
+								continue;
+							AnimationComponent::AnimationEvent evt;
+							if (evtValue.HasMember("timeSeconds") && evtValue["timeSeconds"].IsNumber())
+								evt.timeSeconds = static_cast<float>(evtValue["timeSeconds"].GetDouble());
+							if (evtValue.HasMember("name") && evtValue["name"].IsString())
+								evt.name = evtValue["name"].GetString();
+							if (evtValue.HasMember("enabled") && evtValue["enabled"].IsBool())
+								evt.enabled = evtValue["enabled"].GetBool();
+							if (evtValue.HasMember("triggerAudio") && evtValue["triggerAudio"].IsBool())
+								evt.triggerAudio = evtValue["triggerAudio"].GetBool();
+							if (evtValue.HasMember("audioClipPath") && evtValue["audioClipPath"].IsString())
+								evt.audioClipPath = evtValue["audioClipPath"].GetString();
+							if (evtValue.HasMember("audioVolume") && evtValue["audioVolume"].IsNumber())
+								evt.audioVolume = static_cast<float>(evtValue["audioVolume"].GetDouble());
+							if (evtValue.HasMember("audioPitch") && evtValue["audioPitch"].IsNumber())
+								evt.audioPitch = static_cast<float>(evtValue["audioPitch"].GetDouble());
+							if (evtValue.HasMember("triggerParticleBurst") && evtValue["triggerParticleBurst"].IsBool())
+								evt.triggerParticleBurst = evtValue["triggerParticleBurst"].GetBool();
+							if (evtValue.HasMember("particleBurstCount") && evtValue["particleBurstCount"].IsInt())
+								evt.particleBurstCount = evtValue["particleBurstCount"].GetInt();
+							if (evtValue.HasMember("triggerScriptCallback") && evtValue["triggerScriptCallback"].IsBool())
+								evt.triggerScriptCallback = evtValue["triggerScriptCallback"].GetBool();
+							if (evtValue.HasMember("scriptCallbackName") && evtValue["scriptCallbackName"].IsString())
+								evt.scriptCallbackName = evtValue["scriptCallbackName"].GetString();
+							ac.events.push_back(std::move(evt));
+						}
+					}
+
+					ac.importedAnimationFilePaths.clear();
+					if (aco.HasMember("importedAnimationFiles") && aco["importedAnimationFiles"].IsArray())
+					{
+						for (const auto& fileValue : aco["importedAnimationFiles"].GetArray())
+						{
+							if (!fileValue.IsString())
+								continue;
+							ac.importedAnimationFilePaths.push_back(fileValue.GetString());
+						}
+					}
+
+					std::shared_ptr<MyEngine::Skeleton> skeleton;
+					if (ent->HasComponent<SkeletonComponent>())
+						skeleton = ent->GetComponent<SkeletonComponent>().skeleton;
+
+					if (!ac.importedAnimationFilePaths.empty())
+					{
+						if (!ac.clips)
+							ac.clips = std::make_shared<std::vector<MyEngine::AnimationClip>>();
+
+						for (const auto& importedPath : ac.importedAnimationFilePaths)
+						{
+							auto externalClips = MyEngine::AssetManager::LoadAnimationClips(importedPath);
+							if (!externalClips || externalClips->empty())
+								continue;
+
+							std::filesystem::path sourcePath(importedPath);
+							std::string sourceStem = sourcePath.stem().string();
+
+							for (const auto& clip : *externalClips)
+							{
+								if (skeleton && !MyEngine::AssetManager::IsAnimationClipCompatible(clip, skeleton))
+									continue;
+
+								MyEngine::AnimationClip importedClip = clip;
+								std::string baseName = importedClip.name.empty() ? sourceStem : importedClip.name;
+								importedClip.name = baseName;
+
+								bool duplicateName = false;
+								for (const auto& existingClip : *ac.clips)
+								{
+									if (existingClip.name == importedClip.name)
+									{
+										duplicateName = true;
+										break;
+									}
+								}
+								if (duplicateName)
+									importedClip.name += " [" + sourceStem + "]";
+
+								ac.clips->push_back(std::move(importedClip));
+							}
+						}
+					}
+
+					if (ac.clips && !ac.clips->empty())
+					{
+						ac.activeClipIndex = std::clamp(ac.activeClipIndex, 0, static_cast<int>(ac.clips->size()) - 1);
+					}
+					else
+					{
+						ac.activeClipIndex = 0;
+						ac.time = 0.0f;
+					}
 				}
 
 				if (v.HasMember("AnimationStateMachineComponent") && v["AnimationStateMachineComponent"].IsObject())
@@ -1061,6 +1197,30 @@ namespace MyEngine
 						prefab.sourcePrefabPath = po["sourcePrefabPath"].GetString();
 					if (po.HasMember("sourceEntityID") && po["sourceEntityID"].IsUint())
 						prefab.sourceEntityID = po["sourceEntityID"].GetUint();
+					if (po.HasMember("isVariantInstance") && po["isVariantInstance"].IsBool())
+						prefab.isVariantInstance = po["isVariantInstance"].GetBool();
+					if (po.HasMember("variantBasePrefabPath") && po["variantBasePrefabPath"].IsString())
+						prefab.variantBasePrefabPath = po["variantBasePrefabPath"].GetString();
+					if (po.HasMember("variantBaseEntityID") && po["variantBaseEntityID"].IsUint())
+						prefab.variantBaseEntityID = po["variantBaseEntityID"].GetUint();
+					if (po.HasMember("overrideName") && po["overrideName"].IsBool())
+						prefab.overrideName = po["overrideName"].GetBool();
+					if (po.HasMember("overrideTag") && po["overrideTag"].IsBool())
+						prefab.overrideTag = po["overrideTag"].GetBool();
+					if (po.HasMember("overrideLayer") && po["overrideLayer"].IsBool())
+						prefab.overrideLayer = po["overrideLayer"].GetBool();
+					if (po.HasMember("overrideTransform") && po["overrideTransform"].IsBool())
+						prefab.overrideTransform = po["overrideTransform"].GetBool();
+					if (po.HasMember("overrideMeshRenderer") && po["overrideMeshRenderer"].IsBool())
+						prefab.overrideMeshRenderer = po["overrideMeshRenderer"].GetBool();
+					if (po.HasMember("overrideLight") && po["overrideLight"].IsBool())
+						prefab.overrideLight = po["overrideLight"].GetBool();
+					if (po.HasMember("overrideRigidbody") && po["overrideRigidbody"].IsBool())
+						prefab.overrideRigidbody = po["overrideRigidbody"].GetBool();
+					if (po.HasMember("overrideScript") && po["overrideScript"].IsBool())
+						prefab.overrideScript = po["overrideScript"].GetBool();
+					if (po.HasMember("overrideAnimation") && po["overrideAnimation"].IsBool())
+						prefab.overrideAnimation = po["overrideAnimation"].GetBool();
 				}
 
 				// NavigationAgentComponent
@@ -1205,6 +1365,8 @@ namespace MyEngine
 					if (ao.HasMember("spatial")) as.spatial = ao["spatial"].GetBool();
 					if (ao.HasMember("minDistance")) as.minDistance = static_cast<float>(ao["minDistance"].GetDouble());
 					if (ao.HasMember("maxDistance")) as.maxDistance = static_cast<float>(ao["maxDistance"].GetDouble());
+					if (ao.HasMember("busName") && ao["busName"].IsString()) as.busName = ao["busName"].GetString();
+					if (ao.HasMember("eventName") && ao["eventName"].IsString()) as.eventName = ao["eventName"].GetString();
 				}
 
 				// Particle Emitter
@@ -1402,10 +1564,130 @@ namespace MyEngine
 									}
 								}
 
-								return SaveScene(prefabScene, path);
-							}
+									return SaveScene(prefabScene, path);
+								}
 
-							::Entity* SpawnPrefab(
+								bool SavePrefabVariant(
+									const ::Scene& sourceScene,
+									::Entity* rootEntity,
+									const std::string& variantPath,
+									const std::string& basePrefabPath,
+									std::uint32_t baseEntityID
+								)
+								{
+									if (!rootEntity || variantPath.empty() || basePrefabPath.empty() || baseEntityID == 0)
+										return false;
+
+									if (!SavePrefab(sourceScene, rootEntity, variantPath))
+										return false;
+
+									::Scene variantScene;
+									if (!LoadScene(variantScene, variantPath, nullptr))
+										return false;
+
+									auto root = variantScene.GetEntityByID(rootEntity->GetID());
+									if (!root)
+									{
+										auto& entities = variantScene.GetEntities();
+										if (entities.empty() || !entities.front())
+											return false;
+										root = entities.front().get();
+									}
+
+									auto& prefabMeta = root->HasComponent<PrefabInstanceComponent>()
+										? root->GetComponent<PrefabInstanceComponent>()
+										: root->AddComponent<PrefabInstanceComponent>();
+									prefabMeta.sourcePrefabPath = basePrefabPath;
+									prefabMeta.sourceEntityID = baseEntityID;
+									prefabMeta.isVariantInstance = true;
+									prefabMeta.variantBasePrefabPath = basePrefabPath;
+									prefabMeta.variantBaseEntityID = baseEntityID;
+									prefabMeta.overrideName = false;
+									prefabMeta.overrideTag = false;
+									prefabMeta.overrideLayer = false;
+									prefabMeta.overrideTransform = false;
+									prefabMeta.overrideMeshRenderer = false;
+									prefabMeta.overrideLight = false;
+									prefabMeta.overrideRigidbody = false;
+									prefabMeta.overrideScript = false;
+									prefabMeta.overrideAnimation = false;
+
+									::Scene baseScene;
+									if (LoadScene(baseScene, basePrefabPath, nullptr))
+									{
+										auto baseRoot = baseScene.GetEntityByID(baseEntityID);
+										if (baseRoot)
+										{
+											auto nearlyEqual = [](float a, float b) { return std::fabs(a - b) < 0.0001f; };
+											auto vec3Equal = [&](const glm::vec3& a, const glm::vec3& b)
+											{
+												return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
+											};
+
+											prefabMeta.overrideName = (root->GetName() != baseRoot->GetName());
+											prefabMeta.overrideTag = (root->GetTag() != baseRoot->GetTag());
+											prefabMeta.overrideLayer = (root->GetLayer() != baseRoot->GetLayer());
+
+											if (root->HasComponent<TransformComponent>() != baseRoot->HasComponent<TransformComponent>())
+												prefabMeta.overrideTransform = true;
+											else if (root->HasComponent<TransformComponent>())
+											{
+												const auto& a = root->GetComponent<TransformComponent>();
+												const auto& b = baseRoot->GetComponent<TransformComponent>();
+												prefabMeta.overrideTransform = !vec3Equal(a.position, b.position) || !vec3Equal(a.rotation, b.rotation) || !vec3Equal(a.scale, b.scale);
+											}
+
+											if (root->HasComponent<MeshRendererComponent>() != baseRoot->HasComponent<MeshRendererComponent>())
+												prefabMeta.overrideMeshRenderer = true;
+											else if (root->HasComponent<MeshRendererComponent>())
+											{
+												const auto& a = root->GetComponent<MeshRendererComponent>();
+												const auto& b = baseRoot->GetComponent<MeshRendererComponent>();
+												prefabMeta.overrideMeshRenderer = (a.visible != b.visible) || (a.materialPath != b.materialPath) || (a.useTexture != b.useTexture) || (a.usePBR != b.usePBR);
+											}
+
+											if (root->HasComponent<LightComponent>() != baseRoot->HasComponent<LightComponent>())
+												prefabMeta.overrideLight = true;
+											else if (root->HasComponent<LightComponent>())
+											{
+												const auto& a = root->GetComponent<LightComponent>();
+												const auto& b = baseRoot->GetComponent<LightComponent>();
+												prefabMeta.overrideLight = (a.type != b.type) || !vec3Equal(a.color, b.color) || !vec3Equal(a.direction, b.direction) || !vec3Equal(a.position, b.position) || !nearlyEqual(a.intensity, b.intensity) || !nearlyEqual(a.range, b.range) || (a.castShadows != b.castShadows);
+											}
+
+											if (root->HasComponent<RigidbodyComponent>() != baseRoot->HasComponent<RigidbodyComponent>())
+												prefabMeta.overrideRigidbody = true;
+											else if (root->HasComponent<RigidbodyComponent>())
+											{
+												const auto& a = root->GetComponent<RigidbodyComponent>();
+												const auto& b = baseRoot->GetComponent<RigidbodyComponent>();
+												prefabMeta.overrideRigidbody = !vec3Equal(a.velocity, b.velocity) || !vec3Equal(a.acceleration, b.acceleration) || !nearlyEqual(a.mass, b.mass) || (a.isKinematic != b.isKinematic);
+											}
+
+											if (root->HasComponent<ScriptComponent>() != baseRoot->HasComponent<ScriptComponent>())
+												prefabMeta.overrideScript = true;
+											else if (root->HasComponent<ScriptComponent>())
+											{
+												const auto& a = root->GetComponent<ScriptComponent>();
+												const auto& b = baseRoot->GetComponent<ScriptComponent>();
+												prefabMeta.overrideScript = (a.scriptPath != b.scriptPath) || (a.enabled != b.enabled) || (a.autoStart != b.autoStart);
+											}
+
+											if (root->HasComponent<AnimationComponent>() != baseRoot->HasComponent<AnimationComponent>())
+												prefabMeta.overrideAnimation = true;
+											else if (root->HasComponent<AnimationComponent>())
+											{
+												const auto& a = root->GetComponent<AnimationComponent>();
+												const auto& b = baseRoot->GetComponent<AnimationComponent>();
+												prefabMeta.overrideAnimation = (a.activeClipIndex != b.activeClipIndex) || !nearlyEqual(a.time, b.time) || !nearlyEqual(a.playbackSpeed, b.playbackSpeed) || (a.playing != b.playing) || (a.looping != b.looping);
+											}
+										}
+									}
+
+									return SaveScene(variantScene, variantPath);
+								}
+
+								::Entity* SpawnPrefab(
 								::Scene& scene,
 								const std::string& path,
 								const std::shared_ptr<MyEngine::Shader>& defaultShader
@@ -1461,10 +1743,35 @@ namespace MyEngine
 										spawned->SetLayer(source->GetLayer());
 
 										auto& prefabInstance = spawned->AddComponent<PrefabInstanceComponent>();
-										prefabInstance.sourcePrefabPath = path;
-										prefabInstance.sourceEntityID = source->GetID();
+											prefabInstance.sourcePrefabPath = path;
+											prefabInstance.sourceEntityID = source->GetID();
+											if (source->HasComponent<PrefabInstanceComponent>())
+											{
+												const auto& sourcePrefabMeta = source->GetComponent<PrefabInstanceComponent>();
+												prefabInstance.isVariantInstance = sourcePrefabMeta.isVariantInstance ||
+													(!sourcePrefabMeta.sourcePrefabPath.empty() && sourcePrefabMeta.sourceEntityID != 0);
+												if (sourcePrefabMeta.isVariantInstance)
+												{
+															prefabInstance.variantBasePrefabPath = sourcePrefabMeta.variantBasePrefabPath;
+															prefabInstance.variantBaseEntityID = sourcePrefabMeta.variantBaseEntityID;
+															prefabInstance.overrideName = sourcePrefabMeta.overrideName;
+															prefabInstance.overrideTag = sourcePrefabMeta.overrideTag;
+															prefabInstance.overrideLayer = sourcePrefabMeta.overrideLayer;
+															prefabInstance.overrideTransform = sourcePrefabMeta.overrideTransform;
+															prefabInstance.overrideMeshRenderer = sourcePrefabMeta.overrideMeshRenderer;
+															prefabInstance.overrideLight = sourcePrefabMeta.overrideLight;
+															prefabInstance.overrideRigidbody = sourcePrefabMeta.overrideRigidbody;
+															prefabInstance.overrideScript = sourcePrefabMeta.overrideScript;
+															prefabInstance.overrideAnimation = sourcePrefabMeta.overrideAnimation;
+														}
+														else
+														{
+															prefabInstance.variantBasePrefabPath = sourcePrefabMeta.sourcePrefabPath;
+															prefabInstance.variantBaseEntityID = sourcePrefabMeta.sourceEntityID;
+														}
+													}
 
-									#define COPY_COMPONENT(T) \
+										#define COPY_COMPONENT(T) \
 									if (source->HasComponent<T>()) spawned->AddComponent<T>() = source->GetComponent<T>()
 									COPY_COMPONENT(TransformComponent);
 									COPY_COMPONENT(CameraComponent);

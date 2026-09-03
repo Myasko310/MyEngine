@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 
 #include <glm/glm.hpp>
@@ -24,6 +25,11 @@ namespace MyEngine
         void Unbind() const;
 
         unsigned int GetID() const;
+        bool ReloadFromDisk();
+        bool TryHotReloadFromDisk();
+        const std::string& GetLastError() const;
+        static void SetAutoHotReloadEnabled(bool enabled);
+        static bool GetAutoHotReloadEnabled();
 
         void SetBool(const std::string& name, bool value) const;
         void SetInt(const std::string& name, int value) const;
@@ -38,6 +44,7 @@ namespace MyEngine
         void SetVec4(const std::string& name, const glm::vec4& value) const;
 
         void SetMat4(const std::string& name, const glm::mat4& mat) const;
+        void SetMat4Array(const std::string& name, const glm::mat4* values, int count) const;
 
         const std::string& GetVertexPath() const { return m_VertexPath; }
         const std::string& GetGeometryPath() const { return m_GeometryPath; }
@@ -48,10 +55,19 @@ namespace MyEngine
         std::string m_VertexPath;
         std::string m_GeometryPath;
         std::string m_FragmentPath;
+        std::string m_LastError;
+        std::filesystem::file_time_type m_VertexWriteTime{};
+        std::filesystem::file_time_type m_GeometryWriteTime{};
+        std::filesystem::file_time_type m_FragmentWriteTime{};
 
     private:
-        std::string LoadFile(const std::string& path) const;
-        unsigned int CompileShader(unsigned int type, const std::string& src) const;
-        void CheckProgramLink(unsigned int program) const;
+        bool LoadFileAndTimestamp(const std::string& path, std::string& outSource, std::filesystem::file_time_type& outWriteTime);
+        std::string LoadFile(const std::string& path);
+        unsigned int CompileShader(unsigned int type, const std::string& src);
+        bool CheckProgramLink(unsigned int program);
+        bool ShouldHotReload() const;
+
+    private:
+        static bool s_AutoHotReloadEnabled;
     };
 }

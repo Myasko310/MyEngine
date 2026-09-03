@@ -33,9 +33,14 @@ namespace MyEngine
 		void ScanAssets(const std::string& rootPath);
 		bool QueueImport(const std::string& assetPath);
 		int ClearQueuedImports();
+		bool SaveDependencyCache(const std::string& cachePath) const;
+		bool LoadDependencyCache(const std::string& cachePath);
+		bool InvalidateAssetMetadata(const std::string& assetPath);
 
 		std::vector<AssetMetadata> GetMetadataSnapshot() const;
 		std::vector<std::string> GetRecentEvents() const;
+		std::vector<std::string> GetDependentsForAsset(const std::string& assetPath) const;
+		int QueueReimportDependents(const std::string& assetPath);
 
 		int GetPendingJobCount() const;
 		int GetCompletedJobCount() const;
@@ -67,6 +72,8 @@ namespace MyEngine
 		std::unordered_map<std::string, bool> m_QueuedOrInFlight;
 
 		std::thread m_Worker;
+		std::string m_LastScannedRootPath;
+		std::unordered_map<std::string, std::int64_t> m_LastObservedWriteTicks;
 		std::atomic<bool> m_Running{ false };
 		std::atomic<int> m_PendingCount{ 0 };
 		std::atomic<int> m_CompletedCount{ 0 };

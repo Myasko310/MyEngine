@@ -5,6 +5,8 @@
 #include <commdlg.h>
 #endif
 
+#include <vector>
+
 namespace MyEngine
 {
 	namespace FileDialog
@@ -140,6 +142,45 @@ namespace MyEngine
 			return std::string();
 		}
 
+		std::vector<std::string> OpenModelFiles()
+		{
+			char buffer[32768] = "";
+
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "3D Model Files (*.obj;*.fbx;*.gltf;*.glb;*.dae)\0*.obj;*.fbx;*.gltf;*.glb;*.dae\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = buffer;
+			ofn.nMaxFile = sizeof(buffer);
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+
+			if (!GetOpenFileNameA(&ofn))
+				return {};
+
+			std::vector<std::string> selectedFiles;
+			const char* cursor = buffer;
+			std::string first = cursor;
+			if (first.empty())
+				return selectedFiles;
+
+			cursor += first.size() + 1;
+			if (*cursor == '\0')
+			{
+				selectedFiles.push_back(first);
+				return selectedFiles;
+			}
+
+			std::string directory = first;
+			while (*cursor != '\0')
+			{
+				std::string fileName = cursor;
+				selectedFiles.push_back(directory + "\\" + fileName);
+				cursor += fileName.size() + 1;
+			}
+
+			return selectedFiles;
+		}
+
 		std::string OpenPrefabFile()
 		{
 			char fileName[MAX_PATH] = "";
@@ -235,6 +276,11 @@ namespace MyEngine
 		std::string OpenModelFile()
 		{
 			return std::string();
+		}
+
+		std::vector<std::string> OpenModelFiles()
+		{
+			return {};
 		}
 
 		std::string OpenPrefabFile()

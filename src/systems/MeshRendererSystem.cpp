@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <numeric>
@@ -38,7 +39,14 @@ MeshRendererSystem::MeshRendererSystem()
 {
 }
 
-MeshRendererSystem::~MeshRendererSystem() = default;
+MeshRendererSystem::~MeshRendererSystem()
+{
+    if (m_Impl && m_Impl->skinningPaletteUBO != 0)
+    {
+        glDeleteBuffers(1, &m_Impl->skinningPaletteUBO);
+        m_Impl->skinningPaletteUBO = 0;
+    }
+}
 
 void MeshRendererSystem::SetShadowsEnabled(bool enabled)
 {
@@ -197,6 +205,50 @@ bool MeshRendererSystem::GetWireframe() const
     return m_Impl ? m_Impl->wireframe : false;
 }
 
+void MeshRendererSystem::SetOcclusionApproximationEnabled(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->occlusionApproximationEnabled = enabled;
+}
+
+bool MeshRendererSystem::GetOcclusionApproximationEnabled() const
+{
+    return m_Impl ? m_Impl->occlusionApproximationEnabled : false;
+}
+
+void MeshRendererSystem::SetGPUOcclusionQueriesEnabled(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->gpuOcclusionQueriesEnabled = enabled;
+}
+
+bool MeshRendererSystem::GetGPUOcclusionQueriesEnabled() const
+{
+    return m_Impl ? m_Impl->gpuOcclusionQueriesEnabled : false;
+}
+
+void MeshRendererSystem::SetDebugViewMode(DebugViewMode mode)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->debugViewMode = mode;
+}
+
+MeshRendererSystem::DebugViewMode MeshRendererSystem::GetDebugViewMode() const
+{
+    return m_Impl ? m_Impl->debugViewMode : DebugViewMode::FinalLit;
+}
+
+void MeshRendererSystem::SetOcclusionQueryRecheckFrames(int frames)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->occlusionQueryRecheckFrames = std::clamp(frames, 1, 60);
+}
+
+int MeshRendererSystem::GetOcclusionQueryRecheckFrames() const
+{
+    return m_Impl ? m_Impl->occlusionQueryRecheckFrames : 6;
+}
+
 unsigned int MeshRendererSystem::GetCascadeTexture(int cascade) const
 {
     if (!m_Impl || cascade < 0 || cascade >= MAX_CASCADES) return 0;
@@ -213,6 +265,16 @@ unsigned int MeshRendererSystem::GetPointShadowTexture(int lightIndex) const
     if (!m_Impl || lightIndex < 0 || lightIndex >= static_cast<int>(m_Impl->pointShadowMaps.size()))
         return 0;
     return m_Impl->pointShadowMaps[lightIndex].GetDepthCubemap();
+}
+
+MeshRendererSystem::ShadowDiagnostics MeshRendererSystem::GetShadowDiagnostics() const
+{
+    return m_Impl ? m_Impl->shadowDiagnostics : ShadowDiagnostics{};
+}
+
+MeshRendererSystem::OcclusionDiagnostics MeshRendererSystem::GetOcclusionDiagnostics() const
+{
+    return m_Impl ? m_Impl->occlusionDiagnostics : OcclusionDiagnostics{};
 }
 
 void MeshRendererSystem::SetNumCascades(int n)
@@ -276,6 +338,17 @@ float MeshRendererSystem::GetSplitLambda() const
     return m_Impl ? m_Impl->splitLambda : 0.99f;
 }
 
+void MeshRendererSystem::SetCascadeBlendFactor(float blend)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->cascadeBlendFactor = std::clamp(blend, 0.0f, 0.45f);
+}
+
+float MeshRendererSystem::GetCascadeBlendFactor() const
+{
+    return m_Impl ? m_Impl->cascadeBlendFactor : 0.15f;
+}
+
 void MeshRendererSystem::InitIBL(unsigned int skyboxCubemap)
 {
     if (!m_Impl) m_Impl = std::make_unique<Impl>();
@@ -334,13 +407,29 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     static std::shared_ptr<MyEngine::Shader> depthSkinnedShader = nullptr;
     static std::shared_ptr<MyEngine::Shader> pointDepthShader = nullptr;
     static MyEngine::IBLProbe                s_IBLProbe;
-    static const std::array<std::string, MAX_ANIMATION_BONES> boneMatrixUniformNames = []()
+    auto uploadSkinningPalette = [&](MyEngine::Shader* shader, const AnimationComponent& anim)
     {
-        std::array<std::string, MAX_ANIMATION_BONES> names{};
-        for (int i = 0; i < MAX_ANIMATION_BONES; ++i)
-            names[i] = "u_BoneMatrices[" + std::to_string(i) + "]";
-        return names;
-    }();
+        if (!shader)
+            return;
+
+        const int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
+        if (boneCount <= 0)
+            return;
+
+        GLuint blockIndex = glGetUniformBlockIndex(shader->GetID(), "BoneMatricesBlock");
+        if (blockIndex != GL_INVALID_INDEX && m_Impl && m_Impl->skinningPaletteUBO != 0)
+        {
+            glUniformBlockBinding(shader->GetID(), blockIndex, m_Impl->skinningPaletteBindingPoint);
+            glBindBuffer(GL_UNIFORM_BUFFER, m_Impl->skinningPaletteUBO);
+            glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(glm::mat4) * static_cast<size_t>(boneCount), anim.boneMatrices.data());
+            glBindBufferBase(GL_UNIFORM_BUFFER, m_Impl->skinningPaletteBindingPoint, m_Impl->skinningPaletteUBO);
+            glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        }
+        else
+        {
+            shader->SetMat4Array("u_BoneMatrices[0]", anim.boneMatrices.data(), boneCount);
+        }
+    };
     static const std::array<std::string, 6> pointShadowMatrixUniformNames = []()
     {
         std::array<std::string, 6> names{};
@@ -371,6 +460,16 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             pointShadowMap.Init(m_Impl->pointShadowSize);
         for (auto& spotShadowMap : m_Impl->spotShadowMaps)
             spotShadowMap.Init(m_Impl->spotShadowSize, m_Impl->spotShadowSize);
+
+        if (m_Impl->skinningPaletteUBO == 0)
+        {
+            glGenBuffers(1, &m_Impl->skinningPaletteUBO);
+            glBindBuffer(GL_UNIFORM_BUFFER, m_Impl->skinningPaletteUBO);
+            glBufferData(GL_UNIFORM_BUFFER, sizeof(glm::mat4) * MAX_ANIMATION_BONES, nullptr, GL_DYNAMIC_DRAW);
+            glBindBufferBase(GL_UNIFORM_BUFFER, m_Impl->skinningPaletteBindingPoint, m_Impl->skinningPaletteUBO);
+            glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        }
+
         initialized = true;
     }
 
@@ -458,6 +557,9 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     };
     static const std::array<std::string, MAX_CASCADES> cascadeShadowMapUniformNames = {
         "u_CascadeShadowMap[0]", "u_CascadeShadowMap[1]", "u_CascadeShadowMap[2]", "u_CascadeShadowMap[3]"
+    };
+    static const std::array<std::string, MAX_CASCADES> cascadeBlendStartUniformNames = {
+        "u_CascadeBlendStart[0]", "u_CascadeBlendStart[1]", "u_CascadeBlendStart[2]", "u_CascadeBlendStart[3]"
     };
 
     struct PointLightData { glm::vec3 pos; glm::vec3 color; float range; float shadowBias; bool castShadows; int shadowSizeOverride; int pcfSamplesOverride; float pcfRadiusOverride; };
@@ -672,7 +774,14 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         }
     }
 
+    if (m_Impl)
+    {
+        m_Impl->shadowDiagnostics = ShadowDiagnostics{};
+        m_Impl->occlusionDiagnostics = OcclusionDiagnostics{};
+    }
+
     // 1) CSM: Render a depth pass for each cascade from the light's perspective
+    auto directionalShadowStart = std::chrono::high_resolution_clock::now();
     if (m_Impl && m_Impl->shadowsEnabled && foundDirectional && directionalCastShadows)
     {
         glDisable(GL_CULL_FACE);
@@ -735,12 +844,12 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 if (isAnimated)
                 {
                     auto& anim = entity->GetComponent<AnimationComponent>();
-                    int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
-                    for (int b = 0; b < boneCount; ++b)
-                        shaderToUse->SetMat4(boneMatrixUniformNames[b], anim.boneMatrices[b]);
+                    uploadSkinningPalette(shaderToUse, anim);
                 }
 
                 meshComponent.mesh->Draw();
+                if (m_Impl)
+                    ++m_Impl->shadowDiagnostics.directionalCasters;
             }
 
             // Terrain casts shadows too (uses the static depth shader)
@@ -762,6 +871,8 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 depthShader->SetMat4("u_LightSpace", cascadeLightSpaceMatrices[ci]);
                 depthShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
                 terrain.mesh->Draw();
+                if (m_Impl)
+                    ++m_Impl->shadowDiagnostics.directionalCasters;
             }
 
             m_Impl->cascadeMaps[ci].Unbind();
@@ -769,8 +880,14 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
         glViewport(lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3]);
     }
+    if (m_Impl)
+    {
+        auto directionalShadowEnd = std::chrono::high_resolution_clock::now();
+        m_Impl->shadowDiagnostics.directionalMs = std::chrono::duration<float, std::milli>(directionalShadowEnd - directionalShadowStart).count();
+    }
 
     // 2) Render point light depth cubemaps (for point lights that cast shadows)
+    auto pointShadowStart = std::chrono::high_resolution_clock::now();
     if (m_Impl && m_Impl->pointShadowsEnabled)
     {
         constexpr float pointNearPlane = 0.1f;
@@ -840,6 +957,8 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
                 pointDepthShader->SetMat4("u_Model", worldMatrix);
                 meshComponent.mesh->Draw();
+                if (m_Impl)
+                    ++m_Impl->shadowDiagnostics.pointCasters;
             }
 
             // Terrain casts point light shadows too
@@ -854,17 +973,27 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
                 pointDepthShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
                 terrain.mesh->Draw();
+                if (m_Impl)
+                    ++m_Impl->shadowDiagnostics.pointCasters;
             }
 
             m_Impl->pointShadowMaps[pointShadowIndex].Unbind();
+            if (m_Impl)
+                ++m_Impl->shadowDiagnostics.shadowedPointLights;
             ++pointShadowIndex;
         }
 
         // Restore the previous viewport (window size) after point shadow passes.
         glViewport(lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3]);
     }
+    if (m_Impl)
+    {
+        auto pointShadowEnd = std::chrono::high_resolution_clock::now();
+        m_Impl->shadowDiagnostics.pointMs = std::chrono::duration<float, std::milli>(pointShadowEnd - pointShadowStart).count();
+    }
 
     // 2b) Render spot light shadow maps (2D depth map per shadow-casting spot)
+    auto spotShadowStart = std::chrono::high_resolution_clock::now();
     if (m_Impl && m_Impl->spotShadowsEnabled)
     {
         constexpr float spotNearPlane = 0.1f;
@@ -960,12 +1089,12 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 if (isAnimated)
                 {
                     auto& anim = entity->GetComponent<AnimationComponent>();
-                    int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
-                    for (int b = 0; b < boneCount; ++b)
-                        shaderToUse->SetMat4(boneMatrixUniformNames[b], anim.boneMatrices[b]);
+                    uploadSkinningPalette(shaderToUse, anim);
                 }
 
                 meshComponent.mesh->Draw();
+                if (m_Impl)
+                    ++m_Impl->shadowDiagnostics.spotCasters;
             }
 
             // Terrain casts spot light shadows too
@@ -987,13 +1116,22 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 depthShader->SetMat4("u_LightSpace", spotLightSpace);
                 depthShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
                 terrain.mesh->Draw();
+                if (m_Impl)
+                    ++m_Impl->shadowDiagnostics.spotCasters;
             }
 
             m_Impl->spotShadowMaps[spotShadowIndex].Unbind();
+            if (m_Impl)
+                ++m_Impl->shadowDiagnostics.shadowedSpotLights;
             ++spotShadowIndex;
         }
 
         glViewport(lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3]);
+    }
+    if (m_Impl)
+    {
+        auto spotShadowEnd = std::chrono::high_resolution_clock::now();
+        m_Impl->shadowDiagnostics.spotMs = std::chrono::duration<float, std::milli>(spotShadowEnd - spotShadowStart).count();
     }
 
     // Restore the caller's framebuffer binding (may be an offscreen HDR
@@ -1043,17 +1181,126 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             if (a->HasComponent<MeshRendererComponent>())
             {
                 const auto& ra = a->GetComponent<MeshRendererComponent>();
-                if (ra.material) qa = ra.material->renderQueue;
+                if (ra.material) qa = ra.material->GetResolvedRenderQueue();
             }
             if (b->HasComponent<MeshRendererComponent>())
             {
                 const auto& rb = b->GetComponent<MeshRendererComponent>();
-                if (rb.material) qb = rb.material->renderQueue;
+                if (rb.material) qb = rb.material->GetResolvedRenderQueue();
             }
             return qa < qb;
         });
 
-    for (const auto& entity : sortedEntities)
+    std::vector<std::shared_ptr<Entity>> occlusionVisibleEntities;
+    if (m_Impl)
+    {
+        occlusionVisibleEntities.reserve(sortedEntities.size());
+        for (const auto& entity : sortedEntities)
+        {
+            ++m_Impl->occlusionDiagnostics.totalCandidates;
+            const uint32_t entityID = entity->GetID();
+            auto& occlusionMeshComponent = entity->GetComponent<MeshComponent>();
+            if (!occlusionMeshComponent.mesh)
+                continue;
+
+            if (!entity->HasComponent<TransformComponent>() || !entity->HasComponent<BoundingSphereComponent>())
+            {
+                occlusionVisibleEntities.push_back(entity);
+                ++m_Impl->occlusionDiagnostics.visible;
+                continue;
+            }
+
+            const auto& tc = entity->GetComponent<TransformComponent>();
+            const auto& bs = entity->GetComponent<BoundingSphereComponent>();
+            float dist = glm::length(viewPos - tc.position);
+            float radius = std::max(bs.radius, 0.001f);
+            bool frustumVisible = cameraCuller.IsSphereVisible(tc.position + bs.center, radius);
+            if (!frustumVisible)
+            {
+                ++m_Impl->occlusionDiagnostics.frustumRejected;
+                m_Impl->occlusionLastVisible[entityID] = false;
+                m_Impl->occlusionVisibilityFrames[entityID] = 0;
+                continue;
+            }
+
+            if (m_Impl->gpuOcclusionQueriesEnabled)
+            {
+                const int recheckFrames = std::max(1, m_Impl->occlusionQueryRecheckFrames);
+                bool lastVisible = true;
+                auto lastIt = m_Impl->occlusionLastVisible.find(entityID);
+                if (lastIt != m_Impl->occlusionLastVisible.end())
+                    lastVisible = lastIt->second;
+
+                int framesSinceQuery = recheckFrames;
+                auto framesIt = m_Impl->occlusionVisibilityFrames.find(entityID);
+                if (framesIt != m_Impl->occlusionVisibilityFrames.end())
+                    framesSinceQuery = framesIt->second;
+
+                bool runQuery = lastVisible || framesSinceQuery >= recheckFrames;
+                if (runQuery)
+                {
+                    GLuint queryId = 0;
+                    glGenQueries(1, &queryId);
+                    glDepthMask(GL_FALSE);
+                    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                    glBeginQuery(GL_ANY_SAMPLES_PASSED, queryId);
+                    occlusionMeshComponent.mesh->Draw();
+                    glEndQuery(GL_ANY_SAMPLES_PASSED);
+                    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                    glDepthMask(GL_TRUE);
+
+                    GLuint anySamplesPassed = 1;
+                    glGetQueryObjectuiv(queryId, GL_QUERY_RESULT, &anySamplesPassed);
+                    glDeleteQueries(1, &queryId);
+
+                    ++m_Impl->occlusionDiagnostics.querySubmitted;
+                    const bool visibleByQuery = anySamplesPassed != 0;
+                    if (visibleByQuery)
+                        ++m_Impl->occlusionDiagnostics.queryVisible;
+                    else
+                        ++m_Impl->occlusionDiagnostics.queryHidden;
+
+                    m_Impl->occlusionLastVisible[entityID] = visibleByQuery;
+                    m_Impl->occlusionVisibilityFrames[entityID] = 0;
+
+                    if (!visibleByQuery)
+                    {
+                        ++m_Impl->occlusionDiagnostics.occlusionRejected;
+                        continue;
+                    }
+                }
+                else
+                {
+                    ++m_Impl->occlusionDiagnostics.temporalRejected;
+                    m_Impl->occlusionVisibilityFrames[entityID] = framesSinceQuery + 1;
+                    continue;
+                }
+            }
+            else if (m_Impl->occlusionApproximationEnabled)
+            {
+                // Approximate hierarchical occlusion: aggressively reject tiny distant bounds.
+                float projectedSize = radius / std::max(dist, 0.001f);
+                if (projectedSize < 0.005f)
+                {
+                    ++m_Impl->occlusionDiagnostics.occlusionRejected;
+                    m_Impl->occlusionLastVisible[entityID] = false;
+                    m_Impl->occlusionVisibilityFrames[entityID] = 0;
+                    continue;
+                }
+            }
+
+            m_Impl->occlusionLastVisible[entityID] = true;
+            m_Impl->occlusionVisibilityFrames[entityID] = std::min(m_Impl->occlusionVisibilityFrames[entityID] + 1, 1000000);
+            occlusionVisibleEntities.push_back(entity);
+            ++m_Impl->occlusionDiagnostics.visible;
+        }
+    }
+    else
+    {
+        occlusionVisibleEntities = sortedEntities;
+    }
+
+    for (const auto& entity : occlusionVisibleEntities)
     {
         auto& meshComponent = entity->GetComponent<MeshComponent>();
         auto& renderer = entity->GetComponent<MeshRendererComponent>();
@@ -1094,10 +1341,10 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         const bool isAnimated = entity->HasComponent<AnimationComponent>();
 
         std::shared_ptr<MyEngine::Shader> activeShader = renderer.shader;
-        if (!isAnimated && activeMaterial && activeMaterial->shader)
-            activeShader = activeMaterial->shader;
-        if (!activeShader && activeMaterial && activeMaterial->shader)
-            activeShader = activeMaterial->shader;
+        if (!isAnimated && activeMaterial && activeMaterial->GetResolvedShader())
+            activeShader = activeMaterial->GetResolvedShader();
+        if (!activeShader && activeMaterial && activeMaterial->GetResolvedShader())
+            activeShader = activeMaterial->GetResolvedShader();
 
         if (isAnimated && activeShader)
         {
@@ -1115,20 +1362,20 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         if (!activeShader)
             continue;
 
-        const glm::vec3& materialAlbedo = activeMaterial ? activeMaterial->albedo : renderer.albedo;
-        float materialShininess = activeMaterial ? activeMaterial->shininess : renderer.shininess;
-        bool useTexture = activeMaterial ? activeMaterial->useTexture : renderer.useTexture;
-        const auto& baseTexture = activeMaterial ? activeMaterial->texture : renderer.texture;
-        bool usePBR = activeMaterial ? activeMaterial->usePBR : renderer.usePBR;
-        float metallic = activeMaterial ? activeMaterial->metallic : renderer.metallic;
-        float roughness = activeMaterial ? activeMaterial->roughness : renderer.roughness;
-        float aoStrength = activeMaterial ? activeMaterial->aoStrength : renderer.aoStrength;
-        const glm::vec3& emissive = activeMaterial ? activeMaterial->emissive : renderer.emissive;
-        const auto& albedoMap = activeMaterial ? activeMaterial->albedoMap : renderer.albedoMap;
-        const auto& normalMap = activeMaterial ? activeMaterial->normalMap : renderer.normalMap;
-        const auto& metallicRoughnessMap = activeMaterial ? activeMaterial->metallicRoughnessMap : renderer.metallicRoughnessMap;
-        const auto& aoMap = activeMaterial ? activeMaterial->aoMap : renderer.aoMap;
-        const auto& emissiveMap = activeMaterial ? activeMaterial->emissiveMap : renderer.emissiveMap;
+        const glm::vec3 materialAlbedo = activeMaterial ? activeMaterial->GetResolvedAlbedo() : renderer.albedo;
+        float materialShininess = activeMaterial ? activeMaterial->GetResolvedShininess() : renderer.shininess;
+        bool useTexture = activeMaterial ? activeMaterial->GetResolvedUseTexture() : renderer.useTexture;
+        const auto baseTexture = activeMaterial ? activeMaterial->GetResolvedTexture() : renderer.texture;
+        bool usePBR = activeMaterial ? activeMaterial->GetResolvedUsePBR() : renderer.usePBR;
+        float metallic = activeMaterial ? activeMaterial->GetResolvedMetallic() : renderer.metallic;
+        float roughness = activeMaterial ? activeMaterial->GetResolvedRoughness() : renderer.roughness;
+        float aoStrength = activeMaterial ? activeMaterial->GetResolvedAOStrength() : renderer.aoStrength;
+        const glm::vec3 emissive = activeMaterial ? activeMaterial->GetResolvedEmissive() : renderer.emissive;
+        const auto albedoMap = activeMaterial ? activeMaterial->GetResolvedAlbedoMap() : renderer.albedoMap;
+        const auto normalMap = activeMaterial ? activeMaterial->GetResolvedNormalMap() : renderer.normalMap;
+        const auto metallicRoughnessMap = activeMaterial ? activeMaterial->GetResolvedMetallicRoughnessMap() : renderer.metallicRoughnessMap;
+        const auto aoMap = activeMaterial ? activeMaterial->GetResolvedAOMap() : renderer.aoMap;
+        const auto emissiveMap = activeMaterial ? activeMaterial->GetResolvedEmissiveMap() : renderer.emissiveMap;
 
         activeShader->Use();
 
@@ -1142,11 +1389,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         if (entity->HasComponent<AnimationComponent>())
         {
             auto& anim = entity->GetComponent<AnimationComponent>();
-            int boneCount = std::min(static_cast<int>(anim.boneMatrices.size()), MAX_ANIMATION_BONES);
-            for (int b = 0; b < boneCount; ++b)
-            {
-                activeShader->SetMat4(boneMatrixUniformNames[b], anim.boneMatrices[b]);
-            }
+            uploadSkinningPalette(activeShader.get(), anim);
         }
 
         // Material uniforms
@@ -1304,6 +1547,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         // CSM shadow uniforms
         activeShader->SetBool("u_DirectionalShadowsEnabled", m_Impl && m_Impl->shadowsEnabled && foundDirectional && directionalCastShadows);
         activeShader->SetInt("u_NumCascades", numCascades);
+        activeShader->SetFloat("u_CascadeBlendFactor", m_Impl ? m_Impl->cascadeBlendFactor : 0.15f);
         if (m_Impl && m_Impl->shadowsEnabled)
         {
             activeShader->SetFloat("u_ShadowBias", m_Impl->shadowBias);
@@ -1311,6 +1555,11 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             {
                 activeShader->SetMat4(cascadeLightSpaceUniformNames[ci], cascadeLightSpaceMatrices[ci]);
                 activeShader->SetFloat(cascadeSplitFarUniformNames[ci], cascadeSplitFar[ci]);
+
+                float prevSplit = (ci == 0) ? camNear : cascadeSplitFar[ci - 1];                float range = std::max(cascadeSplitFar[ci] - prevSplit, 0.001f);
+                float blendStart = cascadeSplitFar[ci] - (range * std::clamp(m_Impl->cascadeBlendFactor, 0.0f, 0.45f));
+                activeShader->SetFloat(cascadeBlendStartUniformNames[ci], blendStart);
+
                 int shadowUnit = nextTextureUnit + ci;
                 m_Impl->cascadeMaps[ci].BindForReading(shadowUnit);
                 activeShader->SetInt(cascadeShadowMapUniformNames[ci], shadowUnit);
@@ -1330,10 +1579,23 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             glBindTexture(GL_TEXTURE_2D, m_Impl->ssaoPass.GetOcclusionTexture());
             activeShader->SetInt("u_SSAOTexture", ssaoUnit);
         }
+
+        int debugViewMode = static_cast<int>(m_Impl ? m_Impl->debugViewMode : DebugViewMode::FinalLit);
+        activeShader->SetInt("u_DebugViewMode", debugViewMode);
+
+        MyEngine::BlendMode activeBlendMode = MyEngine::BlendMode::Opaque;
+        MyEngine::CullMode activeCullMode = MyEngine::CullMode::Back;
+        bool activeDepthWrite = true;
+        bool activeDepthTest = true;
         if (activeMaterial)
         {
+            activeBlendMode = activeMaterial->GetResolvedBlendMode();
+            activeCullMode = activeMaterial->GetResolvedCullMode();
+            activeDepthWrite = activeMaterial->GetResolvedDepthWrite();
+            activeDepthTest = activeMaterial->GetResolvedDepthTest();
+
             // Blend mode
-            switch (activeMaterial->blendMode)
+            switch (activeBlendMode)
             {
             case MyEngine::BlendMode::AlphaBlend:
                 glEnable(GL_BLEND);
@@ -1350,7 +1612,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             // Cull mode (only override when NOT in wireframe, which already disables culling)
             if (!wireframe)
             {
-                switch (activeMaterial->cullMode)
+                switch (activeCullMode)
                 {
                 case MyEngine::CullMode::Off:
                     glDisable(GL_CULL_FACE);
@@ -1366,8 +1628,8 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 }
             }
             // Depth write / test
-            glDepthMask(activeMaterial->depthWrite ? GL_TRUE : GL_FALSE);
-            if (activeMaterial->depthTest)
+            glDepthMask(activeDepthWrite ? GL_TRUE : GL_FALSE);
+            if (activeDepthTest)
                 glEnable(GL_DEPTH_TEST);
             else
                 glDisable(GL_DEPTH_TEST);
@@ -1378,18 +1640,18 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         // Restore default GL render state changed by per-material flags
         if (activeMaterial)
         {
-            if (activeMaterial->blendMode != MyEngine::BlendMode::Opaque)
+            if (activeBlendMode != MyEngine::BlendMode::Opaque)
             {
                 glDisable(GL_BLEND);
             }
-            if (activeMaterial->cullMode != MyEngine::CullMode::Back)
+            if (activeCullMode != MyEngine::CullMode::Back)
             {
                 glEnable(GL_CULL_FACE);
                 glCullFace(GL_BACK);
             }
-            if (!activeMaterial->depthWrite)
+            if (!activeDepthWrite)
                 glDepthMask(GL_TRUE);
-            if (!activeMaterial->depthTest)
+            if (!activeDepthTest)
                 glEnable(GL_DEPTH_TEST);
         }
     }

@@ -25,6 +25,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(MYENGINE_ENABLE_DX12_BACKEND "Enable DirectX 12 backend bootstrap build" ON)
+option(MYENGINE_ENABLE_RENDERDOC "Enable RenderDoc runtime capture hooks" ON)
+
 # ============================================================
 # Required Packages
 # ============================================================
@@ -129,10 +132,17 @@ set(SOURCES
     src/systems/TerrainSystem.cpp
     src/systems/NavMeshSystem.cpp
     src/renderer/FrustumCuller.cpp
+    src/renderer/RenderBackend.cpp
+    src/renderer/RenderCommandList.cpp
+    src/renderer/RenderCommandValidator.cpp
+    src/renderer/OpenGLRenderCommandExecutor.cpp
+    src/renderer/OpenGLRenderPlatform.cpp
+    src/renderer/RenderPlatformFactory.cpp
     src/core/Input.cpp
     src/core/InputActions.cpp
     src/core/AssetManager.cpp
     src/core/AssetPipeline.cpp
+    src/core/AnimationEventBus.cpp
     src/core/Raycast.cpp
     src/core/FileDialog.cpp
     src/core/LayerMask.cpp
@@ -162,6 +172,17 @@ set(SOURCES
         src/serialization/SceneSerializer.cpp
     )
 
+if(MYENGINE_ENABLE_DX12_BACKEND AND WIN32)
+    list(APPEND SOURCES
+        src/renderer/DirectX12RenderPlatform.cpp
+        src/renderer/DirectX12RenderCommandExecutor.cpp
+    )
+endif()
+
+if(MYENGINE_ENABLE_RENDERDOC)
+    list(APPEND SOURCES src/renderer/RenderDocCapture.cpp)
+endif()
+
 # Add bundled ImGui backend implementations (glfw + opengl3) so builds
 # using vcpkg's imgui (which may not install backends) can compile the
 # platform/renderer bindings we need. These files live under src/vendor/imgui/backends
@@ -182,6 +203,14 @@ set_source_files_properties(
 # Create Executable
 # ============================================================
 add_executable(MyEngine ${SOURCES})
+
+if(MYENGINE_ENABLE_RENDERDOC)
+    target_compile_definitions(MyEngine PRIVATE MYENGINE_ENABLE_RENDERDOC=1)
+endif()
+
+if(MYENGINE_ENABLE_DX12_BACKEND)
+    target_compile_definitions(MyEngine PRIVATE MYENGINE_ENABLE_DX12_BACKEND=1)
+endif()
 
 # Ensure the built executable outputs to the build directory per-config so
 # Visual Studio/debugger runs the same binary that CMake produces and so
@@ -282,6 +311,9 @@ endif()
 
 if(WIN32)
     target_link_libraries(MyEngine PRIVATE comdlg32)
+    if(MYENGINE_ENABLE_DX12_BACKEND)
+        target_link_libraries(MyEngine PRIVATE d3d12 dxgi dxguid d3dcompiler)
+    endif()
 endif()
 
 if(NOT LUA_FOUND)
@@ -427,6 +459,9 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
 
     if(WIN32)
         target_link_libraries(MyEngineSmokeTests PRIVATE comdlg32)
+        if(MYENGINE_ENABLE_DX12_BACKEND)
+            target_link_libraries(MyEngineSmokeTests PRIVATE d3d12 dxgi dxguid d3dcompiler)
+        endif()
     endif()
 
     if(TARGET imguizmo::imguizmo)
@@ -469,7 +504,7 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
         GLM_ENABLE_EXPERIMENTAL
     )
 
-    add_test(NAME MyEngineSmokeTests COMMAND MyEngineSmokeTests)
+    add_test(NAME MyEngineSmokeTests COMMAND $<TARGET_FILE:MyEngineSmokeTests>)
 endif()
 
 # ============================================================

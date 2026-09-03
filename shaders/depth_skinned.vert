@@ -11,7 +11,10 @@ uniform mat4 u_Model;
 uniform mat4 u_LightSpace;
 
 const int MAX_BONES = 100;
-uniform mat4 u_BoneMatrices[MAX_BONES];
+layout(std140) uniform BoneMatricesBlock
+{
+	mat4 u_BoneMatrices[MAX_BONES];
+};
 
 void main()
 {

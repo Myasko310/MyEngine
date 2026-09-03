@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace MyEngine
 {
@@ -35,6 +36,10 @@ namespace MyEngine
 		// Opens a native "Open File" dialog filtered to common 3D model formats.
 		// Returns the selected file path, or an empty string if cancelled.
 		std::string OpenModelFile();
+
+		// Opens a native multi-select "Open File" dialog filtered to common 3D
+		// model formats. Returns all selected file paths (empty if cancelled).
+		std::vector<std::string> OpenModelFiles();
 
 		// Opens a native "Open File" dialog filtered to *.prefab.json files.
 		std::string OpenPrefabFile();

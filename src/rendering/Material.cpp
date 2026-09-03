@@ -52,6 +52,21 @@ namespace MyEngine
 
 		writer.StartObject();
 
+		writer.Key("useBaseMaterial");
+		writer.Bool(useBaseMaterial);
+		writer.Key("baseMaterialPath");
+		writer.String(baseMaterialPath.c_str());
+		writer.Key("overrideShader");
+		writer.Bool(overrideShader);
+		writer.Key("overrideSurface");
+		writer.Bool(overrideSurface);
+		writer.Key("overrideTextures");
+		writer.Bool(overrideTextures);
+		writer.Key("overridePBR");
+		writer.Bool(overridePBR);
+		writer.Key("overrideRenderFlags");
+		writer.Bool(overrideRenderFlags);
+
 		writer.Key("shaderVertexPath");
 		writer.String(shaderVertexPath.c_str());
 		writer.Key("shaderFragmentPath");
@@ -111,6 +126,21 @@ namespace MyEngine
 
 		m_Path = path;
 
+		if (doc.HasMember("useBaseMaterial") && doc["useBaseMaterial"].IsBool())
+			useBaseMaterial = doc["useBaseMaterial"].GetBool();
+		if (doc.HasMember("baseMaterialPath") && doc["baseMaterialPath"].IsString())
+			baseMaterialPath = doc["baseMaterialPath"].GetString();
+		if (doc.HasMember("overrideShader") && doc["overrideShader"].IsBool())
+			overrideShader = doc["overrideShader"].GetBool();
+		if (doc.HasMember("overrideSurface") && doc["overrideSurface"].IsBool())
+			overrideSurface = doc["overrideSurface"].GetBool();
+		if (doc.HasMember("overrideTextures") && doc["overrideTextures"].IsBool())
+			overrideTextures = doc["overrideTextures"].GetBool();
+		if (doc.HasMember("overridePBR") && doc["overridePBR"].IsBool())
+			overridePBR = doc["overridePBR"].GetBool();
+		if (doc.HasMember("overrideRenderFlags") && doc["overrideRenderFlags"].IsBool())
+			overrideRenderFlags = doc["overrideRenderFlags"].GetBool();
+
 		if (doc.HasMember("shaderVertexPath") && doc["shaderVertexPath"].IsString())
 			shaderVertexPath = doc["shaderVertexPath"].GetString();
 		if (doc.HasMember("shaderFragmentPath") && doc["shaderFragmentPath"].IsString())
@@ -118,6 +148,8 @@ namespace MyEngine
 
 		if (!shaderVertexPath.empty() && !shaderFragmentPath.empty())
 			shader = AssetManager::LoadShader(shaderVertexPath, shaderFragmentPath);
+		if (useBaseMaterial && !baseMaterialPath.empty())
+			baseMaterial = AssetManager::LoadMaterial(baseMaterialPath);
 
 		if (doc.HasMember("albedo"))
 			albedo = ReadVec3(doc["albedo"], albedo);
@@ -161,5 +193,174 @@ namespace MyEngine
 			renderQueue = doc["renderQueue"].GetInt();
 
 		return true;
+	}
+
+	const Material* Material::GetBaseMaterialResolved() const
+	{
+		if (!useBaseMaterial || !baseMaterial)
+			return nullptr;
+		if (baseMaterial.get() == this)
+			return nullptr;
+		return baseMaterial.get();
+	}
+
+	std::shared_ptr<Shader> Material::GetResolvedShader() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if ((!overrideShader || !shader) && base)
+			return base->GetResolvedShader();
+		return shader;
+	}
+
+	glm::vec3 Material::GetResolvedAlbedo() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overrideSurface && base)
+			return base->GetResolvedAlbedo();
+		return albedo;
+	}
+
+	float Material::GetResolvedShininess() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overrideSurface && base)
+			return base->GetResolvedShininess();
+		return shininess;
+	}
+
+	std::shared_ptr<Texture> Material::GetResolvedTexture() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if ((!overrideTextures || !texture) && base)
+			return base->GetResolvedTexture();
+		return texture;
+	}
+
+	bool Material::GetResolvedUseTexture() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overrideTextures && base)
+			return base->GetResolvedUseTexture();
+		return useTexture;
+	}
+
+	bool Material::GetResolvedUsePBR() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overridePBR && base)
+			return base->GetResolvedUsePBR();
+		return usePBR;
+	}
+
+	float Material::GetResolvedMetallic() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overridePBR && base)
+			return base->GetResolvedMetallic();
+		return metallic;
+	}
+
+	float Material::GetResolvedRoughness() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overridePBR && base)
+			return base->GetResolvedRoughness();
+		return roughness;
+	}
+
+	float Material::GetResolvedAOStrength() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overridePBR && base)
+			return base->GetResolvedAOStrength();
+		return aoStrength;
+	}
+
+	glm::vec3 Material::GetResolvedEmissive() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overridePBR && base)
+			return base->GetResolvedEmissive();
+		return emissive;
+	}
+
+	std::shared_ptr<Texture> Material::GetResolvedAlbedoMap() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if ((!overrideTextures || !albedoMap) && base)
+			return base->GetResolvedAlbedoMap();
+		return albedoMap;
+	}
+
+	std::shared_ptr<Texture> Material::GetResolvedNormalMap() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if ((!overrideTextures || !normalMap) && base)
+			return base->GetResolvedNormalMap();
+		return normalMap;
+	}
+
+	std::shared_ptr<Texture> Material::GetResolvedMetallicRoughnessMap() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if ((!overrideTextures || !metallicRoughnessMap) && base)
+			return base->GetResolvedMetallicRoughnessMap();
+		return metallicRoughnessMap;
+	}
+
+	std::shared_ptr<Texture> Material::GetResolvedAOMap() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if ((!overrideTextures || !aoMap) && base)
+			return base->GetResolvedAOMap();
+		return aoMap;
+	}
+
+	std::shared_ptr<Texture> Material::GetResolvedEmissiveMap() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if ((!overrideTextures || !emissiveMap) && base)
+			return base->GetResolvedEmissiveMap();
+		return emissiveMap;
+	}
+
+	BlendMode Material::GetResolvedBlendMode() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overrideRenderFlags && base)
+			return base->GetResolvedBlendMode();
+		return blendMode;
+	}
+
+	CullMode Material::GetResolvedCullMode() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overrideRenderFlags && base)
+			return base->GetResolvedCullMode();
+		return cullMode;
+	}
+
+	bool Material::GetResolvedDepthWrite() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overrideRenderFlags && base)
+			return base->GetResolvedDepthWrite();
+		return depthWrite;
+	}
+
+	bool Material::GetResolvedDepthTest() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overrideRenderFlags && base)
+			return base->GetResolvedDepthTest();
+		return depthTest;
+	}
+
+	int Material::GetResolvedRenderQueue() const
+	{
+		const Material* base = GetBaseMaterialResolved();
+		if (!overrideRenderFlags && base)
+			return base->GetResolvedRenderQueue();
+		return renderQueue;
 	}
 }

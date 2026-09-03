@@ -21,6 +21,11 @@ namespace MyEngine
 		// Local bind-pose transform relative to the parent bone, used as a
 		// fallback for any animation track that doesn't touch this bone.
 		glm::mat4 localBindTransform{ 1.0f };
+
+		// Product of skipped non-bone parent node local transforms between this
+		// bone and its parent bone in the source scene graph. This prefix is
+		// applied before sampled animation local transforms.
+		glm::mat4 skippedNodeLocalPrefix{ 1.0f };
 	};
 
 	// Holds the bone hierarchy for a skinned model. Built once at load time

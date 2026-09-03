@@ -42,6 +42,7 @@ namespace MyEngine::Editor::Panels
 
 		namespace fs = std::filesystem;
 		static char assetFilter[64] = "";
+		static std::string selectedAssetPath;
 		auto matchesFilter = [&](const std::string& value)
 		{
 			if (assetFilter[0] == '\0')
@@ -92,6 +93,33 @@ namespace MyEngine::Editor::Panels
 					else if (m.type == "audio") ++audioCount;
 				}
 				ImGui::TextDisabled("Models: %d  Textures: %d  Audio: %d", modelCount, textureCount, audioCount);
+			}
+
+			if (!selectedAssetPath.empty())
+			{
+				ImGui::Separator();
+				ImGui::TextWrapped("Selected Asset: %s", selectedAssetPath.c_str());
+				if (InspectorActionButton("Queue Reimport Selected##assetPipelineReimportSelected"))
+					pipeline.QueueImport(selectedAssetPath);
+				if (InspectorActionButton("Queue Reimport Dependents##assetPipelineReimportDependents"))
+					pipeline.QueueReimportDependents(selectedAssetPath);
+
+				auto selectedMeta = std::find_if(metadata.begin(), metadata.end(),
+					[&](const MyEngine::AssetMetadata& m) { return m.path == selectedAssetPath; });
+				if (selectedMeta != metadata.end())
+				{
+					ImGui::TextDisabled("Type: %s  Dependencies: %d", selectedMeta->type.c_str(), static_cast<int>(selectedMeta->dependencies.size()));
+					for (const auto& dep : selectedMeta->dependencies)
+						ImGui::BulletText("dep: %s", dep.c_str());
+				}
+
+				auto dependents = pipeline.GetDependentsForAsset(selectedAssetPath);
+				if (!dependents.empty())
+				{
+					ImGui::TextDisabled("Dependents: %d", static_cast<int>(dependents.size()));
+					for (const auto& dep : dependents)
+						ImGui::BulletText("uses: %s", dep.c_str());
+				}
 			}
 
 			auto events = pipeline.GetRecentEvents();
@@ -158,7 +186,9 @@ namespace MyEngine::Editor::Panels
 				else if (ext == ".scene" || ext == ".json")
 					labelPrefix = "[Scene] ";
 
-				ImGui::Selectable((labelPrefix + fileName).c_str(), false, ImGuiSelectableFlags_AllowDoubleClick);
+				const bool isSelectedAsset = (selectedAssetPath == filePath);
+				if (ImGui::Selectable((labelPrefix + fileName).c_str(), isSelectedAsset, ImGuiSelectableFlags_AllowDoubleClick))
+					selectedAssetPath = filePath;
 				const bool doubleClicked = ImGui::IsItemHovered() &&
 					ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
 

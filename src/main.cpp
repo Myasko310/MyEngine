@@ -21,6 +21,7 @@
 #include "core/Input.h"
 #include "core/InputActions.h"
 #include "core/FileDialog.h"
+#include "core/AnimationEventBus.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
 #include "ecs/TransformHierarchy.h"
@@ -52,6 +53,7 @@
 #include "components/CollisionEventsComponent.h"
 #include "components/JointComponent.h"
 #include "components/AnimationComponent.h"
+#include "components/ParticleEmitterComponent.h"
 #include "components/AnimationStateMachineComponent.h"
 #include "components/PrefabInstanceComponent.h"
 #include "components/SkeletonComponent.h"
@@ -93,6 +95,12 @@
 #include "systems/ParticleSystem.h"
 #include "components/ParticleEmitterComponent.h"
 #include "core/Raycast.h"
+#include "renderer/RenderBackend.h"
+#include "renderer/RenderCommandList.h"
+#include "renderer/OpenGLRenderCommandExecutor.h"
+#include "renderer/RenderPlatform.h"
+#include "renderer/RenderPlatformFactory.h"
+#include "renderer/RenderDocCapture.h"
 
 using namespace MyEngine;
 #ifdef USE_IMGUI
@@ -102,6 +110,7 @@ using namespace MyEngine::Editor;
 // Tracks the current framebuffer size used for viewport and UI layout.
 static int g_WindowWidth = 3200;
 static int g_WindowHeight = 1800;
+static bool g_UsesOpenGLBackend = true;
 
 // Keeps the cached window size in sync with the active GLFW framebuffer.
 static void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
@@ -109,7 +118,8 @@ static void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
     g_WindowWidth = width;
     g_WindowHeight = height;
 
-    glViewport(0, 0, width, height);
+    if (g_UsesOpenGLBackend)
+        glViewport(0, 0, width, height);
 }
 
 #ifdef USE_IMGUI
@@ -230,7 +240,7 @@ static void APIENTRY OpenGLDebugCallback(
 #ifdef USE_IMGUI
 #endif
 
-int main()
+int main(int argc, char** argv)
 {
     // Runtime diagnostics: print exe path, working dir, PATH, and attempt to LoadLibrary
     // for common DLLs so we can see exactly which dependency is missing at startup.
@@ -275,56 +285,61 @@ int main()
     };
     DumpRuntimeInfo();
 #endif
-    // ------------------------------------------------------------
-    // GLFW init
-    // ------------------------------------------------------------
-    if (!glfwInit())
+
+    const auto backendSelection = RenderBackendSelector::Select(argc, argv);
+    RenderBackendType activeBackend = backendSelection.requested;
+    const auto backendCaps = RenderBackendSelector::GetCapabilities(activeBackend);
+
+    std::cout << "[Renderer] Requested backend: "
+              << RenderBackendSelector::ToString(backendSelection.requested)
+              << (backendSelection.explicitSelection ? " (explicit)" : " (default)")
+              << std::endl;
+
+    if (!backendCaps.supportsOpenGLPipeline)
     {
-        std::cerr << "Failed to initialize GLFW." << std::endl;
+        std::cerr << "[Renderer] Selected backend does not yet support the full OpenGL-era renderer feature set. Running backend-specific path." << std::endl;
+    }
+
+    g_UsesOpenGLBackend = (activeBackend == RenderBackendType::OpenGL);
+
+    auto renderPlatform = CreateRenderPlatform(activeBackend);
+    if (!renderPlatform)
+    {
+        std::cerr << "Failed to create renderer platform." << std::endl;
         return -1;
     }
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-#ifdef _DEBUG
-    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
-#endif
-
-    GLFWwindow* window = glfwCreateWindow(
-        g_WindowWidth,
-        g_WindowHeight,
-        "MyEngine",
-        nullptr,
-        nullptr
-    );
-
-    if (!window)
-    {
-        std::cerr << "Failed to create GLFW window." << std::endl;
-        glfwTerminate();
+    if (!renderPlatform->Initialize(g_WindowWidth, g_WindowHeight, "MyEngine"))
         return -1;
-    }
 
-    glfwMakeContextCurrent(window);
+    GLFWwindow* window = renderPlatform->GetWindow();
     glfwSetFramebufferSizeCallback(window, FramebufferSizeCallback);
 
-    // Enable vsync
-    glfwSwapInterval(1);
-
-
-
-    // ------------------------------------------------------------
-    // GLAD init
-    // ------------------------------------------------------------
-    if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)))
+    if (activeBackend == RenderBackendType::DirectX12)
     {
-        std::cerr << "Failed to initialize GLAD." << std::endl;
-        glfwDestroyWindow(window);
-        glfwTerminate();
-        return -1;
+        Input::Init(window, true);
+        MyEngine::InputActions::RegisterDefaults();
+        MyEngine::InputActions::LoadBindings("bindings.json");
+
+        while (!renderPlatform->ShouldClose())
+        {
+            Input::Update();
+            renderPlatform->PollEvents();
+            if (Input::IsKeyPressed(GLFW_KEY_ESCAPE))
+                glfwSetWindowShouldClose(window, true);
+
+            renderPlatform->Present();
+        }
+
+        Input::Shutdown();
+        renderPlatform->Shutdown();
+        return 0;
     }
+
+#ifdef MYENGINE_ENABLE_RENDERDOC
+    MyEngine::RenderDocCapture renderDocCapture;
+    renderDocCapture.Initialize();
+#endif
 
 #ifdef _DEBUG
     glEnable(GL_DEBUG_OUTPUT);
@@ -345,6 +360,7 @@ int main()
     glFrontFace(GL_CCW);
 
     glClearColor(0.08f, 0.09f, 0.11f, 1.0f);
+    MyEngine::OpenGLRenderCommandExecutor glCommandExecutor;
 
     // ------------------------------------------------------------
     // Input init
@@ -482,31 +498,37 @@ int main()
         "shaders/pbr.frag"
     );
 
-    // Optional animated character demo: if a rigged model is present at this
-    // path, load it with its skeleton/animation clips and spawn it into the
-    // scene using the skinned shader. If the file is missing, the animation
-    // pipeline stays idle (no entity is created) - drop a rigged .fbx/.gltf
-    // file at this path to see it in action.
+    // Optional character demo: try to load as skinned first, and fall back to
+    // static mesh attachment so non-rigged FBX/GLTF files still appear.
     {
         const std::string animatedModelPath = "assets/models/character_animated.gltf";
         MyEngine::SkinnedModelData skinnedData = MyEngine::AssetManager::LoadSkinnedModel(animatedModelPath);
 
-        if (!skinnedData.meshes.empty() && skinnedData.skeleton && skinnedData.skeleton->GetBoneCount() > 0)
+        if (!skinnedData.meshes.empty())
         {
             auto animatedEntity = scene.CreateEntity("AnimatedCharacter");
             auto& animTransform = animatedEntity->AddComponent<TransformComponent>();
-            animTransform.position = glm::vec3(3.0f, 0.0f, 0.0f);
+            animTransform.position = glm::vec3(0.0f, 0.5f, -3.0f);
+            animTransform.scale = glm::vec3(1.0f);
 
-            MyEngine::AssetManager::AttachSkinnedModelToEntity(animatedEntity, skinnedData, litSkinnedShader, animatedModelPath);
-
-            std::cout << "[main] Loaded animated character from " << animatedModelPath
-                      << " with " << skinnedData.skeleton->GetBoneCount() << " bones and "
-                      << (skinnedData.clips ? skinnedData.clips->size() : 0) << " animation clip(s)." << std::endl;
+            if (skinnedData.skeleton && skinnedData.skeleton->GetBoneCount() > 0)
+            {
+                MyEngine::AssetManager::AttachSkinnedModelToEntity(animatedEntity, skinnedData, litSkinnedShader, animatedModelPath);
+                std::cout << "[main] Loaded animated character from " << animatedModelPath
+                          << " with " << skinnedData.skeleton->GetBoneCount() << " bones and "
+                          << (skinnedData.clips ? skinnedData.clips->size() : 0) << " animation clip(s)." << std::endl;
+            }
+            else
+            {
+                MyEngine::AssetManager::AttachMeshToEntity(animatedEntity, skinnedData.meshes[0], animatedModelPath, litShader);
+                std::cout << "[main] Loaded model from " << animatedModelPath
+                          << " without a valid skeleton; spawned as static mesh." << std::endl;
+            }
         }
         else
         {
-            std::cout << "[main] No animated model found at " << animatedModelPath
-                      << " - skeletal animation pipeline is idle. Drop a rigged .fbx/.gltf there to see it in action."
+            std::cout << "[main] No model found at " << animatedModelPath
+                      << " - drop a .fbx/.gltf/.obj there to see it in action."
                       << std::endl;
         }
     }
@@ -631,58 +653,105 @@ int main()
     }
 
     // ------------------------------------------------------------
-    // Player character: a capsule-collider controlled entity that
-    // showcases scale-aware colliders, collision events, and joints.
+    // Player character: Akaza model with character controller and animation state machine.
+    // The character uses animations from the akaza animations folder for different movement states.
     // Movement/jump input is handled later in the main loop.
     // ------------------------------------------------------------
     std::shared_ptr<Entity> playerEntity;
     {
+        const std::string akazaModelPath = "assets/models/akaza (2).fbx";
+        MyEngine::SkinnedModelData akazaData = MyEngine::AssetManager::LoadSkinnedModel(akazaModelPath);
+
         playerEntity = scene.CreateEntity("Player");
         auto& t = playerEntity->AddComponent<TransformComponent>();
-        t.position = glm::vec3(0.0f, 2.0f, 2.0f);
-        // Elongate the sphere mesh vertically so it visually approximates a capsule
-        // (the engine has no capsule mesh primitive yet; the actual collider below
-        // is a proper capsule for physics purposes).
-        t.scale = glm::vec3(0.5f, 0.9f, 0.5f);
+        t.position = glm::vec3(0.0f, 0.0f, 2.0f);
+        t.scale = glm::vec3(1.0f);
 
-        MyEngine::AssetManager::AttachMeshToEntity(playerEntity, sphereMesh, "primitive_sphere", litShader);
-        auto& mr = playerEntity->GetComponent<MeshRendererComponent>();
-        mr.albedo = glm::vec3(0.2f, 0.6f, 1.0f);
-
-        // Replace the auto-added bounding sphere with a capsule collider sized to
-        // roughly match the elongated mesh (in local/unscaled units; PhysicsSystem
-        // scales these by TransformComponent::scale at runtime).
-        if (playerEntity->HasComponent<BoundingSphereComponent>())
+        if (!akazaData.meshes.empty() && akazaData.skeleton && akazaData.skeleton->GetBoneCount() > 0)
         {
-            playerEntity->RemoveComponent<BoundingSphereComponent>();
+            // Attach the skinned model with animation capability
+            MyEngine::AssetManager::AttachSkinnedModelToEntity(playerEntity, akazaData, litSkinnedShader, akazaModelPath);
+            std::cout << "[main] Loaded Akaza character from " << akazaModelPath
+                      << " with " << akazaData.skeleton->GetBoneCount() << " bones." << std::endl;
+
+            // Add animation state machine component for movement-based animation switching
+            auto& stateMachineComp = playerEntity->AddComponent<AnimationStateMachineComponent>();
+            stateMachineComp.autoInitialize = true;
+            // State machine will be set up programmatically below
+
+            // Setup physics collider - scale for the character model
+            if (playerEntity->HasComponent<BoundingSphereComponent>())
+            {
+                playerEntity->RemoveComponent<BoundingSphereComponent>();
+            }
+            auto& capsule = playerEntity->AddComponent<CapsuleColliderComponent>();
+            capsule.pointA = glm::vec3(0.0f, 0.3f, 0.0f);
+            capsule.pointB = glm::vec3(0.0f, 1.8f, 0.0f);
+            capsule.radius = 0.35f;
+
+            auto& rb = playerEntity->AddComponent<RigidbodyComponent>();
+            rb.mass = 1.0f;
+            rb.useGravity = false;
+            rb.bounciness = 0.0f;
+            rb.isKinematic = true;
+            rb.freezePositionX = false;
+            rb.freezePositionZ = false;
+
+            // Character controller with animation parameter names for state machine
+            auto& controller = playerEntity->AddComponent<MyEngine::CharacterControllerComponent>();
+            controller.moveSpeed = 4.5f;
+            controller.jumpSpeed = 6.0f;
+            controller.maxSlopeAngleDegrees = 50.0f;
+            controller.groundSnapDistance = 0.18f;
+            controller.skinWidth = 0.03f;
+            controller.acceleration = 36.0f;
+            controller.airAcceleration = 12.0f;
+            controller.braking = 28.0f;
+            controller.slideGravityScale = 1.35f;
+            controller.orientToMovement = true;
+            controller.animationSpeedParameter = "Speed";
+            controller.animationGroundedParameter = "IsGrounded";
+            controller.animationJumpTriggerParameter = "Jump";
         }
-        auto& capsule = playerEntity->AddComponent<CapsuleColliderComponent>();
-        capsule.pointA = glm::vec3(0.0f, -0.4f, 0.0f);
-        capsule.pointB = glm::vec3(0.0f, 0.4f, 0.0f);
-        capsule.radius = 0.5f;
+        else
+        {
+            // Fallback: use primitive sphere if model fails to load
+            std::cout << "[main] Failed to load Akaza model, using fallback sphere." << std::endl;
+            MyEngine::AssetManager::AttachMeshToEntity(playerEntity, sphereMesh, "primitive_sphere", litShader);
+            auto& mr = playerEntity->GetComponent<MeshRendererComponent>();
+            mr.albedo = glm::vec3(0.2f, 0.6f, 1.0f);
 
-        auto& rb = playerEntity->AddComponent<RigidbodyComponent>();
-        rb.mass = 1.0f;
-        rb.useGravity = false;
-        rb.bounciness = 0.0f;
-        rb.isKinematic = true;
-        rb.freezePositionX = false;
-        rb.freezePositionZ = false;
+            if (playerEntity->HasComponent<BoundingSphereComponent>())
+            {
+                playerEntity->RemoveComponent<BoundingSphereComponent>();
+            }
+            auto& capsule = playerEntity->AddComponent<CapsuleColliderComponent>();
+            capsule.pointA = glm::vec3(0.0f, -0.4f, 0.0f);
+            capsule.pointB = glm::vec3(0.0f, 0.4f, 0.0f);
+            capsule.radius = 0.5f;
 
-        auto& controller = playerEntity->AddComponent<MyEngine::CharacterControllerComponent>();
-        controller.moveSpeed = 4.5f;
-        controller.jumpSpeed = 6.0f;
-        controller.maxSlopeAngleDegrees = 50.0f;
-        controller.groundSnapDistance = 0.18f;
-        controller.skinWidth = 0.03f;
-        controller.acceleration = 36.0f;
-        controller.airAcceleration = 12.0f;
-        controller.braking = 28.0f;
-        controller.slideGravityScale = 1.35f;
-        controller.orientToMovement = true;
+            auto& rb = playerEntity->AddComponent<RigidbodyComponent>();
+            rb.mass = 1.0f;
+            rb.useGravity = false;
+            rb.bounciness = 0.0f;
+            rb.isKinematic = true;
+            rb.freezePositionX = false;
+            rb.freezePositionZ = false;
 
-        // Log collisions/triggers so walking into the ground, cubes, or the
-        // trigger zone below is visible in the console.
+            auto& controller = playerEntity->AddComponent<MyEngine::CharacterControllerComponent>();
+            controller.moveSpeed = 4.5f;
+            controller.jumpSpeed = 6.0f;
+            controller.maxSlopeAngleDegrees = 50.0f;
+            controller.groundSnapDistance = 0.18f;
+            controller.skinWidth = 0.03f;
+            controller.acceleration = 36.0f;
+            controller.airAcceleration = 12.0f;
+            controller.braking = 28.0f;
+            controller.slideGravityScale = 1.35f;
+            controller.orientToMovement = true;
+        }
+
+        // Log collisions/triggers
         auto& events = playerEntity->AddComponent<CollisionEventsComponent>();
         events.onCollisionEnter = [](const std::shared_ptr<Entity>& other)
         {
@@ -696,6 +765,278 @@ int main()
         {
             std::cout << "[Player] exited trigger: " << (other ? other->GetName() : "unknown") << std::endl;
         };
+    }
+
+    // Setup animation state machine for Akaza character
+    if (playerEntity && playerEntity->HasComponent<AnimationStateMachineComponent>())
+    {
+        auto& stateMachineComp = playerEntity->GetComponent<AnimationStateMachineComponent>();
+        auto stateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
+        stateMachine->name = "AkazaMovementStateMachine";
+        stateMachine->defaultStateIndex = 0;
+
+        // Define animation parameters
+        {
+            MyEngine::AnimationStateMachineParameter speedParam;
+            speedParam.name = "Speed";
+            speedParam.type = MyEngine::AnimationStateMachineParameterType::Float;
+            speedParam.defaultFloatValue = 0.0f;
+            stateMachine->parameters.push_back(speedParam);
+
+            MyEngine::AnimationStateMachineParameter groundedParam;
+            groundedParam.name = "IsGrounded";
+            groundedParam.type = MyEngine::AnimationStateMachineParameterType::Bool;
+            groundedParam.defaultBoolValue = true;
+            stateMachine->parameters.push_back(groundedParam);
+
+            MyEngine::AnimationStateMachineParameter jumpParam;
+            jumpParam.name = "Jump";
+            jumpParam.type = MyEngine::AnimationStateMachineParameterType::Trigger;
+            stateMachine->parameters.push_back(jumpParam);
+
+            MyEngine::AnimationStateMachineParameter crouchParam;
+            crouchParam.name = "IsCrouching";
+            crouchParam.type = MyEngine::AnimationStateMachineParameterType::Bool;
+            crouchParam.defaultBoolValue = false;
+            stateMachine->parameters.push_back(crouchParam);
+
+            MyEngine::AnimationStateMachineParameter fightParam;
+            fightParam.name = "IsFighting";
+            fightParam.type = MyEngine::AnimationStateMachineParameterType::Bool;
+            fightParam.defaultBoolValue = false;
+            stateMachine->parameters.push_back(fightParam);
+        }
+
+        // Define animation states and transitions
+        // Note: clip names should match the animation files or be set up via the editor
+        {
+            // Idle state
+            MyEngine::AnimationStateMachineState idleState;
+            idleState.name = "Idle";
+            idleState.clipName = "Idle"; // Will be mapped to "Idle.fbx" animation
+            idleState.loop = true;
+            idleState.playbackSpeed = 1.0f;
+
+            // Transition to Walk when Speed > 0.5
+            MyEngine::AnimationStateMachineTransition toWalk;
+            toWalk.targetStateIndex = 1;
+            toWalk.blendDuration = 0.2f;
+            toWalk.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition walkCond;
+            walkCond.parameterName = "Speed";
+            walkCond.op = MyEngine::AnimationStateMachineConditionOperator::Greater;
+            walkCond.threshold = 0.5f;
+            toWalk.conditions.push_back(walkCond);
+            idleState.transitions.push_back(toWalk);
+
+            stateMachine->states.push_back(idleState);
+        }
+
+        {
+            // Walk state
+            MyEngine::AnimationStateMachineState walkState;
+            walkState.name = "Walk";
+            walkState.clipName = "Crouched Walking"; // Map to a walk animation
+            walkState.loop = true;
+            walkState.playbackSpeed = 1.0f;
+
+            // Transition to Run when Speed > 2.0
+            MyEngine::AnimationStateMachineTransition toRun;
+            toRun.targetStateIndex = 2;
+            toRun.blendDuration = 0.3f;
+            toRun.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition runCond;
+            runCond.parameterName = "Speed";
+            runCond.op = MyEngine::AnimationStateMachineConditionOperator::Greater;
+            runCond.threshold = 2.0f;
+            toRun.conditions.push_back(runCond);
+            walkState.transitions.push_back(toRun);
+
+            // Transition to Idle when Speed < 0.5
+            MyEngine::AnimationStateMachineTransition toIdle;
+            toIdle.targetStateIndex = 0;
+            toIdle.blendDuration = 0.2f;
+            toIdle.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition idleCond;
+            idleCond.parameterName = "Speed";
+            idleCond.op = MyEngine::AnimationStateMachineConditionOperator::Less;
+            idleCond.threshold = 0.5f;
+            toIdle.conditions.push_back(idleCond);
+            walkState.transitions.push_back(toIdle);
+
+            stateMachine->states.push_back(walkState);
+        }
+
+        {
+            // Run state
+            MyEngine::AnimationStateMachineState runState;
+            runState.name = "Run";
+            runState.clipName = "Crouched To Sprinting"; // Map to a run animation
+            runState.loop = true;
+            runState.playbackSpeed = 1.0f;
+
+            // Transition to Walk when Speed < 2.0
+            MyEngine::AnimationStateMachineTransition toWalk;
+            toWalk.targetStateIndex = 1;
+            toWalk.blendDuration = 0.3f;
+            toWalk.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition walkCond;
+            walkCond.parameterName = "Speed";
+            walkCond.op = MyEngine::AnimationStateMachineConditionOperator::Less;
+            walkCond.threshold = 2.0f;
+            toWalk.conditions.push_back(walkCond);
+            runState.transitions.push_back(toWalk);
+
+            stateMachine->states.push_back(runState);
+        }
+
+        {
+            // Crouch Idle state
+            MyEngine::AnimationStateMachineState crouchIdleState;
+            crouchIdleState.name = "CrouchIdle";
+            crouchIdleState.clipName = "Crouching Idle";
+            crouchIdleState.loop = true;
+            crouchIdleState.playbackSpeed = 1.0f;
+
+            // Transition to Crouch Walk when Speed > 0.5 and IsCrouching
+            MyEngine::AnimationStateMachineTransition toCrouchWalk;
+            toCrouchWalk.targetStateIndex = 4;
+            toCrouchWalk.blendDuration = 0.2f;
+            toCrouchWalk.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition crouchWalkCond;
+            crouchWalkCond.parameterName = "Speed";
+            crouchWalkCond.op = MyEngine::AnimationStateMachineConditionOperator::Greater;
+            crouchWalkCond.threshold = 0.5f;
+            toCrouchWalk.conditions.push_back(crouchWalkCond);
+            crouchIdleState.transitions.push_back(toCrouchWalk);
+
+            // Transition back to Idle when not crouching
+            MyEngine::AnimationStateMachineTransition toIdle;
+            toIdle.targetStateIndex = 0;
+            toIdle.blendDuration = 0.3f;
+            toIdle.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition notCrouchCond;
+            notCrouchCond.parameterName = "IsCrouching";
+            notCrouchCond.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+            toIdle.conditions.push_back(notCrouchCond);
+            crouchIdleState.transitions.push_back(toIdle);
+
+            stateMachine->states.push_back(crouchIdleState);
+        }
+
+        {
+            // Crouch Walk state
+            MyEngine::AnimationStateMachineState crouchWalkState;
+            crouchWalkState.name = "CrouchWalk";
+            crouchWalkState.clipName = "Crouched Walking";
+            crouchWalkState.loop = true;
+            crouchWalkState.playbackSpeed = 1.0f;
+
+            // Transition to Crouch Idle when Speed < 0.5
+            MyEngine::AnimationStateMachineTransition toCrouchIdle;
+            toCrouchIdle.targetStateIndex = 3;
+            toCrouchIdle.blendDuration = 0.2f;
+            toCrouchIdle.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition slowCond;
+            slowCond.parameterName = "Speed";
+            slowCond.op = MyEngine::AnimationStateMachineConditionOperator::Less;
+            slowCond.threshold = 0.5f;
+            toCrouchIdle.conditions.push_back(slowCond);
+            crouchWalkState.transitions.push_back(toCrouchIdle);
+
+            // Transition back to Walk when not crouching
+            MyEngine::AnimationStateMachineTransition toWalk;
+            toWalk.targetStateIndex = 1;
+            toWalk.blendDuration = 0.3f;
+            toWalk.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition notCrouchCond;
+            notCrouchCond.parameterName = "IsCrouching";
+            notCrouchCond.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+            toWalk.conditions.push_back(notCrouchCond);
+            crouchWalkState.transitions.push_back(toWalk);
+
+            stateMachine->states.push_back(crouchWalkState);
+        }
+
+        {
+            // Fighting Idle state
+            MyEngine::AnimationStateMachineState fightIdleState;
+            fightIdleState.name = "FightIdle";
+            fightIdleState.clipName = "Fighting Idle";
+            fightIdleState.loop = true;
+            fightIdleState.playbackSpeed = 1.0f;
+
+            // Transition back to Idle when not fighting
+            MyEngine::AnimationStateMachineTransition toIdle;
+            toIdle.targetStateIndex = 0;
+            toIdle.blendDuration = 0.5f;
+            toIdle.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition notFightCond;
+            notFightCond.parameterName = "IsFighting";
+            notFightCond.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+            toIdle.conditions.push_back(notFightCond);
+            fightIdleState.transitions.push_back(toIdle);
+
+            stateMachine->states.push_back(fightIdleState);
+        }
+
+        stateMachineComp.stateMachine = stateMachine;
+        stateMachineComp.parameterValues.resize(stateMachine->parameters.size());
+        for (size_t i = 0; i < stateMachine->parameters.size(); ++i)
+        {
+            const auto& param = stateMachine->parameters[i];
+            if (param.type == MyEngine::AnimationStateMachineParameterType::Float)
+                stateMachineComp.parameterValues[i].floatValue = param.defaultFloatValue;
+            else if (param.type == MyEngine::AnimationStateMachineParameterType::Bool)
+                stateMachineComp.parameterValues[i].boolValue = param.defaultBoolValue;
+        }
+
+        std::cout << "[main] Akaza animation state machine configured with " << stateMachine->states.size()
+                  << " states and " << stateMachine->parameters.size() << " parameters." << std::endl;
+
+        // Load animations from the akaza animations folder and assign to state machine
+        const std::string akazaAnimFolder = "assets/models/akaza animations/";
+
+        // Map of state clip names to animation file names
+        std::unordered_map<std::string, std::string> clipNameToFile = {
+            { "Idle", "Idle.fbx" },
+            { "Crouched Walking", "Crouched Walking.fbx" },
+            { "Crouched To Sprinting", "Crouched To Sprinting.fbx" },
+            { "Crouching Idle", "Crouching Idle.fbx" },
+            { "Fighting Idle", "Fighting Idle.fbx" },
+            { "Punch Combo", "Punch Combo.fbx" }
+        };
+
+        // Try to load each animation file
+        for (auto& state : stateMachine->states)
+        {
+            if (clipNameToFile.find(state.clipName) != clipNameToFile.end())
+            {
+                std::string fullPath = akazaAnimFolder + clipNameToFile[state.clipName];
+                auto animClips = MyEngine::AssetManager::LoadAnimationClips(fullPath);
+
+                if (animClips && !animClips->empty())
+                {
+                    // Add the loaded animation clip to the player entity's animation component
+                    if (playerEntity->HasComponent<AnimationComponent>())
+                    {
+                        auto& ac = playerEntity->GetComponent<AnimationComponent>();
+                        if (!ac.clips)
+                            ac.clips = std::make_shared<std::vector<MyEngine::AnimationClip>>();
+
+                        for (const auto& clip : *animClips)
+                        {
+                            ac.clips->push_back(clip);
+                        }
+                        std::cout << "[main] Loaded animation '" << state.clipName << "' from " << fullPath << std::endl;
+                    }
+                }
+                else
+                {
+                    std::cout << "[main] Warning: Could not load animation '" << state.clipName << "' from " << fullPath << std::endl;
+                }
+            }
+        }
     }
 
     // Point the primary camera's follow target at the player so the
@@ -885,7 +1226,7 @@ int main()
         if (!entity || !entity->HasComponent<PrefabInstanceComponent>())
             return overrides;
 
-        const auto& prefab = entity->GetComponent<PrefabInstanceComponent>();
+        auto& prefab = entity->GetComponent<PrefabInstanceComponent>();
         if (prefab.sourcePrefabPath.empty() || prefab.sourceEntityID == 0)
             return overrides;
 
@@ -910,59 +1251,347 @@ int main()
             return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
         };
 
-        if (entity->GetName() != source->GetName()) addOverride("Name");
-        if (entity->GetTag() != source->GetTag()) addOverride("Tag");
-        if (entity->GetLayer() != source->GetLayer()) addOverride("Layer");
+        if (entity->GetName() != source->GetName()) { addOverride("Name"); prefab.overrideName = true; }
+        else { prefab.overrideName = false; }
+        if (entity->GetTag() != source->GetTag()) { addOverride("Tag"); prefab.overrideTag = true; }
+        else { prefab.overrideTag = false; }
+        if (entity->GetLayer() != source->GetLayer()) { addOverride("Layer"); prefab.overrideLayer = true; }
+        else { prefab.overrideLayer = false; }
 
+        bool hasTransformOverride = false;
         if (entity->HasComponent<TransformComponent>() && source->HasComponent<TransformComponent>())
         {
             const auto& current = entity->GetComponent<TransformComponent>();
             const auto& original = source->GetComponent<TransformComponent>();
-            if (!vec3Equal(current.position, original.position) || !vec3Equal(current.rotation, original.rotation) || !vec3Equal(current.scale, original.scale) || current.parentID != original.parentID)
-                addOverride("Transform");
+            if (!vec3Equal(current.position, original.position)) { addOverride("Transform: Position"); hasTransformOverride = true; }
+            if (!vec3Equal(current.rotation, original.rotation)) { addOverride("Transform: Rotation"); hasTransformOverride = true; }
+            if (!vec3Equal(current.scale, original.scale)) { addOverride("Transform: Scale"); hasTransformOverride = true; }
+            if (current.parentID != original.parentID) { addOverride("Transform: Parent"); hasTransformOverride = true; }
         }
+        prefab.overrideTransform = hasTransformOverride;
 
+        bool hasMeshRendererOverride = false;
         if (entity->HasComponent<MeshRendererComponent>() && source->HasComponent<MeshRendererComponent>())
         {
             const auto& current = entity->GetComponent<MeshRendererComponent>();
             const auto& original = source->GetComponent<MeshRendererComponent>();
-            if (current.visible != original.visible || current.materialPath != original.materialPath || current.useTexture != original.useTexture || current.usePBR != original.usePBR)
-                addOverride("Mesh Renderer");
+            if (current.visible != original.visible) { addOverride("Mesh Renderer: Visible"); hasMeshRendererOverride = true; }
+            if (current.materialPath != original.materialPath) { addOverride("Mesh Renderer: Material Path"); hasMeshRendererOverride = true; }
+            if (current.useTexture != original.useTexture) { addOverride("Mesh Renderer: Use Texture"); hasMeshRendererOverride = true; }
+            if (current.usePBR != original.usePBR) { addOverride("Mesh Renderer: Use PBR"); hasMeshRendererOverride = true; }
         }
+        prefab.overrideMeshRenderer = hasMeshRendererOverride;
 
+        bool hasLightOverride = false;
         if (entity->HasComponent<LightComponent>() && source->HasComponent<LightComponent>())
         {
             const auto& current = entity->GetComponent<LightComponent>();
             const auto& original = source->GetComponent<LightComponent>();
-            if (current.type != original.type || !vec3Equal(current.color, original.color) || !vec3Equal(current.direction, original.direction) || !vec3Equal(current.position, original.position) || !nearlyEqual(current.intensity, original.intensity) || !nearlyEqual(current.range, original.range) || current.castShadows != original.castShadows)
-                addOverride("Light");
+            if (current.type != original.type) { addOverride("Light: Type"); hasLightOverride = true; }
+            if (!vec3Equal(current.color, original.color)) { addOverride("Light: Color"); hasLightOverride = true; }
+            if (!vec3Equal(current.direction, original.direction)) { addOverride("Light: Direction"); hasLightOverride = true; }
+            if (!vec3Equal(current.position, original.position)) { addOverride("Light: Position"); hasLightOverride = true; }
+            if (!nearlyEqual(current.intensity, original.intensity)) { addOverride("Light: Intensity"); hasLightOverride = true; }
+            if (!nearlyEqual(current.range, original.range)) { addOverride("Light: Range"); hasLightOverride = true; }
+            if (current.castShadows != original.castShadows) { addOverride("Light: Cast Shadows"); hasLightOverride = true; }
         }
+        prefab.overrideLight = hasLightOverride;
 
+        bool hasRigidbodyOverride = false;
         if (entity->HasComponent<RigidbodyComponent>() && source->HasComponent<RigidbodyComponent>())
         {
             const auto& current = entity->GetComponent<RigidbodyComponent>();
             const auto& original = source->GetComponent<RigidbodyComponent>();
-            if (!vec3Equal(current.velocity, original.velocity) || !vec3Equal(current.acceleration, original.acceleration) || !nearlyEqual(current.mass, original.mass) || current.isKinematic != original.isKinematic)
-                addOverride("Rigidbody");
+            if (!vec3Equal(current.velocity, original.velocity)) { addOverride("Rigidbody: Velocity"); hasRigidbodyOverride = true; }
+            if (!vec3Equal(current.acceleration, original.acceleration)) { addOverride("Rigidbody: Acceleration"); hasRigidbodyOverride = true; }
+            if (!nearlyEqual(current.mass, original.mass)) { addOverride("Rigidbody: Mass"); hasRigidbodyOverride = true; }
+            if (current.isKinematic != original.isKinematic) { addOverride("Rigidbody: Is Kinematic"); hasRigidbodyOverride = true; }
         }
+        prefab.overrideRigidbody = hasRigidbodyOverride;
 
+        bool hasScriptOverride = false;
         if (entity->HasComponent<ScriptComponent>() && source->HasComponent<ScriptComponent>())
         {
             const auto& current = entity->GetComponent<ScriptComponent>();
             const auto& original = source->GetComponent<ScriptComponent>();
-            if (current.scriptPath != original.scriptPath || current.enabled != original.enabled || current.autoStart != original.autoStart)
-                addOverride("Script");
+            if (current.scriptPath != original.scriptPath) { addOverride("Script: Path"); hasScriptOverride = true; }
+            if (current.enabled != original.enabled) { addOverride("Script: Enabled"); hasScriptOverride = true; }
+            if (current.autoStart != original.autoStart) { addOverride("Script: Auto Start"); hasScriptOverride = true; }
         }
+        prefab.overrideScript = hasScriptOverride;
 
+        bool hasAnimationOverride = false;
         if (entity->HasComponent<AnimationComponent>() && source->HasComponent<AnimationComponent>())
         {
             const auto& current = entity->GetComponent<AnimationComponent>();
             const auto& original = source->GetComponent<AnimationComponent>();
-            if (current.activeClipIndex != original.activeClipIndex || !nearlyEqual(current.time, original.time) || !nearlyEqual(current.playbackSpeed, original.playbackSpeed) || current.playing != original.playing || current.looping != original.looping)
-                addOverride("Animation");
+            if (current.activeClipIndex != original.activeClipIndex) { addOverride("Animation: Active Clip"); hasAnimationOverride = true; }
+            if (!nearlyEqual(current.time, original.time)) { addOverride("Animation: Time"); hasAnimationOverride = true; }
+            if (!nearlyEqual(current.playbackSpeed, original.playbackSpeed)) { addOverride("Animation: Playback Speed"); hasAnimationOverride = true; }
+            if (current.playing != original.playing) { addOverride("Animation: Playing"); hasAnimationOverride = true; }
+            if (current.looping != original.looping) { addOverride("Animation: Looping"); hasAnimationOverride = true; }
         }
+        prefab.overrideAnimation = hasAnimationOverride;
 
         return overrides;
+    };
+
+    auto findPrefabInstanceBySource = [&](const PrefabInstanceComponent& prefabInfo, uint32_t sourceID) -> Entity*
+    {
+        for (const auto& candidate : scene.GetEntities())
+        {
+            if (!candidate || !candidate->HasComponent<PrefabInstanceComponent>())
+                continue;
+            const auto& candidatePrefab = candidate->GetComponent<PrefabInstanceComponent>();
+            if (candidatePrefab.sourcePrefabPath == prefabInfo.sourcePrefabPath && candidatePrefab.sourceEntityID == sourceID)
+                return candidate.get();
+        }
+        return nullptr;
+    };
+
+    auto revertSelectedPrefabOverride = [&](Entity* entity, const std::string& overrideName, std::string& outMessage) -> bool
+    {
+        if (!entity || !entity->HasComponent<PrefabInstanceComponent>())
+        {
+            outMessage = "Selected entity is not a prefab instance.";
+            return false;
+        }
+
+        const auto prefabInfo = entity->GetComponent<PrefabInstanceComponent>();
+        if (prefabInfo.sourcePrefabPath.empty() || prefabInfo.sourceEntityID == 0)
+        {
+            outMessage = "Prefab instance has no valid source metadata.";
+            return false;
+        }
+
+        Scene prefabScene;
+        if (!MyEngine::Serialization::LoadScene(prefabScene, prefabInfo.sourcePrefabPath, litShader, &globalScripts))
+        {
+            outMessage = "Failed to load source prefab file.";
+            return false;
+        }
+
+        auto source = prefabScene.GetEntityByID(prefabInfo.sourceEntityID);
+        if (!source)
+        {
+            outMessage = "Source prefab entity not found.";
+            return false;
+        }
+
+        std::string overrideCategory = overrideName;
+        size_t delimiterPos = overrideCategory.find(':');
+        if (delimiterPos != std::string::npos)
+            overrideCategory = overrideCategory.substr(0, delimiterPos);
+
+        if (overrideCategory == "Name")
+            entity->SetName(source->GetName());
+        else if (overrideCategory == "Tag")
+            entity->SetTag(source->GetTag());
+        else if (overrideCategory == "Layer")
+            entity->SetLayer(source->GetLayer());
+        else if (overrideCategory == "Transform")
+        {
+            if (source->HasComponent<TransformComponent>())
+            {
+                if (!entity->HasComponent<TransformComponent>())
+                    entity->AddComponent<TransformComponent>() = source->GetComponent<TransformComponent>();
+                else
+                {
+                    auto& dst = entity->GetComponent<TransformComponent>();
+                    const auto& src = source->GetComponent<TransformComponent>();
+                    dst.position = src.position;
+                    dst.rotation = src.rotation;
+                    dst.scale = src.scale;
+                    if (src.parentID == 0)
+                    {
+                        dst.parentID = 0;
+                    }
+                    else if (Entity* mappedParent = findPrefabInstanceBySource(prefabInfo, src.parentID))
+                    {
+                        dst.parentID = mappedParent->GetID();
+                    }
+                }
+            }
+            else if (entity->HasComponent<TransformComponent>())
+            {
+                entity->RemoveComponent<TransformComponent>();
+            }
+        }
+        else if (overrideCategory == "Mesh Renderer")
+        {
+            if (source->HasComponent<MeshRendererComponent>())
+            {
+                if (!entity->HasComponent<MeshRendererComponent>())
+                    entity->AddComponent<MeshRendererComponent>() = source->GetComponent<MeshRendererComponent>();
+                else
+                    entity->GetComponent<MeshRendererComponent>() = source->GetComponent<MeshRendererComponent>();
+            }
+            else if (entity->HasComponent<MeshRendererComponent>())
+            {
+                entity->RemoveComponent<MeshRendererComponent>();
+            }
+        }
+        else if (overrideCategory == "Light")
+        {
+            if (source->HasComponent<LightComponent>())
+            {
+                if (!entity->HasComponent<LightComponent>())
+                    entity->AddComponent<LightComponent>() = source->GetComponent<LightComponent>();
+                else
+                    entity->GetComponent<LightComponent>() = source->GetComponent<LightComponent>();
+            }
+            else if (entity->HasComponent<LightComponent>())
+            {
+                entity->RemoveComponent<LightComponent>();
+            }
+        }
+        else if (overrideCategory == "Rigidbody")
+        {
+            if (source->HasComponent<RigidbodyComponent>())
+            {
+                if (!entity->HasComponent<RigidbodyComponent>())
+                    entity->AddComponent<RigidbodyComponent>() = source->GetComponent<RigidbodyComponent>();
+                else
+                    entity->GetComponent<RigidbodyComponent>() = source->GetComponent<RigidbodyComponent>();
+            }
+            else if (entity->HasComponent<RigidbodyComponent>())
+            {
+                entity->RemoveComponent<RigidbodyComponent>();
+            }
+        }
+        else if (overrideCategory == "Script")
+        {
+            if (source->HasComponent<ScriptComponent>())
+            {
+                if (!entity->HasComponent<ScriptComponent>())
+                    entity->AddComponent<ScriptComponent>() = source->GetComponent<ScriptComponent>();
+                else
+                    entity->GetComponent<ScriptComponent>() = source->GetComponent<ScriptComponent>();
+            }
+            else if (entity->HasComponent<ScriptComponent>())
+            {
+                entity->RemoveComponent<ScriptComponent>();
+            }
+        }
+        else if (overrideCategory == "Animation")
+        {
+            if (source->HasComponent<AnimationComponent>())
+            {
+                if (!entity->HasComponent<AnimationComponent>())
+                    entity->AddComponent<AnimationComponent>() = source->GetComponent<AnimationComponent>();
+                else
+                    entity->GetComponent<AnimationComponent>() = source->GetComponent<AnimationComponent>();
+            }
+            else if (entity->HasComponent<AnimationComponent>())
+            {
+                entity->RemoveComponent<AnimationComponent>();
+            }
+        }
+        else
+        {
+            outMessage = "Unsupported override selection.";
+            return false;
+        }
+
+        outMessage = "Reverted selected override: " + overrideName;
+        return true;
+    };
+
+    auto applyAllPrefabOverrides = [&](Entity* entity, std::string& outMessage) -> bool
+    {
+        if (!entity || !entity->HasComponent<PrefabInstanceComponent>())
+        {
+            outMessage = "Selected entity is not a prefab instance.";
+            return false;
+        }
+
+        const auto prefabInfo = entity->GetComponent<PrefabInstanceComponent>();
+        if (prefabInfo.sourcePrefabPath.empty() || prefabInfo.sourceEntityID == 0)
+        {
+            outMessage = "Prefab instance has no valid source metadata.";
+            return false;
+        }
+
+        Scene prefabScene;
+        if (!MyEngine::Serialization::LoadScene(prefabScene, prefabInfo.sourcePrefabPath, litShader, &globalScripts))
+        {
+            outMessage = "Failed to load source prefab file.";
+            return false;
+        }
+
+        auto source = prefabScene.GetEntityByID(prefabInfo.sourceEntityID);
+        if (!source)
+        {
+            outMessage = "Source prefab entity not found.";
+            return false;
+        }
+
+        source->SetName(entity->GetName());
+        source->SetTag(entity->GetTag());
+        source->SetLayer(entity->GetLayer());
+
+        if (entity->HasComponent<TransformComponent>())
+        {
+            if (!source->HasComponent<TransformComponent>())
+                source->AddComponent<TransformComponent>() = entity->GetComponent<TransformComponent>();
+            else
+            {
+                auto& dst = source->GetComponent<TransformComponent>();
+                const auto& src = entity->GetComponent<TransformComponent>();
+                dst.position = src.position;
+                dst.rotation = src.rotation;
+                dst.scale = src.scale;
+            }
+        }
+
+        if (entity->HasComponent<MeshRendererComponent>())
+        {
+            if (!source->HasComponent<MeshRendererComponent>())
+                source->AddComponent<MeshRendererComponent>() = entity->GetComponent<MeshRendererComponent>();
+            else
+                source->GetComponent<MeshRendererComponent>() = entity->GetComponent<MeshRendererComponent>();
+        }
+
+        if (entity->HasComponent<LightComponent>())
+        {
+            if (!source->HasComponent<LightComponent>())
+                source->AddComponent<LightComponent>() = entity->GetComponent<LightComponent>();
+            else
+                source->GetComponent<LightComponent>() = entity->GetComponent<LightComponent>();
+        }
+
+        if (entity->HasComponent<RigidbodyComponent>())
+        {
+            if (!source->HasComponent<RigidbodyComponent>())
+                source->AddComponent<RigidbodyComponent>() = entity->GetComponent<RigidbodyComponent>();
+            else
+                source->GetComponent<RigidbodyComponent>() = entity->GetComponent<RigidbodyComponent>();
+        }
+
+        if (entity->HasComponent<ScriptComponent>())
+        {
+            if (!source->HasComponent<ScriptComponent>())
+                source->AddComponent<ScriptComponent>() = entity->GetComponent<ScriptComponent>();
+            else
+                source->GetComponent<ScriptComponent>() = entity->GetComponent<ScriptComponent>();
+        }
+
+        if (entity->HasComponent<AnimationComponent>())
+        {
+            if (!source->HasComponent<AnimationComponent>())
+                source->AddComponent<AnimationComponent>() = entity->GetComponent<AnimationComponent>();
+            else
+                source->GetComponent<AnimationComponent>() = entity->GetComponent<AnimationComponent>();
+        }
+
+        if (!MyEngine::Serialization::SaveScene(prefabScene, prefabInfo.sourcePrefabPath))
+        {
+            outMessage = "Failed to save prefab file.";
+            return false;
+        }
+
+        outMessage = "Applied overrides to prefab: " + prefabInfo.sourcePrefabPath;
+        return true;
     };
 
     MyEngine::Editor::Context editorContext{};
@@ -1111,6 +1740,9 @@ int main()
     std::array<float, kPerfHistory> physicsMsHistory{};
     std::array<float, kPerfHistory> animationMsHistory{};
     std::array<float, kPerfHistory> renderMsHistory{};
+    std::array<float, kPerfHistory> visibleCountHistory{};
+    std::array<float, kPerfHistory> occlusionRejectHistory{};
+    std::array<float, kPerfHistory> frustumRejectHistory{};
     int perfHistoryIndex = 0;
 
     float cpuPhysicsMs = 0.0f;
@@ -1143,7 +1775,7 @@ int main()
     // ------------------------------------------------------------
     // Main loop
     // ------------------------------------------------------------
-    while (!glfwWindowShouldClose(window))
+    while (!renderPlatform->ShouldClose())
     {
         // --------------------------------------------------------
         // Delta time
@@ -1165,8 +1797,18 @@ int main()
         // Input::Update() must happen BEFORE glfwPollEvents()
         // --------------------------------------------------------
         Input::Update();
-        glfwPollEvents();
+        if (!Input::IsInputPlayback())
+            renderPlatform->PollEvents();
         MyEngine::InputActions::Update();
+        static unsigned int replayParticleSeed = 7331u;
+        Input::FinalizeReplayFrame(
+            MyEngine::InputActions::GetGamepadButtonsRaw(),
+            MyEngine::InputActions::GetGamepadButtonCount(),
+            MyEngine::InputActions::GetGamepadAxesRaw(),
+            MyEngine::InputActions::GetGamepadAxisCount(),
+            physicsSystem.fixedTimestep,
+            physicsSystem.maxSubsteps,
+            replayParticleSeed);
 
         // --------------------------------------------------------
         // Global controls
@@ -1198,6 +1840,38 @@ int main()
 #else
         bool allowGlobalHotkeys = true;
 #endif
+
+        static unsigned int replaySeed = 1337u;
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F5))
+        {
+            Input::BeginInputRecording(replaySeed);
+            replayParticleSeed = replaySeed ^ 0x9E3779B9u;
+            particleSystem.SetDeterministicSeed(replayParticleSeed);
+        }
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F6))
+            Input::StopInputRecording();
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F7))
+            Input::BeginInputPlayback();
+#ifdef MYENGINE_ENABLE_RENDERDOC
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F9))
+            renderDocCapture.RequestCapture();
+#endif
+
+        if (Input::IsInputPlayback())
+        {
+            float replayFixedTimestep = physicsSystem.fixedTimestep;
+            int replayMaxSubsteps = physicsSystem.maxSubsteps;
+            unsigned int playbackParticleSeed = replayParticleSeed;
+            if (Input::TryGetPlaybackSimulationConfig(&replayFixedTimestep, &replayMaxSubsteps, &playbackParticleSeed))
+            {
+                physicsSystem.fixedTimestep = std::clamp(replayFixedTimestep, 0.001f, 0.1f);
+                physicsSystem.maxSubsteps = std::clamp(replayMaxSubsteps, 1, 10);
+                replayParticleSeed = playbackParticleSeed;
+                particleSystem.SetDeterministicSeed(replayParticleSeed);
+            }
+        }
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F8))
+            Input::StopInputPlayback();
 
         // Toggle wireframe
         if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F))
@@ -1508,6 +2182,41 @@ int main()
 
         cameraSystem.Update(scene, window, deltaTime, aspectRatio);
 
+        for (const auto& action : MyEngine::AnimationEventBus::ConsumeQueuedActions())
+        {
+            Entity* target = scene.GetEntityByID(action.entityID);
+            if (!target)
+                continue;
+
+            if (action.triggerAudio)
+            {
+                if (!target->HasComponent<AudioSourceComponent>())
+                    target->AddComponent<AudioSourceComponent>();
+                auto& source = target->GetComponent<AudioSourceComponent>();
+                if (!action.audioClipPath.empty())
+                {
+                    source.clipPath = action.audioClipPath;
+                    source.clip = MyEngine::AssetManager::LoadAudioClip(action.audioClipPath);
+                }
+                source.volume = std::clamp(action.audioVolume, 0.0f, 1.0f);
+                source.pitch = std::clamp(action.audioPitch, 0.1f, 4.0f);
+                source.playRequested = true;
+            }
+
+            if (action.triggerParticleBurst)
+            {
+                if (!target->HasComponent<ParticleEmitterComponent>())
+                    target->AddComponent<ParticleEmitterComponent>();
+                auto& emitter = target->GetComponent<ParticleEmitterComponent>();
+                emitter.burstRequestCount += std::max(action.particleBurstCount, 1);
+            }
+
+            if (action.triggerScriptCallback)
+            {
+                scriptSystem.DispatchAnimationEvent(action.entityID, action.eventName.c_str(), action.scriptCallbackName.c_str());
+            }
+        }
+
         audioSystem.Update(scene, deltaTime);
         scriptSystem.SetGlobalScripts(globalScripts);
         scriptSystem.OnUpdate(scene, deltaTime);
@@ -1519,6 +2228,9 @@ int main()
         // --------------------------------------------------------
         // Render
         // --------------------------------------------------------
+        #ifdef MYENGINE_ENABLE_RENDERDOC
+        renderDocCapture.BeginFrameCapture();
+#endif
         auto cpuRenderStart = std::chrono::high_resolution_clock::now();
         const int gpuQueryReadIndex = (gpuQueryWriteIndex + 1) % 2;
         GLuint gpuQueryAvailable = 0;
@@ -1549,7 +2261,22 @@ int main()
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glViewport(0, 0, g_WindowWidth, g_WindowHeight);
         }
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        MyEngine::RenderCommandList frameCommands;
+        frameCommands.BeginFrame();
+        MyEngine::RenderClearCommand clearCommand;
+        clearCommand.color[0] = 0.08f;
+        clearCommand.color[1] = 0.09f;
+        clearCommand.color[2] = 0.11f;
+        clearCommand.color[3] = 1.0f;
+        clearCommand.depth = 1.0f;
+        clearCommand.stencil = 0;
+        clearCommand.clearColor = true;
+        clearCommand.clearDepth = true;
+        clearCommand.clearStencil = false;
+        frameCommands.Clear(clearCommand);
+        frameCommands.EndFrame();
+        glCommandExecutor.Execute(frameCommands);
 
 #ifdef USE_IMGUI
         // Start the Dear ImGui frame
@@ -1875,17 +2602,111 @@ int main()
                     if (selectedEntity->HasComponent<PrefabInstanceComponent>())
                     {
                         InspectorGroupLabel("Prefab Instance");
-                        const auto& prefab = selectedEntity->GetComponent<PrefabInstanceComponent>();
+                        auto& prefab = selectedEntity->GetComponent<PrefabInstanceComponent>();
                         ImGui::TextWrapped("Source: %s", prefab.sourcePrefabPath.empty() ? "<unsaved>" : prefab.sourcePrefabPath.c_str());
                         ImGui::Text("Source Entity ID: %u", prefab.sourceEntityID);
+                        if (prefab.isVariantInstance)
+                        {
+                            ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Variant Instance");
+                            ImGui::TextWrapped("Base Prefab: %s", prefab.variantBasePrefabPath.empty() ? "<none>" : prefab.variantBasePrefabPath.c_str());
+                            ImGui::Text("Base Entity ID: %u", prefab.variantBaseEntityID);
+                        }
+
+                        static std::string prefabVariantStatus;
+                        static bool prefabVariantStatusIsError = false;
+                        if (InspectorActionButton("Create Variant From Selected"))
+                        {
+                            if (prefab.sourcePrefabPath.empty() || prefab.sourceEntityID == 0)
+                            {
+                                prefabVariantStatus = "Prefab source metadata is missing; cannot create variant.";
+                                prefabVariantStatusIsError = true;
+                            }
+                            else
+                            {
+                                std::string variantPath = MyEngine::FileDialog::SavePrefabFile();
+                                if (!variantPath.empty())
+                                {
+                                    const bool saved = MyEngine::Serialization::SavePrefabVariant(
+                                        scene,
+                                        selectedEntity,
+                                        variantPath,
+                                        prefab.sourcePrefabPath,
+                                        prefab.sourceEntityID);
+                                    prefabVariantStatus = saved
+                                        ? ("Variant prefab saved: " + variantPath)
+                                        : "Failed to save variant prefab.";
+                                    prefabVariantStatusIsError = !saved;
+                                }
+                            }
+                        }
+                        if (!prefabVariantStatus.empty())
+                        {
+                            ImVec4 statusColor = prefabVariantStatusIsError
+                                ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f)
+                                : ImVec4(0.5f, 0.9f, 0.5f, 1.0f);
+                            ImGui::TextColored(statusColor, "%s", prefabVariantStatus.c_str());
+                        }
+
                         auto overrides = describePrefabOverrides(selectedEntity);
                         if (overrides.empty())
+                        {
                             ImGui::TextDisabled("No overrides detected.");
+                        }
                         else
                         {
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Overrides:");
                             for (const auto& overrideName : overrides)
                                 ImGui::BulletText("%s", overrideName.c_str());
+
+                            static int selectedOverrideIndex = 0;
+                            static std::string prefabOverrideActionStatus;
+                            static bool prefabOverrideActionStatusIsError = false;
+
+                            if (selectedOverrideIndex >= static_cast<int>(overrides.size()))
+                                selectedOverrideIndex = 0;
+
+                            const char* selectedLabel = overrides.empty() ? "<none>" : overrides[selectedOverrideIndex].c_str();
+                            if (ImGui::BeginCombo("Override Target", selectedLabel))
+                            {
+                                for (int oi = 0; oi < static_cast<int>(overrides.size()); ++oi)
+                                {
+                                    bool selected = (oi == selectedOverrideIndex);
+                                    if (ImGui::Selectable(overrides[oi].c_str(), selected))
+                                        selectedOverrideIndex = oi;
+                                    if (selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            bool appliedAction = false;
+                            if (InspectorActionButton("Revert Selected Override") && !overrides.empty())
+                            {
+                                std::string actionMessage;
+                                bool ok = revertSelectedPrefabOverride(selectedEntity, overrides[selectedOverrideIndex], actionMessage);
+                                prefabOverrideActionStatus = actionMessage;
+                                prefabOverrideActionStatusIsError = !ok;
+                                appliedAction = ok;
+                            }
+                            if (InspectorActionButton("Apply All Overrides To Prefab"))
+                            {
+                                std::string actionMessage;
+                                bool ok = applyAllPrefabOverrides(selectedEntity, actionMessage);
+                                prefabOverrideActionStatus = actionMessage;
+                                prefabOverrideActionStatusIsError = !ok;
+                                appliedAction = ok;
+                            }
+
+                            if (!prefabOverrideActionStatus.empty())
+                            {
+                                ImVec4 statusColor = prefabOverrideActionStatusIsError
+                                    ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f)
+                                    : ImVec4(0.5f, 0.9f, 0.5f, 1.0f);
+                                ImGui::TextColored(statusColor, "%s", prefabOverrideActionStatus.c_str());
+                            }
+
+                            if (appliedAction)
+                                overrides = describePrefabOverrides(selectedEntity);
                         }
                     }
 
@@ -2886,8 +3707,29 @@ int main()
                     }
 
                     // Animation Component
-                    if (selectedEntity->HasComponent<SkeletonComponent>() || selectedEntity->HasComponent<AnimationComponent>())
+                    std::string skinnedSourceAssetPath;
+                    bool hasSkinnedSourceAsset = false;
+                    if (selectedEntity->HasComponent<MeshComponent>())
                     {
+                        const auto& meshComponent = selectedEntity->GetComponent<MeshComponent>();
+                        if (!meshComponent.assetPath.empty())
+                        {
+                            std::filesystem::path meshAssetPath(meshComponent.assetPath);
+                            std::string ext = meshAssetPath.extension().string();
+                            std::transform(ext.begin(), ext.end(), ext.begin(),
+                                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                            hasSkinnedSourceAsset = (ext == ".fbx" || ext == ".gltf" || ext == ".glb");
+                            if (hasSkinnedSourceAsset)
+                                skinnedSourceAssetPath = meshComponent.assetPath;
+                        }
+                    }
+
+                    if (selectedEntity->HasComponent<SkeletonComponent>() ||
+                        selectedEntity->HasComponent<AnimationComponent>() ||
+                        hasSkinnedSourceAsset)
+                    {
+                        static std::string animationBootstrapStatus;
+
                         if (!selectedEntity->HasComponent<AnimationComponent>())
                         {
                             if (ImGui::Button("Add Animation Component"))
@@ -2895,6 +3737,47 @@ int main()
                                 auto& anim = selectedEntity->AddComponent<AnimationComponent>();
                                 anim.playing = true;
                                 anim.looping = true;
+                            }
+
+                            if (hasSkinnedSourceAsset)
+                            {
+                                ImGui::SameLine();
+                                if (ImGui::Button("Load Animations From Asset##anim"))
+                                {
+                                    MyEngine::SkinnedModelData skinnedData = MyEngine::AssetManager::LoadSkinnedModel(skinnedSourceAssetPath);
+                                    if (skinnedData.meshes.empty())
+                                    {
+                                        animationBootstrapStatus = "Failed to load model data from asset.";
+                                    }
+                                    else if (!skinnedData.skeleton || skinnedData.skeleton->GetBoneCount() <= 0)
+                                    {
+                                        animationBootstrapStatus = "Selected model has no skeleton/bones.";
+                                    }
+                                    else
+                                    {
+                                        auto& skeletonComponent = selectedEntity->HasComponent<SkeletonComponent>()
+                                            ? selectedEntity->GetComponent<SkeletonComponent>()
+                                            : selectedEntity->AddComponent<SkeletonComponent>();
+                                        skeletonComponent.skeleton = skinnedData.skeleton;
+
+                                        auto& anim = selectedEntity->HasComponent<AnimationComponent>()
+                                            ? selectedEntity->GetComponent<AnimationComponent>()
+                                            : selectedEntity->AddComponent<AnimationComponent>();
+                                        anim.clips = skinnedData.clips;
+                                        anim.activeClipIndex = (anim.clips && !anim.clips->empty()) ? 0 : -1;
+                                        anim.time = 0.0f;
+                                        anim.previousTime = 0.0f;
+                                        anim.blendElapsed = 0.0f;
+                                        anim.playing = true;
+                                        anim.looping = true;
+
+                                        const int clipCount = anim.clips ? static_cast<int>(anim.clips->size()) : 0;
+                                        animationBootstrapStatus = "Loaded " + std::to_string(clipCount) + " clip(s) from asset.";
+                                    }
+                                }
+
+                                if (!animationBootstrapStatus.empty())
+                                    ImGui::TextWrapped("%s", animationBootstrapStatus.c_str());
                             }
                         }
                         else if (BeginInspectorSection("Animation"))
@@ -3095,15 +3978,211 @@ int main()
 
                             InspectorGroupLabel("Import");
                             static std::string animationImportStatus;
-                            if (InspectorActionButton("Import Animation File...##anim"))
+                            if (hasSkinnedSourceAsset && InspectorActionButton("Load Animations From Entity Asset##anim"))
                             {
-                                std::string path = MyEngine::FileDialog::OpenModelFile();
-                                if (!path.empty())
+                                MyEngine::SkinnedModelData skinnedData = MyEngine::AssetManager::LoadSkinnedModel(skinnedSourceAssetPath);
+                                if (!skinnedData.skeleton || skinnedData.skeleton->GetBoneCount() <= 0)
                                 {
+                                    animationImportStatus = "Entity asset has no skeleton/bones.";
+                                }
+                                else if (!skinnedData.clips || skinnedData.clips->empty())
+                                {
+                                    animationImportStatus = "Entity asset has no embedded animation clips.";
+                                }
+                                else
+                                {
+                                    auto& skeletonComponent = selectedEntity->HasComponent<SkeletonComponent>()
+                                        ? selectedEntity->GetComponent<SkeletonComponent>()
+                                        : selectedEntity->AddComponent<SkeletonComponent>();
+                                    skeletonComponent.skeleton = skinnedData.skeleton;
+                                    skeleton = skeletonComponent.skeleton;
+
+                                    anim.clips = skinnedData.clips;
+                                    anim.activeClipIndex = 0;
+                                    anim.time = 0.0f;
+                                    anim.previousTime = 0.0f;
+                                    anim.blendElapsed = 0.0f;
+                                    anim.playing = true;
+                                    anim.looping = true;
+                                    animationImportStatus = "Loaded " + std::to_string(anim.clips->size()) + " clip(s) from entity asset.";
+                                }
+                            }
+                            if (InspectorActionButton("Import Animation Files...##anim"))
+                            {
+                                std::vector<std::string> paths = MyEngine::FileDialog::OpenModelFiles();
+                                if (!paths.empty())
+                                {
+                                    if (!anim.clips)
+                                        anim.clips = std::make_shared<std::vector<MyEngine::AnimationClip>>();
+
+                                    int importedCount = 0;
+                                    int incompatibleCount = 0;
+                                    int noClipFiles = 0;
+
+                                    for (const auto& path : paths)
+                                    {
+                                        auto externalClips = MyEngine::AssetManager::LoadAnimationClips(path);
+                                        if (!externalClips || externalClips->empty())
+                                        {
+                                            ++noClipFiles;
+                                            continue;
+                                        }
+
+                                        std::filesystem::path sourcePath(path);
+                                        std::string sourceStem = sourcePath.stem().string();
+                                        bool importedFromThisFile = false;
+
+                                        for (const auto& clip : *externalClips)
+                                        {
+                                            if (!MyEngine::AssetManager::IsAnimationClipCompatible(clip, skeleton))
+                                            {
+                                                ++incompatibleCount;
+                                                continue;
+                                            }
+
+                                            MyEngine::AnimationClip importedClip = clip;
+                                            std::string baseName = importedClip.name.empty()
+                                                ? sourceStem
+                                                : importedClip.name;
+                                            importedClip.name = baseName;
+
+                                            bool duplicateName = false;
+                                            for (const auto& existingClip : *anim.clips)
+                                            {
+                                                if (existingClip.name == importedClip.name)
+                                                {
+                                                    duplicateName = true;
+                                                    break;
+                                                }
+                                            }
+                                            if (duplicateName)
+                                                importedClip.name += " [" + sourceStem + "]";
+
+                                            anim.clips->push_back(std::move(importedClip));
+                                            ++importedCount;
+                                            importedFromThisFile = true;
+                                        }
+
+                                        if (importedFromThisFile)
+                                        {
+                                            bool alreadyTracked = false;
+                                            for (const auto& importedPath : anim.importedAnimationFilePaths)
+                                            {
+                                                if (importedPath == path)
+                                                {
+                                                    alreadyTracked = true;
+                                                    break;
+                                                }
+                                            }
+                                            if (!alreadyTracked)
+                                                anim.importedAnimationFilePaths.push_back(path);
+                                        }
+                                    }
+
+                                    if (importedCount > 0)
+                                    {
+                                        if (anim.activeClipIndex < 0)
+                                            anim.activeClipIndex = 0;
+                                        animationImportStatus = "Imported " + std::to_string(importedCount) + " clip(s) from " + std::to_string(paths.size()) + " file(s).";
+                                        if (incompatibleCount > 0 || noClipFiles > 0)
+                                        {
+                                            animationImportStatus += " Skipped: " + std::to_string(incompatibleCount) + " incompatible clip(s), " + std::to_string(noClipFiles) + " file(s) without clips.";
+                                        }
+                                    }
+                                    else
+                                    {
+                                        animationImportStatus = "No compatible clips found in selected files.";
+                                    }
+                                }
+                            }
+                            ImGui::SameLine();
+                            static std::string animationRetargetStatus;
+                            if (InspectorActionButton("Retarget Animation File...##anim"))
+                            {
+                                if (!skeleton)
+                                {
+                                    animationRetargetStatus = "Target entity has no skeleton.";
+                                }
+                                else
+                                {
+                                    std::string path = MyEngine::FileDialog::OpenModelFile();
+                                    if (!path.empty())
+                                    {
+                                        auto sourceData = MyEngine::AssetManager::LoadSkinnedModel(path);
+                                        if (!sourceData.skeleton || !sourceData.clips || sourceData.clips->empty())
+                                        {
+                                            animationRetargetStatus = "No source skeleton/clips available for retargeting.";
+                                        }
+                                        else
+                                        {
+                                            auto retargeted = MyEngine::AssetManager::RetargetAnimationClips(sourceData.clips, sourceData.skeleton, skeleton);
+                                            if (!retargeted || retargeted->empty())
+                                            {
+                                                animationRetargetStatus = "Retargeting produced no clips.";
+                                            }
+                                            else
+                                            {
+                                                if (!anim.clips)
+                                                    anim.clips = std::make_shared<std::vector<MyEngine::AnimationClip>>();
+                                                int added = 0;
+                                                for (auto& clip : *retargeted)
+                                                {
+                                                    std::string baseName = clip.name.empty() ? "Retargeted" : clip.name;
+                                                    clip.name = baseName + " [Retargeted]";
+                                                    anim.clips->push_back(std::move(clip));
+                                                    ++added;
+                                                }
+                                                if (anim.activeClipIndex < 0)
+                                                    anim.activeClipIndex = 0;
+                                                animationRetargetStatus = "Retargeted " + std::to_string(added) + " clip(s).";
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (!animationImportStatus.empty())
+                                ImGui::TextWrapped("%s", animationImportStatus.c_str());
+                            if (!animationRetargetStatus.empty())
+                                ImGui::TextWrapped("%s", animationRetargetStatus.c_str());
+
+                            InspectorGroupLabel("Imported Animation Sources");
+                            if (anim.importedAnimationFilePaths.empty())
+                            {
+                                ImGui::TextDisabled("No imported animation source files.");
+                            }
+                            else
+                            {
+                                int reimportSourceIndex = -1;
+                                int removeSourceIndex = -1;
+
+                                for (size_t sourceIndex = 0; sourceIndex < anim.importedAnimationFilePaths.size(); ++sourceIndex)
+                                {
+                                    const std::string& importedPath = anim.importedAnimationFilePaths[sourceIndex];
+                                    std::filesystem::path sourcePath(importedPath);
+                                    const std::string sourceName = sourcePath.filename().string().empty()
+                                        ? importedPath
+                                        : sourcePath.filename().string();
+
+                                    ImGui::PushID(static_cast<int>(sourceIndex));
+                                    ImGui::TextUnformatted(sourceName.c_str());
+                                    if (ImGui::IsItemHovered())
+                                        ImGui::SetTooltip("%s", importedPath.c_str());
+                                    ImGui::SameLine();
+                                    if (ImGui::SmallButton("Reimport"))
+                                        reimportSourceIndex = static_cast<int>(sourceIndex);
+                                    ImGui::SameLine();
+                                    if (ImGui::SmallButton("Remove"))
+                                        removeSourceIndex = static_cast<int>(sourceIndex);
+                                    ImGui::PopID();
+                                }
+
+                                if (reimportSourceIndex >= 0 && reimportSourceIndex < static_cast<int>(anim.importedAnimationFilePaths.size()))
+                                {
+                                    const std::string path = anim.importedAnimationFilePaths[reimportSourceIndex];
                                     auto externalClips = MyEngine::AssetManager::LoadAnimationClips(path);
                                     if (!externalClips || externalClips->empty())
                                     {
-                                        animationImportStatus = "No animation clips found in file.";
+                                        animationImportStatus = "Reimport failed: no clips found in source file.";
                                     }
                                     else
                                     {
@@ -3113,15 +4192,18 @@ int main()
                                         std::filesystem::path sourcePath(path);
                                         std::string sourceStem = sourcePath.stem().string();
                                         int importedCount = 0;
+                                        int incompatibleCount = 0;
+
                                         for (const auto& clip : *externalClips)
                                         {
                                             if (!MyEngine::AssetManager::IsAnimationClipCompatible(clip, skeleton))
+                                            {
+                                                ++incompatibleCount;
                                                 continue;
+                                            }
 
                                             MyEngine::AnimationClip importedClip = clip;
-                                            std::string baseName = importedClip.name.empty()
-                                                ? sourceStem
-                                                : importedClip.name;
+                                            std::string baseName = importedClip.name.empty() ? sourceStem : importedClip.name;
                                             importedClip.name = baseName;
 
                                             bool duplicateName = false;
@@ -3144,17 +4226,133 @@ int main()
                                         {
                                             if (anim.activeClipIndex < 0)
                                                 anim.activeClipIndex = 0;
-                                            animationImportStatus = "Imported " + std::to_string(importedCount) + " clip(s).";
+                                            animationImportStatus = "Reimported " + std::to_string(importedCount) + " clip(s) from " + sourceStem + ".";
+                                            if (incompatibleCount > 0)
+                                                animationImportStatus += " Skipped " + std::to_string(incompatibleCount) + " incompatible clip(s).";
                                         }
                                         else
                                         {
-                                            animationImportStatus = "No compatible clips found for this skeleton.";
+                                            animationImportStatus = "Reimport found no compatible clips for this skeleton.";
                                         }
                                     }
                                 }
+
+                                if (removeSourceIndex >= 0 && removeSourceIndex < static_cast<int>(anim.importedAnimationFilePaths.size()))
+                                {
+                                    const std::string removedPath = anim.importedAnimationFilePaths[removeSourceIndex];
+                                    anim.importedAnimationFilePaths.erase(anim.importedAnimationFilePaths.begin() + removeSourceIndex);
+                                    animationImportStatus = "Removed imported source file from scene persistence: " + removedPath;
+                                }
                             }
-                            if (!animationImportStatus.empty())
-                                ImGui::TextWrapped("%s", animationImportStatus.c_str());
+
+                            InspectorGroupLabel("Event Track");
+                            static char newAnimEventName[64] = "Footstep";
+                            static float newAnimEventTime = 0.0f;
+                            ImGui::SetNextItemWidth(220.0f);
+                            ImGui::InputText("Event Name##animEvent", newAnimEventName, sizeof(newAnimEventName));
+                            ImGui::SameLine();
+                            ImGui::SetNextItemWidth(120.0f);
+                            ImGui::DragFloat("Time (s)##animEvent", &newAnimEventTime, 0.01f, 0.0f, 600.0f, "%.2f");
+                            ImGui::SameLine();
+                            if (InspectorActionButton("Add Event##animEvent"))
+                            {
+                                AnimationComponent::AnimationEvent ev;
+                                ev.timeSeconds = std::max(0.0f, newAnimEventTime);
+                                ev.name = newAnimEventName;
+                                ev.enabled = true;
+                                if (!ev.name.empty())
+                                {
+                                    anim.events.push_back(ev);
+                                    std::sort(anim.events.begin(), anim.events.end(),
+                                        [](const AnimationComponent::AnimationEvent& a, const AnimationComponent::AnimationEvent& b)
+                                        {
+                                            return a.timeSeconds < b.timeSeconds;
+                                        });
+                                }
+                            }
+
+                            for (size_t eventIndex = 0; eventIndex < anim.events.size(); ++eventIndex)
+                            {
+                                auto& ev = anim.events[eventIndex];
+                                ImGui::PushID(static_cast<int>(eventIndex));
+                                ImGui::Checkbox("##enabled", &ev.enabled);
+                                ImGui::SameLine();
+                                ImGui::SetNextItemWidth(180.0f);
+                                char eventNameBuffer[128] = {};
+                                std::strncpy(eventNameBuffer, ev.name.c_str(), sizeof(eventNameBuffer) - 1);
+                                eventNameBuffer[sizeof(eventNameBuffer) - 1] = '\0';
+                                if (ImGui::InputText("##name", eventNameBuffer, sizeof(eventNameBuffer)))
+                                    ev.name = eventNameBuffer;
+                                ImGui::SameLine();
+                                ImGui::SetNextItemWidth(110.0f);
+                                ImGui::DragFloat("##time", &ev.timeSeconds, 0.01f, 0.0f, 600.0f, "%.2f");
+
+                                if (ImGui::TreeNode("Actions"))
+                                {
+                                    ImGui::Checkbox("Play Audio", &ev.triggerAudio);
+                                    if (ev.triggerAudio)
+                                    {
+                                        char audioPathBuffer[256] = {};
+                                        std::strncpy(audioPathBuffer, ev.audioClipPath.c_str(), sizeof(audioPathBuffer) - 1);
+                                        audioPathBuffer[sizeof(audioPathBuffer) - 1] = '\0';
+                                        if (ImGui::InputText("Audio Clip Path", audioPathBuffer, sizeof(audioPathBuffer)))
+                                            ev.audioClipPath = audioPathBuffer;
+                                        ImGui::SliderFloat("Audio Volume", &ev.audioVolume, 0.0f, 1.0f);
+                                        ImGui::DragFloat("Audio Pitch", &ev.audioPitch, 0.01f, 0.1f, 4.0f, "%.2f");
+                                    }
+
+                                    ImGui::Checkbox("Particle Burst", &ev.triggerParticleBurst);
+                                    if (ev.triggerParticleBurst)
+                                        ImGui::DragInt("Burst Count", &ev.particleBurstCount, 1.0f, 1, 2048);
+
+                                    ImGui::Checkbox("Script Callback", &ev.triggerScriptCallback);
+                                    if (ev.triggerScriptCallback)
+                                    {
+                                        char callbackBuffer[128] = {};
+                                        std::strncpy(callbackBuffer, ev.scriptCallbackName.c_str(), sizeof(callbackBuffer) - 1);
+                                        callbackBuffer[sizeof(callbackBuffer) - 1] = '\0';
+                                        if (ImGui::InputText("Callback Name", callbackBuffer, sizeof(callbackBuffer)))
+                                            ev.scriptCallbackName = callbackBuffer;
+                                        if (ev.scriptCallbackName.empty())
+                                            ev.scriptCallbackName = "OnAnimationEvent";
+                                    }
+
+                                    ev.audioVolume = std::clamp(ev.audioVolume, 0.0f, 1.0f);
+                                    ev.audioPitch = std::clamp(ev.audioPitch, 0.1f, 4.0f);
+                                    ev.particleBurstCount = std::max(ev.particleBurstCount, 1);
+                                    ImGui::TreePop();
+                                }
+
+                                if (InspectorDangerButton("X##removeEvent"))
+                                {
+                                    anim.events.erase(anim.events.begin() + static_cast<std::ptrdiff_t>(eventIndex));
+                                    ImGui::PopID();
+                                    break;
+                                }
+                                ImGui::PopID();
+                            }
+
+                            if (!anim.triggeredEventsThisFrame.empty())
+                            {
+                                ImGui::TextDisabled("Triggered This Frame:");
+                                for (const auto& eventName : anim.triggeredEventsThisFrame)
+                                    ImGui::BulletText("%s", eventName.c_str());
+                            }
+
+                            const auto& runtimeAnimEvents = MyEngine::AnimationEventBus::GetRecentEvents();
+                            if (!runtimeAnimEvents.empty() && ImGui::CollapsingHeader("Runtime Animation Events", ImGuiTreeNodeFlags_DefaultOpen))
+                            {
+                                const int maxShown = std::min<int>(12, static_cast<int>(runtimeAnimEvents.size()));
+                                for (int i = static_cast<int>(runtimeAnimEvents.size()) - maxShown; i < static_cast<int>(runtimeAnimEvents.size()); ++i)
+                                {
+                                    const auto& evt = runtimeAnimEvents[static_cast<size_t>(i)];
+                                    ImGui::BulletText("[%u] %s -> %s @ %.2fs",
+                                        evt.entityID,
+                                        evt.entityName.c_str(),
+                                        evt.eventName.c_str(),
+                                        evt.eventTimeSeconds);
+                                }
+                            }
                         }
                     }
 
@@ -3599,8 +4797,17 @@ int main()
 
                 auto profileNames = MyEngine::InputActions::GetProfileNames();
                 std::string activeProfile = MyEngine::InputActions::GetActiveProfileName();
+                std::string defaultProfile = MyEngine::InputActions::GetDefaultProfileName();
+                bool bindingsDirty = MyEngine::InputActions::IsBindingsDirty();
                 if (activeProfile.empty() && !profileNames.empty())
                     activeProfile = profileNames.front();
+
+                if (bindingsDirty)
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "Unsaved binding changes");
+
+                static std::string pendingProfileSwitch;
+                static std::string pendingProfileDelete;
+                static bool showProfileDirtyConfirm = false;
 
                 if (ImGui::BeginCombo("Active Profile", activeProfile.c_str()))
                 {
@@ -3608,13 +4815,85 @@ int main()
                     {
                         bool selected = (profileName == activeProfile);
                         if (ImGui::Selectable(profileName.c_str(), selected))
-                            MyEngine::InputActions::SetActiveProfile(profileName);
+                        {
+                            if (profileName != activeProfile && bindingsDirty)
+                            {
+                                pendingProfileSwitch = profileName;
+                                showProfileDirtyConfirm = true;
+                            }
+                            else
+                            {
+                                MyEngine::InputActions::SetActiveProfile(profileName);
+                            }
+                        }
+                        if (selected) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                if (showProfileDirtyConfirm)
+                {
+                    ImGui::OpenPopup("Unsaved Profile Changes");
+                    showProfileDirtyConfirm = false;
+                }
+                if (ImGui::BeginPopupModal("Unsaved Profile Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::TextUnformatted("You have unsaved binding changes.");
+                    ImGui::TextUnformatted("Save before switching/deleting/loading?");
+                    if (ImGui::Button("Save and Continue"))
+                    {
+                        if (MyEngine::InputActions::SaveBindings(bindingsPath))
+                        {
+                            if (!pendingProfileSwitch.empty())
+                                MyEngine::InputActions::SetActiveProfile(pendingProfileSwitch);
+                            else if (!pendingProfileDelete.empty())
+                                MyEngine::InputActions::DeleteProfile(pendingProfileDelete);
+                            std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Saved %s", bindingsPath);
+                        }
+                        else
+                        {
+                            std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Failed to save %s", bindingsPath);
+                        }
+                        pendingProfileSwitch.clear();
+                        pendingProfileDelete.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Discard and Continue"))
+                    {
+                        if (!pendingProfileSwitch.empty())
+                            MyEngine::InputActions::SetActiveProfile(pendingProfileSwitch);
+                        else if (!pendingProfileDelete.empty())
+                            MyEngine::InputActions::DeleteProfile(pendingProfileDelete);
+                        pendingProfileSwitch.clear();
+                        pendingProfileDelete.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel"))
+                    {
+                        pendingProfileSwitch.clear();
+                        pendingProfileDelete.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                }
+
+                if (ImGui::BeginCombo("Default Profile", defaultProfile.c_str()))
+                {
+                    for (const auto& profileName : profileNames)
+                    {
+                        bool selected = (profileName == defaultProfile);
+                        if (ImGui::Selectable(profileName.c_str(), selected))
+                            MyEngine::InputActions::SetDefaultProfile(profileName);
                         if (selected) ImGui::SetItemDefaultFocus();
                     }
                     ImGui::EndCombo();
                 }
 
                 static char newProfileName[64] = "";
+                static char renameProfileName[64] = "";
+                static char duplicateProfileName[64] = "";
                 ImGui::InputText("New Profile", newProfileName, sizeof(newProfileName));
                 if (ImGui::Button("Create Profile (Copy Current)"))
                 {
@@ -3623,13 +4902,41 @@ int main()
                     else
                         std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Failed to create profile %s", newProfileName);
                 }
-                ImGui::SameLine();
+
+                ImGui::InputText("Rename Active To", renameProfileName, sizeof(renameProfileName));
+                if (ImGui::Button("Rename Active Profile"))
+                {
+                    if (MyEngine::InputActions::RenameProfile(MyEngine::InputActions::GetActiveProfileName(), renameProfileName))
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Renamed active profile to %s", renameProfileName);
+                    else
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Failed to rename active profile");
+                }
+
+                ImGui::InputText("Duplicate Active To", duplicateProfileName, sizeof(duplicateProfileName));
+                if (ImGui::Button("Duplicate Active Profile"))
+                {
+                    if (MyEngine::InputActions::DuplicateProfile(MyEngine::InputActions::GetActiveProfileName(), duplicateProfileName))
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Duplicated active profile to %s", duplicateProfileName);
+                    else
+                        std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Failed to duplicate active profile");
+                }
+
                 if (ImGui::Button("Delete Active Profile"))
                 {
-                    if (MyEngine::InputActions::DeleteProfile(MyEngine::InputActions::GetActiveProfileName()))
+                    std::string activeToDelete = MyEngine::InputActions::GetActiveProfileName();
+                    if (bindingsDirty)
+                    {
+                        pendingProfileDelete = activeToDelete;
+                        showProfileDirtyConfirm = true;
+                    }
+                    else if (MyEngine::InputActions::DeleteProfile(activeToDelete))
+                    {
                         std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Deleted active profile");
+                    }
                     else
+                    {
                         std::snprintf(bindingsStatus, sizeof(bindingsStatus), "Failed to delete active profile");
+                    }
                 }
 
                 static const std::array<std::pair<int, const char*>, 15> keyOptions = {{
@@ -3663,6 +4970,14 @@ int main()
                     { GLFW_GAMEPAD_AXIS_LEFT_TRIGGER, "Left Trigger" },
                     { GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER, "Right Trigger" }
                 }};
+                static const std::array<int, 6> calibrationAxisOrder = {
+                    GLFW_GAMEPAD_AXIS_LEFT_X,
+                    GLFW_GAMEPAD_AXIS_LEFT_Y,
+                    GLFW_GAMEPAD_AXIS_RIGHT_X,
+                    GLFW_GAMEPAD_AXIS_RIGHT_Y,
+                    GLFW_GAMEPAD_AXIS_LEFT_TRIGGER,
+                    GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER
+                };
 
                 auto findOptionIndex = [](auto& options, int value)
                 {
@@ -3685,6 +5000,25 @@ int main()
 
                 const auto actionNames = MyEngine::InputActions::GetActionNames();
                 const auto axisNames = MyEngine::InputActions::GetAxisNames();
+
+                static bool inputContextGameplay = true;
+                static bool inputContextUI = false;
+                static bool inputContextConsole = false;
+
+                MyEngine::InputActions::ClearContextLayers();
+                if (inputContextGameplay)
+                    MyEngine::InputActions::PushContextLayer(MyEngine::InputActions::InputContext::Gameplay, 10, false);
+                if (inputContextUI)
+                    MyEngine::InputActions::PushContextLayer(MyEngine::InputActions::InputContext::UI, 20, true);
+                if (inputContextConsole)
+                    MyEngine::InputActions::PushContextLayer(MyEngine::InputActions::InputContext::Console, 30, true);
+
+                if (ImGui::CollapsingHeader("Input Context Layers", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    ImGui::Checkbox("Gameplay Context", &inputContextGameplay);
+                    ImGui::Checkbox("UI Context", &inputContextUI);
+                    ImGui::Checkbox("Console Context", &inputContextConsole);
+                }
 
                 // Capture rebinding state
                 enum CaptureMode
@@ -3831,6 +5165,35 @@ int main()
                 if (!hasConflictWarnings)
                     ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "No binding conflicts detected.");
 
+                if (ImGui::CollapsingHeader("Gamepad Calibration", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    for (int axis : calibrationAxisOrder)
+                    {
+                        MyEngine::InputActions::AxisCalibration calibration;
+                        if (!MyEngine::InputActions::TryGetGamepadAxisCalibration(axis, calibration))
+                            continue;
+
+                        float raw = MyEngine::InputActions::GetGamepadAxisRaw(axis);
+                        float calibrated = MyEngine::InputActions::GetGamepadAxisCalibrated(axis);
+
+                        ImGui::PushID(axis);
+                        ImGui::Text("%s", findOptionLabel(gamepadAxisOptions, axis));
+                        ImGui::Text("Raw: %.3f  Calibrated: %.3f", raw, calibrated);
+                        bool changed = false;
+                        changed |= ImGui::SliderFloat("Deadzone Override", &calibration.deadzone, -1.0f, 0.8f, "%.2f");
+                        changed |= ImGui::SliderFloat("Response Exponent", &calibration.exponent, 0.1f, 4.0f, "%.2f");
+                        changed |= ImGui::SliderFloat("Saturation", &calibration.saturation, 0.01f, 2.0f, "%.2f");
+                        changed |= ImGui::Checkbox("Invert Axis", &calibration.invert);
+                        if (changed)
+                            MyEngine::InputActions::SetGamepadAxisCalibration(axis, calibration);
+                        ImGui::Separator();
+                        ImGui::PopID();
+                    }
+
+                    if (ImGui::Button("Reset Calibration"))
+                        MyEngine::InputActions::ResetGamepadCalibration();
+                }
+
                 if (hasConflictWarnings)
                 {
                     if (ImGui::Button("Auto-Fix Conflicts (Keep First)"))
@@ -3856,6 +5219,7 @@ int main()
                         int gamepadAxisAction = binding.gamepadAxes.empty() ? -1 : binding.gamepadAxes[0];
                         float actionAxisThreshold = binding.axisThreshold;
                         bool actionInvertAxis = binding.invertAxis;
+                        int actionContext = static_cast<int>(binding.context);
 
                         if (ImGui::TreeNode(actionName.c_str()))
                         {
@@ -3964,6 +5328,7 @@ int main()
                             }
                             ImGui::SliderFloat("Axis Threshold", &actionAxisThreshold, 0.01f, 1.0f, "%.2f");
                             ImGui::Checkbox("Invert Action Axis", &actionInvertAxis);
+                            ImGui::SliderInt("Context", &actionContext, 0, 2, actionContext == 0 ? "Gameplay" : (actionContext == 1 ? "UI" : "Console"));
 
                             MyEngine::InputActions::ActionBinding updated;
                             if (keyCode >= 0) updated.keys.push_back(keyCode);
@@ -3972,6 +5337,7 @@ int main()
                             if (gamepadAxisAction >= 0) updated.gamepadAxes.push_back(gamepadAxisAction);
                             updated.axisThreshold = actionAxisThreshold;
                             updated.invertAxis = actionInvertAxis;
+                            updated.context = static_cast<MyEngine::InputActions::InputContext>(actionContext);
                             MyEngine::InputActions::BindAction(actionName, updated);
 
                             ImGui::Text("Down: %s", MyEngine::InputActions::IsAction(actionName) ? "Yes" : "No");
@@ -3999,6 +5365,7 @@ int main()
                         bool invert = binding.invert;
                         float axisDeadzone = binding.deadzone;
                         float axisSensitivity = binding.sensitivity;
+                        int axisContext = static_cast<int>(binding.context);
 
                         if (ImGui::TreeNode(axisName.c_str()))
                         {
@@ -4084,6 +5451,7 @@ int main()
                             ImGui::Checkbox("Invert", &invert);
                             ImGui::SliderFloat("Per-Axis Deadzone", &axisDeadzone, -1.0f, 0.5f, "%.2f");
                             ImGui::SliderFloat("Sensitivity", &axisSensitivity, 0.01f, 3.0f, "%.2f");
+                            ImGui::SliderInt("Axis Context", &axisContext, 0, 2, axisContext == 0 ? "Gameplay" : (axisContext == 1 ? "UI" : "Console"));
 
                             MyEngine::InputActions::AxisBinding updated;
                             if (positiveKey >= 0 || negativeKey >= 0)
@@ -4093,6 +5461,7 @@ int main()
                             updated.invert = invert;
                             updated.deadzone = axisDeadzone;
                             updated.sensitivity = axisSensitivity;
+                            updated.context = static_cast<MyEngine::InputActions::InputContext>(axisContext);
                             MyEngine::InputActions::BindAxis(axisName, updated);
 
                             ImGui::Text("Value: %.2f", MyEngine::InputActions::GetAxis(axisName));
@@ -4595,8 +5964,31 @@ int main()
                 ImGui::Text("CPU Frame: %.3f ms", deltaTime * 1000.0f);
                 ImGui::Text("GPU Frame: %.3f ms", gpuFrameMs);
                 ImGui::Text("CPU Physics: %.3f ms", cpuPhysicsMs);
+                ImGui::Text("Replay: %s  Seed: %u  Frames: %zu  PlayIdx: %zu",
+                    Input::IsInputPlayback() ? "Playback" : (Input::IsInputRecording() ? "Recording" : "Live"),
+                    Input::GetReplaySeed(),
+                    Input::GetReplayFrameCount(),
+                    Input::GetReplayPlaybackIndex());
+                ImGui::Text("Replay Sim: dt=%.3f  substeps=%d  particleSeed=%u",
+                    physicsSystem.fixedTimestep,
+                    physicsSystem.maxSubsteps,
+                    replayParticleSeed);
                 ImGui::Text("CPU Animation+Particles: %.3f ms", cpuAnimationMs);
                 ImGui::Text("CPU Render: %.3f ms", cpuRenderMs);
+                bool occlusionApprox = renderSystem.GetOcclusionApproximationEnabled();
+                if (ImGui::Checkbox("CPU Occlusion Approximation", &occlusionApprox))
+                    renderSystem.SetOcclusionApproximationEnabled(occlusionApprox);
+                bool gpuOcclusionQueries = renderSystem.GetGPUOcclusionQueriesEnabled();
+                if (ImGui::Checkbox("GPU Occlusion Queries", &gpuOcclusionQueries))
+                    renderSystem.SetGPUOcclusionQueriesEnabled(gpuOcclusionQueries);
+                int queryRecheckFrames = renderSystem.GetOcclusionQueryRecheckFrames();
+                if (ImGui::SliderInt("Occlusion Recheck Frames", &queryRecheckFrames, 1, 30))
+                    renderSystem.SetOcclusionQueryRecheckFrames(queryRecheckFrames);
+                auto occDiag = renderSystem.GetOcclusionDiagnostics();
+                ImGui::Text("Occlusion Visible: %d / %d", occDiag.visible, occDiag.totalCandidates);
+                ImGui::Text("Frustum Reject: %d  Occlusion Reject: %d", occDiag.frustumRejected, occDiag.occlusionRejected);
+                ImGui::Text("Temporal Reject: %d", occDiag.temporalRejected);
+                ImGui::Text("Query Submitted: %d  Visible: %d  Hidden: %d", occDiag.querySubmitted, occDiag.queryVisible, occDiag.queryHidden);
 #ifdef _WIN32
                 ImGui::Text("Memory Working Set: %.1f MB", memoryWorkingSetMB);
                 ImGui::Text("Memory Private: %.1f MB", memoryPrivateMB);
@@ -4606,6 +5998,43 @@ int main()
                 ImGui::PlotLines("Physics (ms)", physicsMsHistory.data(), static_cast<int>(physicsMsHistory.size()), perfHistoryIndex, nullptr, 0.0f, 20.0f, ImVec2(0, 50));
                 ImGui::PlotLines("Animation (ms)", animationMsHistory.data(), static_cast<int>(animationMsHistory.size()), perfHistoryIndex, nullptr, 0.0f, 20.0f, ImVec2(0, 50));
                 ImGui::PlotLines("Render (ms)", renderMsHistory.data(), static_cast<int>(renderMsHistory.size()), perfHistoryIndex, nullptr, 0.0f, 30.0f, ImVec2(0, 50));
+                ImGui::PlotLines("Visible Meshes", visibleCountHistory.data(), static_cast<int>(visibleCountHistory.size()), perfHistoryIndex, nullptr, 0.0f, 500.0f, ImVec2(0, 50));
+                ImGui::PlotLines("Occlusion Rejects", occlusionRejectHistory.data(), static_cast<int>(occlusionRejectHistory.size()), perfHistoryIndex, nullptr, 0.0f, 500.0f, ImVec2(0, 50));
+                ImGui::PlotLines("Frustum Rejects", frustumRejectHistory.data(), static_cast<int>(frustumRejectHistory.size()), perfHistoryIndex, nullptr, 0.0f, 500.0f, ImVec2(0, 50));
+
+                ImGui::Separator();
+                ImGui::Text("Texture Streaming");
+                bool textureStreamingEnabled = MyEngine::AssetManager::GetTextureStreamingEnabled();
+                if (ImGui::Checkbox("Enable Texture Streaming", &textureStreamingEnabled))
+                    MyEngine::AssetManager::SetTextureStreamingEnabled(textureStreamingEnabled);
+                int streamingQuality = static_cast<int>(MyEngine::AssetManager::GetTextureStreamingQuality());
+                const char* streamingOptions[] = { "Full Resolution", "Half Resolution", "Quarter Resolution" };
+                if (ImGui::Combo("Streaming Quality", &streamingQuality, streamingOptions, IM_ARRAYSIZE(streamingOptions)))
+                    MyEngine::AssetManager::SetTextureStreamingQuality(static_cast<MyEngine::AssetManager::TextureStreamingQuality>(streamingQuality));
+
+                ImGui::Separator();
+                ImGui::Text("Shader Hot Reload");
+                bool shaderAutoReload = MyEngine::AssetManager::GetShaderAutoHotReloadEnabled();
+                if (ImGui::Checkbox("Auto Shader Reload", &shaderAutoReload))
+                    MyEngine::AssetManager::SetShaderAutoHotReloadEnabled(shaderAutoReload);
+                if (ImGui::Button("Reload All Shaders"))
+                {
+                    bool ok = MyEngine::AssetManager::ReloadAllShaders(false);
+                    if (!ok)
+                        std::cerr << "Shader reload reported errors" << std::endl;
+                }
+                auto shaderErrors = MyEngine::AssetManager::GetShaderErrorReport();
+                if (!shaderErrors.empty())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.4f, 1.0f), "Shader Errors:");
+                    for (const auto& err : shaderErrors)
+                        ImGui::BulletText("%s", err.c_str());
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "Shader status: OK");
+                }
+
                 if (ImGui::Button("Export CSV##perfExport"))
                 {
                     if (!exportPerformanceCsv())
@@ -4650,6 +6079,21 @@ int main()
                 ImGui::Text("Viewport: %dx%d", g_WindowWidth, g_WindowHeight);
                 ImGui::Checkbox("Wireframe", &wireframe);
                 renderSystem.SetWireframe(wireframe);
+
+                int debugViewMode = static_cast<int>(renderSystem.GetDebugViewMode());
+                const char* debugViewOptions[] = {
+                    "Final Lit",
+                    "Albedo",
+                    "Normal",
+                    "Roughness",
+                    "Metallic",
+                    "AO",
+                    "Emissive",
+                    "Shadow",
+                    "SSAO"
+                };
+                if (ImGui::Combo("Debug View", &debugViewMode, debugViewOptions, IM_ARRAYSIZE(debugViewOptions)))
+                    renderSystem.SetDebugViewMode(static_cast<MeshRendererSystem::DebugViewMode>(debugViewMode));
 
                 ImGui::End();
             }
@@ -4851,28 +6295,40 @@ int main()
             }
         }
 
-        renderSystem.Render(scene, view, projection);
+        MyEngine::RenderCommandList drawCommands;
+        drawCommands.BeginFrame();
+        MyEngine::RenderDrawIndexedCommand drawIntent;
+        drawIntent.pipelineHandle = 1;
+        drawIntent.meshHandle = 1;
+        drawIntent.indexCount = 1;
+        drawCommands.DrawIndexed(drawIntent);
+        drawCommands.EndFrame();
 
-        // Particles are rendered after opaque geometry and before skybox
-        // so they alpha-blend correctly over solid surfaces.
-        particleSystem.Render(scene, view, projection);
-        terrainSystem.Render(scene, view, projection, glm::vec3(glm::inverse(view)[3]), litShader);
-
-        // Skybox is drawn after opaque geometry
-        // is currently bound - the HDR post-process target or the default
-        // framebuffer) so only far-depth pixels are filled, minimizing the
-        // chance of pass state impacting scene object rendering.
-        if (skyboxEnabled && skybox.IsLoaded())
+        glCommandExecutor.ExecuteWithDrawScaffold(drawCommands, [&]()
         {
-            skybox.Render(view, projection);
-        }
+            renderSystem.Render(scene, view, projection);
 
-        if (postProcessEnabled)
-        {
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glViewport(0, 0, g_WindowWidth, g_WindowHeight);
-            postProcess.Composite();
-        }
+            // Particles are rendered after opaque geometry and before skybox
+            // so they alpha-blend correctly over solid surfaces.
+            particleSystem.Render(scene, view, projection);
+            terrainSystem.Render(scene, view, projection, glm::vec3(glm::inverse(view)[3]), litShader);
+
+            // Skybox is drawn after opaque geometry
+            // is currently bound - the HDR post-process target or the default
+            // framebuffer) so only far-depth pixels are filled, minimizing the
+            // chance of pass state impacting scene object rendering.
+            if (skyboxEnabled && skybox.IsLoaded())
+            {
+                skybox.Render(view, projection);
+            }
+
+            if (postProcessEnabled)
+            {
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                glViewport(0, 0, g_WindowWidth, g_WindowHeight);
+                postProcess.Composite();
+            }
+        });
 
         glEndQuery(GL_TIME_ELAPSED);
         gpuQueryWriteIndex = (gpuQueryWriteIndex + 1) % 2;
@@ -4891,6 +6347,10 @@ int main()
         physicsMsHistory[perfHistoryIndex] = cpuPhysicsMs;
         animationMsHistory[perfHistoryIndex] = cpuAnimationMs;
         renderMsHistory[perfHistoryIndex] = cpuRenderMs;
+        auto perfOccDiag = renderSystem.GetOcclusionDiagnostics();
+        visibleCountHistory[perfHistoryIndex] = static_cast<float>(perfOccDiag.visible);
+        occlusionRejectHistory[perfHistoryIndex] = static_cast<float>(perfOccDiag.occlusionRejected + perfOccDiag.temporalRejected);
+        frustumRejectHistory[perfHistoryIndex] = static_cast<float>(perfOccDiag.frustumRejected);
         perfHistoryIndex = (perfHistoryIndex + 1) % kPerfHistory;
 
 #ifdef USE_IMGUI
@@ -5009,7 +6469,10 @@ int main()
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 #endif
 
-        glfwSwapBuffers(window);
+        renderPlatform->Present();
+#ifdef MYENGINE_ENABLE_RENDERDOC
+        renderDocCapture.EndFrameCapture();
+#endif
     }
 
     // ------------------------------------------------------------
@@ -5029,8 +6492,7 @@ int main()
     audioSystem.ReleaseAll(scene);
     AudioEngine::Shutdown();
 
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    renderPlatform->Shutdown();
 
     return 0;
 }

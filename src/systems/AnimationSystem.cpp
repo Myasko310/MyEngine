@@ -3,6 +3,7 @@
 #include "components/AnimationComponent.h"
 #include "components/AnimationStateMachineComponent.h"
 #include "components/SkeletonComponent.h"
+#include "core/AnimationEventBus.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
 
@@ -12,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <unordered_set>
 
 namespace MyEngine
 {
@@ -250,17 +252,23 @@ namespace MyEngine
 		if (!clip)
 			return bone.localBindTransform;
 
-		const BoneAnimationTrack* track = clip->FindTrack(bone.name);
+		// Use normalized lookup to handle case/spacing/special-character mismatches
+		const BoneAnimationTrack* track = clip->FindTrackNormalized(bone.name);
 		if (!track)
+		{
+			// Silently fall back to bind pose for bones without animation
 			return bone.localBindTransform;
+		}
 
 		glm::vec3 pos = track->SamplePosition(timeTicks);
 		glm::quat rot = track->SampleRotation(timeTicks);
 		glm::vec3 scale = track->SampleScale(timeTicks);
 
-		return glm::translate(glm::mat4(1.0f), pos) *
+		glm::mat4 sampled = glm::translate(glm::mat4(1.0f), pos) *
 			glm::mat4_cast(rot) *
 			glm::scale(glm::mat4(1.0f), scale);
+
+		return bone.skippedNodeLocalPrefix * sampled;
 	}
 
 	// Decomposes a local transform matrix back into translate/rotate/scale so
@@ -368,6 +376,37 @@ namespace MyEngine
 
 	void AnimationSystem::Update(Scene& scene, float deltaTime)
 	{
+		AnimationEventBus::BeginFrame();
+		auto collectAnimationEvents = [](AnimationComponent& anim, float previousTime, float currentTime, float durationSeconds)
+		{
+			anim.triggeredEventsThisFrame.clear();
+			if (anim.events.empty() || durationSeconds <= 0.0001f)
+				return;
+
+			auto inRangeNoWrap = [](float t, float start, float end)
+			{
+				return t >= start && t <= end;
+			};
+
+			for (const auto& evt : anim.events)
+			{
+				if (!evt.enabled || evt.name.empty())
+					continue;
+				float t = std::clamp(evt.timeSeconds, 0.0f, durationSeconds);
+				bool triggered = false;
+				if (currentTime >= previousTime)
+				{
+					triggered = inRangeNoWrap(t, previousTime, currentTime);
+				}
+				else
+				{
+					triggered = inRangeNoWrap(t, previousTime, durationSeconds) || inRangeNoWrap(t, 0.0f, currentTime);
+				}
+				if (triggered)
+					anim.triggeredEventsThisFrame.push_back(evt.name);
+			}
+		};
+
 		for (const auto& entity : scene.GetEntities())
 		{
 			if (!entity)
@@ -395,6 +434,7 @@ namespace MyEngine
 				continue;
 
 			const AnimationClip& clip = (*anim.clips)[anim.activeClipIndex];
+			const float previousAnimationTime = anim.time;
 
 			if (anim.playing)
 				anim.time += deltaTime * anim.playbackSpeed;
@@ -418,6 +458,34 @@ namespace MyEngine
 				anim.time = 0.0f;
 			}
 
+			collectAnimationEvents(anim, previousAnimationTime, anim.time, durationSeconds);
+			for (const auto& eventName : anim.triggeredEventsThisFrame)
+			{
+				AnimationEventMessage message;
+				message.entityID = entity->GetID();
+				message.entityName = entity->GetName();
+				message.eventName = eventName;
+				message.eventTimeSeconds = anim.time;
+				AnimationEventBus::Publish(message);
+
+				for (const auto& evt : anim.events)
+				{
+					if (!evt.enabled || evt.name != eventName)
+						continue;
+					AnimationEventActionMessage action;
+					action.entityID = entity->GetID();
+					action.eventName = evt.name;
+					action.triggerAudio = evt.triggerAudio;
+					action.audioClipPath = evt.audioClipPath;
+					action.audioVolume = evt.audioVolume;
+					action.audioPitch = evt.audioPitch;
+					action.triggerParticleBurst = evt.triggerParticleBurst;
+					action.particleBurstCount = evt.particleBurstCount;
+					action.triggerScriptCallback = evt.triggerScriptCallback;
+					action.scriptCallbackName = evt.scriptCallbackName;
+					AnimationEventBus::QueueAction(action);
+				}
+			}
 			float timeTicks = anim.time * clip.ticksPerSecond;
 
 			if (anim.blending)

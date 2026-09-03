@@ -10,6 +10,14 @@ namespace MyEngine
     std::unordered_map<int, bool> Input::s_currentMouseButtons;
     std::unordered_map<int, bool> Input::s_previousMouseButtons;
 
+    bool Input::s_isRecording = false;
+    bool Input::s_isPlayback = false;
+    unsigned int Input::s_replaySeed = 0;
+    size_t Input::s_replayPlaybackIndex = 0;
+    std::vector<Input::ReplayFrame> Input::s_replayFrames;
+    std::vector<unsigned char> Input::s_playbackGamepadButtons;
+    std::vector<float> Input::s_playbackGamepadAxes;
+
     float Input::s_mouseDeltaX = 0.0f;
     float Input::s_mouseDeltaY = 0.0f;
 
@@ -52,6 +60,18 @@ namespace MyEngine
     {
         s_previousKeys = s_currentKeys;
         s_previousMouseButtons = s_currentMouseButtons;
+
+        if (s_isPlayback && s_replayPlaybackIndex < s_replayFrames.size())
+        {
+            const ReplayFrame& frame = s_replayFrames[s_replayPlaybackIndex++];
+            s_currentKeys = frame.keys;
+            s_currentMouseButtons = frame.mouseButtons;
+            s_mouseDeltaX = frame.mouseDeltaX;
+            s_mouseDeltaY = frame.mouseDeltaY;
+            s_mouseWheelX = frame.mouseWheelX;
+            s_mouseWheelY = frame.mouseWheelY;
+            return;
+        }
 
         s_mouseDeltaX = 0.0f;
         s_mouseDeltaY = 0.0f;
@@ -186,6 +206,164 @@ namespace MyEngine
     GLFWwindow* Input::GetWindow()
     {
         return s_window;
+    }
+
+    void Input::BeginInputRecording(unsigned int seed)
+    {
+        s_isRecording = true;
+        s_isPlayback = false;
+        s_replaySeed = seed;
+        s_replayPlaybackIndex = 0;
+        s_replayFrames.clear();
+        s_playbackGamepadButtons.assign(15, 0);
+        s_playbackGamepadAxes.assign(6, 0.0f);
+    }
+
+    void Input::StopInputRecording()
+    {
+        s_isRecording = false;
+    }
+
+    bool Input::IsInputRecording()
+    {
+        return s_isRecording;
+    }
+
+    void Input::BeginInputPlayback()
+    {
+        s_isPlayback = true;
+        s_isRecording = false;
+        s_replayPlaybackIndex = 0;
+        s_playbackGamepadButtons.assign(15, 0);
+        s_playbackGamepadAxes.assign(6, 0.0f);
+    }
+
+    void Input::StopInputPlayback()
+    {
+        s_isPlayback = false;
+        s_replayPlaybackIndex = 0;
+        s_playbackGamepadButtons.assign(15, 0);
+        s_playbackGamepadAxes.assign(6, 0.0f);
+    }
+
+    bool Input::IsInputPlayback()
+    {
+        return s_isPlayback;
+    }
+
+    unsigned int Input::GetReplaySeed()
+    {
+        return s_replaySeed;
+    }
+
+    size_t Input::GetReplayFrameCount()
+    {
+        return s_replayFrames.size();
+    }
+
+    size_t Input::GetReplayPlaybackIndex()
+    {
+        return s_replayPlaybackIndex;
+    }
+
+    const std::vector<Input::ReplayFrame>& Input::GetReplayFrames()
+    {
+        return s_replayFrames;
+    }
+
+    void Input::FinalizeReplayFrame(const unsigned char* gamepadButtons, int gamepadButtonCount, const float* gamepadAxes, int gamepadAxisCount, float fixedTimestep, int maxSubsteps, unsigned int particleSeed)
+    {
+        if (!s_isRecording)
+            return;
+
+        ReplayFrame frame;
+        frame.keys = s_currentKeys;
+        frame.mouseButtons = s_currentMouseButtons;
+        frame.mouseDeltaX = s_mouseDeltaX;
+        frame.mouseDeltaY = s_mouseDeltaY;
+        frame.mouseWheelX = s_mouseWheelX;
+        frame.mouseWheelY = s_mouseWheelY;
+        frame.fixedTimestep = fixedTimestep;
+        frame.maxSubsteps = maxSubsteps;
+        frame.particleSeed = particleSeed;
+
+        int buttonCount = std::max(gamepadButtonCount, 0);
+        int axisCount = std::max(gamepadAxisCount, 0);
+        frame.gamepadButtons.assign(static_cast<size_t>(buttonCount), 0);
+        frame.gamepadAxes.assign(static_cast<size_t>(axisCount), 0.0f);
+
+        if (gamepadButtons)
+        {
+            for (int i = 0; i < buttonCount; ++i)
+                frame.gamepadButtons[static_cast<size_t>(i)] = gamepadButtons[i];
+        }
+        if (gamepadAxes)
+        {
+            for (int i = 0; i < axisCount; ++i)
+                frame.gamepadAxes[static_cast<size_t>(i)] = gamepadAxes[i];
+        }
+
+        s_replayFrames.push_back(std::move(frame));
+    }
+
+    bool Input::TryGetPlaybackGamepadState(unsigned char* outButtons, int buttonCount, float* outAxes, int axisCount)
+    {
+        if (!s_isPlayback)
+            return false;
+
+        size_t frameIndex = 0;
+        if (!s_replayFrames.empty())
+        {
+            if (s_replayPlaybackIndex == 0)
+                frameIndex = 0;
+            else
+                frameIndex = std::min(s_replayPlaybackIndex - 1, s_replayFrames.size() - 1);
+
+            const ReplayFrame& frame = s_replayFrames[frameIndex];
+            s_playbackGamepadButtons = frame.gamepadButtons;
+            s_playbackGamepadAxes = frame.gamepadAxes;
+        }
+
+        if (outButtons)
+        {
+            for (int i = 0; i < buttonCount; ++i)
+            {
+                size_t idx = static_cast<size_t>(i);
+                outButtons[i] = (idx < s_playbackGamepadButtons.size()) ? s_playbackGamepadButtons[idx] : 0;
+            }
+        }
+
+        if (outAxes)
+        {
+            for (int i = 0; i < axisCount; ++i)
+            {
+                size_t idx = static_cast<size_t>(i);
+                outAxes[i] = (idx < s_playbackGamepadAxes.size()) ? s_playbackGamepadAxes[idx] : 0.0f;
+            }
+        }
+
+        return true;
+    }
+
+    bool Input::TryGetPlaybackSimulationConfig(float* outFixedTimestep, int* outMaxSubsteps, unsigned int* outParticleSeed)
+    {
+        if (!s_isPlayback || s_replayFrames.empty())
+            return false;
+
+        size_t frameIndex = 0;
+        if (s_replayPlaybackIndex == 0)
+            frameIndex = 0;
+        else
+            frameIndex = std::min(s_replayPlaybackIndex - 1, s_replayFrames.size() - 1);
+
+        const ReplayFrame& frame = s_replayFrames[frameIndex];
+        if (outFixedTimestep)
+            *outFixedTimestep = frame.fixedTimestep;
+        if (outMaxSubsteps)
+            *outMaxSubsteps = frame.maxSubsteps;
+        if (outParticleSeed)
+            *outParticleSeed = frame.particleSeed;
+        return true;
     }
 
     void Input::KeyCallback(

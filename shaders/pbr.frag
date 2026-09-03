@@ -51,12 +51,15 @@ uniform int          u_NumCascades;
 uniform sampler2D    u_CascadeShadowMap[MAX_CASCADES];
 uniform mat4         u_CascadeLightSpace[MAX_CASCADES];
 uniform float        u_CascadeSplitFar[MAX_CASCADES];
+uniform float        u_CascadeBlendStart[MAX_CASCADES];
+uniform float        u_CascadeBlendFactor;
 uniform float        u_ShadowBias;
 
 // SSAO
 uniform bool      u_SSAOEnabled;
 uniform sampler2D u_SSAOTexture;
 uniform vec2      u_ScreenSize;
+uniform int       u_DebugViewMode;
 
 #define MAX_POINT_LIGHTS 4
 #define MAX_SPOT_LIGHTS 4
@@ -156,7 +159,35 @@ float ShadowCalculation(vec3 worldPos, vec3 N)
 		);
 
 		vec2 texelSize = 1.0 / vec2(textureSize(u_CascadeShadowMap[cascade], 0));
-		return ShadowPCF(u_CascadeShadowMap[cascade], fragPosLightSpace, bias, texelSize);
+		float baseShadow = ShadowPCF(u_CascadeShadowMap[cascade], fragPosLightSpace, bias, texelSize);
+
+		float blendWidthFactor = clamp(u_CascadeBlendFactor, 0.0, 0.45);
+		if (cascade + 1 < u_NumCascades && blendWidthFactor > 0.0001)
+		{
+			float blendStart = u_CascadeBlendStart[cascade];
+			float blendEnd = u_CascadeSplitFar[cascade];
+			if (v_ViewSpaceDepth >= blendStart && v_ViewSpaceDepth < blendEnd)
+			{
+				vec4 nextFragPosLightSpace = u_CascadeLightSpace[cascade + 1] * vec4(worldPos, 1.0);
+				vec3 nextProj = nextFragPosLightSpace.xyz / nextFragPosLightSpace.w;
+				nextProj = nextProj * 0.5 + 0.5;
+				if (nextProj.x >= 0.0 && nextProj.x <= 1.0 && nextProj.y >= 0.0 && nextProj.y <= 1.0 && nextProj.z >= 0.0 && nextProj.z <= 1.0)
+				{
+					float nextDepthScale = max(abs(u_CascadeLightSpace[cascade + 1][2][2]) * 0.5, 0.000001);
+					float nextBaseBias = u_ShadowBias * nextDepthScale;
+					float nextBias = max(
+						nextBaseBias * 5.0 * (1.0 - dot(normalize(N), normalize(-u_LightDirection))),
+						nextBaseBias
+					);
+					vec2 nextTexelSize = 1.0 / vec2(textureSize(u_CascadeShadowMap[cascade + 1], 0));
+					float nextShadow = ShadowPCF(u_CascadeShadowMap[cascade + 1], nextFragPosLightSpace, nextBias, nextTexelSize);
+					float t = clamp((v_ViewSpaceDepth - blendStart) / max(blendEnd - blendStart, 0.0001), 0.0, 1.0);
+					return mix(baseShadow, nextShadow, t);
+				}
+			}
+		}
+
+		return baseShadow;
 	}
 
 	return 0.0;
@@ -406,6 +437,48 @@ void main()
 	}
 
 	vec3 color = ambient + Lo + emissive;
+
+	if (u_DebugViewMode == 1)
+	{
+		FragColor = vec4(albedo, 1.0);
+		return;
+	}
+	if (u_DebugViewMode == 2)
+	{
+		FragColor = vec4(normalize(N) * 0.5 + 0.5, 1.0);
+		return;
+	}
+	if (u_DebugViewMode == 3)
+	{
+		FragColor = vec4(vec3(roughness), 1.0);
+		return;
+	}
+	if (u_DebugViewMode == 4)
+	{
+		FragColor = vec4(vec3(metallic), 1.0);
+		return;
+	}
+	if (u_DebugViewMode == 5)
+	{
+		FragColor = vec4(vec3(ao), 1.0);
+		return;
+	}
+	if (u_DebugViewMode == 6)
+	{
+		FragColor = vec4(emissive, 1.0);
+		return;
+	}
+	if (u_DebugViewMode == 7)
+	{
+		FragColor = vec4(vec3(1.0 - shadow), 1.0);
+		return;
+	}
+	if (u_DebugViewMode == 8)
+	{
+		float ssaoOnly = u_SSAOEnabled ? clamp(ao / max(u_AOStrength, 0.0001), 0.0, 1.0) : 1.0;
+		FragColor = vec4(vec3(ssaoOnly), 1.0);
+		return;
+	}
 
 	FragColor = vec4(color, 1.0);
 }

@@ -25,6 +25,10 @@ namespace MyEngine
 		static void SetMuted(bool muted);
 		static bool IsMuted();
 
+		// Named bus controls for lightweight mixing (e.g. Master, Music, SFX).
+		static void SetBusVolume(const char* busName, float volume);
+		static float GetBusVolume(const char* busName);
+
 	private:
 		static bool s_Initialized;
 	};

@@ -5,6 +5,8 @@
 #include "rendering/SSAOPass.h"
 #include <array>
 #include <memory>
+#include <unordered_map>
+#include <glad/glad.h>
 
 static constexpr int MAX_CASCADES = 4;
 
@@ -25,6 +27,7 @@ struct MeshRendererSystem::Impl
 	// CSM settings
 	int   numCascades  = 4;      // active cascade count (1-4)
 	float splitLambda  = 0.99f;  // blend between log (1.0) and uniform (0.0) splits
+	float cascadeBlendFactor = 0.15f;
 
 	std::array<MyEngine::PointShadowMap, 4> pointShadowMaps;
 	unsigned int pointShadowSize = 1024;
@@ -44,7 +47,19 @@ struct MeshRendererSystem::Impl
 	int spotShadowLightBudget = 4;
 	bool shadowStabilizationEnabled = true;
 
+	MeshRendererSystem::ShadowDiagnostics shadowDiagnostics;
+	MeshRendererSystem::OcclusionDiagnostics occlusionDiagnostics;
+	bool occlusionApproximationEnabled = false;
+	bool gpuOcclusionQueriesEnabled = false;
+	int occlusionQueryRecheckFrames = 6;
+	std::unordered_map<uint32_t, int> occlusionVisibilityFrames;
+	std::unordered_map<uint32_t, bool> occlusionLastVisible;
+	MeshRendererSystem::DebugViewMode debugViewMode = MeshRendererSystem::DebugViewMode::FinalLit;
 	bool wireframe = false;
+
+	// Skinning palette UBO path (with uniform-array fallback per shader).
+	GLuint skinningPaletteUBO = 0;
+	GLuint skinningPaletteBindingPoint = 7;
 
 	// SSAO
 	MyEngine::SSAOPass ssaoPass;

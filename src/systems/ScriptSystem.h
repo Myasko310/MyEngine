@@ -38,6 +38,7 @@ namespace MyEngine
 
 		void OnUpdate(Scene& scene, float deltaTime);
 		void SetGlobalScripts(const std::vector<GlobalScriptConfig>& scripts);
+		void DispatchAnimationEvent(uint32_t entityID, const char* eventName, const char* callbackName = "OnAnimationEvent");
 
 	private:
 		struct ScriptState
@@ -124,6 +125,9 @@ namespace MyEngine
 		static int LuaSetLightRange(lua_State* L);
 		static int LuaGetLightCastShadows(lua_State* L);
 		static int LuaSetLightCastShadows(lua_State* L);
+		static int LuaTriggerAudioEvent(lua_State* L);
+		static int LuaSetAudioBusVolume(lua_State* L);
+		static int LuaGetAudioBusVolume(lua_State* L);
 
 	private:
 		std::unordered_map<uint32_t, ScriptState> m_States;

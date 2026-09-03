@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [ "test", "main" ]
+  pull_request:
+    branches: [ "test", "main" ]
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Debug --target ALL_BUILD
+
+      - name: Run smoke tests
+        run: ctest --test-dir build --output-on-failure -C Debug

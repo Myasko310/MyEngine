@@ -18,6 +18,24 @@ constexpr int MAX_ANIMATION_BONES = 100;
 // skinning shader. Requires a sibling SkeletonComponent on the same entity.
 struct AnimationComponent
 {
+	struct AnimationEvent
+	{
+		float timeSeconds = 0.0f;
+		std::string name;
+		bool enabled = true;
+
+		bool triggerAudio = false;
+		std::string audioClipPath;
+		float audioVolume = 1.0f;
+		float audioPitch = 1.0f;
+
+		bool triggerParticleBurst = false;
+		int particleBurstCount = 8;
+
+		bool triggerScriptCallback = false;
+		std::string scriptCallbackName = "OnAnimationEvent";
+	};
+
 	// Clips available to this entity; typically populated once from
 	// Model::GetAnimationClips() when the skinned model is attached.
 	std::shared_ptr<std::vector<MyEngine::AnimationClip>> clips = nullptr;
@@ -27,6 +45,12 @@ struct AnimationComponent
 	float playbackSpeed = 1.0f;
 	bool playing = true;
 	bool looping = true;
+	std::vector<AnimationEvent> events;
+	std::vector<std::string> triggeredEventsThisFrame;
+
+	// External animation source files imported through the editor. Serialized
+	// with the scene so clips can be re-imported on load.
+	std::vector<std::string> importedAnimationFilePaths;
 
 	// --- Cross-fade transition state ---
 	// When true, AnimationSystem blends the previous clip's pose (at

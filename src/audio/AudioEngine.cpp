@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <iostream>
+#include <string>
+#include <unordered_map>
 
 namespace MyEngine
 {
@@ -14,6 +16,7 @@ namespace MyEngine
 		ALCcontext* s_Context = nullptr;
 		float s_MasterVolume = 1.0f;
 		bool  s_Muted = false;
+		std::unordered_map<std::string, float> s_BusVolumes;
 	}
 
 	bool AudioEngine::s_Initialized = false;
@@ -45,6 +48,8 @@ namespace MyEngine
 		}
 
 		// Reasonable defaults
+		s_BusVolumes.clear();
+		s_BusVolumes["Master"] = 1.0f;
 		alListenerf(AL_GAIN, 1.0f);
 		alListener3f(AL_POSITION, 0.0f, 0.0f, 0.0f);
 		alListener3f(AL_VELOCITY, 0.0f, 0.0f, 0.0f);
@@ -133,5 +138,24 @@ namespace MyEngine
 	bool AudioEngine::IsMuted()
 	{
 		return s_Muted;
+	}
+
+	void AudioEngine::SetBusVolume(const char* busName, float volume)
+	{
+		const std::string key = (busName && busName[0] != '\0') ? busName : "Master";
+		s_BusVolumes[key] = std::clamp(volume, 0.0f, 1.0f);
+	}
+
+	float AudioEngine::GetBusVolume(const char* busName)
+	{
+		const std::string key = (busName && busName[0] != '\0') ? busName : "Master";
+		auto it = s_BusVolumes.find(key);
+		if (it != s_BusVolumes.end())
+			return it->second;
+
+		if (key == "Master")
+			return 1.0f;
+
+		return GetBusVolume("Master");
 	}
 }

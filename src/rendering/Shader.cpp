@@ -9,69 +9,20 @@
 #include <sstream>
 #include <utility>
 
+bool MyEngine::Shader::s_AutoHotReloadEnabled = true;
+
 namespace MyEngine
 {
     Shader::Shader(const std::string& vertexPath, const std::string& fragmentPath)
         : m_VertexPath(vertexPath), m_FragmentPath(fragmentPath)
     {
-        std::string vertSrc = LoadFile(vertexPath);
-        std::string fragSrc = LoadFile(fragmentPath);
-
-        if (vertSrc.empty())
-        {
-            std::cerr << "[Shader] Vertex shader source is empty: " << vertexPath << std::endl;
-        }
-
-        if (fragSrc.empty())
-        {
-            std::cerr << "[Shader] Fragment shader source is empty: " << fragmentPath << std::endl;
-        }
-
-        unsigned int vert = CompileShader(GL_VERTEX_SHADER, vertSrc);
-        unsigned int frag = CompileShader(GL_FRAGMENT_SHADER, fragSrc);
-
-        m_ID = glCreateProgram();
-
-        glAttachShader(m_ID, vert);
-        glAttachShader(m_ID, frag);
-        glLinkProgram(m_ID);
-
-        CheckProgramLink(m_ID);
-
-        glDeleteShader(vert);
-        glDeleteShader(frag);
+        ReloadFromDisk();
     }
 
     Shader::Shader(const std::string& vertexPath, const std::string& geometryPath, const std::string& fragmentPath)
         : m_VertexPath(vertexPath), m_GeometryPath(geometryPath), m_FragmentPath(fragmentPath)
     {
-        std::string vertSrc = LoadFile(vertexPath);
-        std::string geomSrc = LoadFile(geometryPath);
-        std::string fragSrc = LoadFile(fragmentPath);
-
-        if (vertSrc.empty())
-            std::cerr << "[Shader] Vertex shader source is empty: " << vertexPath << std::endl;
-        if (geomSrc.empty())
-            std::cerr << "[Shader] Geometry shader source is empty: " << geometryPath << std::endl;
-        if (fragSrc.empty())
-            std::cerr << "[Shader] Fragment shader source is empty: " << fragmentPath << std::endl;
-
-        unsigned int vert = CompileShader(GL_VERTEX_SHADER, vertSrc);
-        unsigned int geom = CompileShader(GL_GEOMETRY_SHADER, geomSrc);
-        unsigned int frag = CompileShader(GL_FRAGMENT_SHADER, fragSrc);
-
-        m_ID = glCreateProgram();
-
-        glAttachShader(m_ID, vert);
-        glAttachShader(m_ID, geom);
-        glAttachShader(m_ID, frag);
-        glLinkProgram(m_ID);
-
-        CheckProgramLink(m_ID);
-
-        glDeleteShader(vert);
-        glDeleteShader(geom);
-        glDeleteShader(frag);
+        ReloadFromDisk();
     }
 
     Shader::~Shader()
@@ -113,6 +64,8 @@ namespace MyEngine
 
     void Shader::Use() const
     {
+        if (s_AutoHotReloadEnabled)
+            const_cast<Shader*>(this)->TryHotReloadFromDisk();
         glUseProgram(m_ID);
     }
 
@@ -129,6 +82,103 @@ namespace MyEngine
     unsigned int Shader::GetID() const
     {
         return m_ID;
+    }
+
+    bool Shader::ReloadFromDisk()
+    {
+        std::string vertSrc;
+        std::string geomSrc;
+        std::string fragSrc;
+        std::filesystem::file_time_type vertWrite;
+        std::filesystem::file_time_type geomWrite;
+        std::filesystem::file_time_type fragWrite;
+
+        if (!LoadFileAndTimestamp(m_VertexPath, vertSrc, vertWrite) ||
+            !LoadFileAndTimestamp(m_FragmentPath, fragSrc, fragWrite))
+        {
+            m_LastError = "Failed to read shader source files.";
+            return false;
+        }
+
+        bool hasGeometry = !m_GeometryPath.empty();
+        if (hasGeometry && !LoadFileAndTimestamp(m_GeometryPath, geomSrc, geomWrite))
+        {
+            m_LastError = "Failed to read geometry shader source file.";
+            return false;
+        }
+
+        m_LastError.clear();
+
+        unsigned int vert = CompileShader(GL_VERTEX_SHADER, vertSrc);
+        if (vert == 0)
+            return false;
+
+        unsigned int geom = 0;
+        if (hasGeometry)
+        {
+            geom = CompileShader(GL_GEOMETRY_SHADER, geomSrc);
+            if (geom == 0)
+            {
+                glDeleteShader(vert);
+                return false;
+            }
+        }
+
+        unsigned int frag = CompileShader(GL_FRAGMENT_SHADER, fragSrc);
+        if (frag == 0)
+        {
+            glDeleteShader(vert);
+            if (geom != 0) glDeleteShader(geom);
+            return false;
+        }
+
+        unsigned int newProgram = glCreateProgram();
+        glAttachShader(newProgram, vert);
+        if (geom != 0) glAttachShader(newProgram, geom);
+        glAttachShader(newProgram, frag);
+        glLinkProgram(newProgram);
+
+        bool linked = CheckProgramLink(newProgram);
+
+        glDeleteShader(vert);
+        if (geom != 0) glDeleteShader(geom);
+        glDeleteShader(frag);
+
+        if (!linked)
+        {
+            glDeleteProgram(newProgram);
+            return false;
+        }
+
+        if (m_ID != 0)
+            glDeleteProgram(m_ID);
+        m_ID = newProgram;
+        m_VertexWriteTime = vertWrite;
+        m_FragmentWriteTime = fragWrite;
+        m_GeometryWriteTime = hasGeometry ? geomWrite : std::filesystem::file_time_type{};
+        return true;
+    }
+
+    bool Shader::TryHotReloadFromDisk()
+    {
+        if (!ShouldHotReload())
+            return false;
+        return ReloadFromDisk();
+    }
+
+    const std::string& Shader::GetLastError() const
+    {
+        return m_LastError;
+    }
+
+    void Shader::SetAutoHotReloadEnabled(bool enabled)
+    {
+        s_AutoHotReloadEnabled = enabled;
+    }
+
+    bool Shader::GetAutoHotReloadEnabled()
+    {
+        return s_AutoHotReloadEnabled;
     }
 
     void Shader::SetBool(const std::string& name, bool value) const
@@ -211,23 +261,54 @@ namespace MyEngine
         glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(mat));
     }
 
-    std::string Shader::LoadFile(const std::string& path) const
+    void Shader::SetMat4Array(const std::string& name, const glm::mat4* values, int count) const
     {
-        std::ifstream file(path);
+        if (!values || count <= 0)
+            return;
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        if (location == -1)
+            return;
+        glUniformMatrix4fv(location, count, GL_FALSE, glm::value_ptr(values[0]));
+    }
 
+    bool Shader::LoadFileAndTimestamp(const std::string& path, std::string& outSource, std::filesystem::file_time_type& outWriteTime)
+    {
+        if (path.empty())
+            return false;
+
+        std::ifstream file(path);
         if (!file.is_open())
         {
-            std::cerr << "[Shader] Cannot open file: " << path << std::endl;
-            return "";
+            m_LastError = "Cannot open file: " + path;
+            std::cerr << "[Shader] " << m_LastError << std::endl;
+            return false;
         }
 
         std::stringstream ss;
         ss << file.rdbuf();
+        outSource = ss.str();
 
-        return ss.str();
+        std::error_code ec;
+        outWriteTime = std::filesystem::last_write_time(path, ec);
+        if (ec)
+        {
+            m_LastError = "Cannot query file timestamp: " + path;
+            return false;
+        }
+
+        return true;
     }
 
-    unsigned int Shader::CompileShader(unsigned int type, const std::string& src) const
+    std::string Shader::LoadFile(const std::string& path)
+    {
+        std::string src;
+        std::filesystem::file_time_type writeTime;
+        if (!LoadFileAndTimestamp(path, src, writeTime))
+            return "";
+        return src;
+    }
+
+    unsigned int Shader::CompileShader(unsigned int type, const std::string& src)
     {
         unsigned int id = glCreateShader(type);
 
@@ -241,34 +322,55 @@ namespace MyEngine
 
         if (!success)
         {
-            char log[1024];
-            glGetShaderInfoLog(id, 1024, nullptr, log);
-
-            std::cerr
-                << "[Shader] Compile error ("
-                << (type == GL_VERTEX_SHADER ? "VERTEX" : "FRAGMENT")
-                << "):\n"
-                << log
-                << std::endl;
+            char log[2048];
+            glGetShaderInfoLog(id, 2048, nullptr, log);
+            std::string typeName = (type == GL_VERTEX_SHADER) ? "VERTEX" : (type == GL_GEOMETRY_SHADER ? "GEOMETRY" : "FRAGMENT");
+            m_LastError = "Compile error (" + typeName + "):\n" + std::string(log);
+            std::cerr << "[Shader] " << m_LastError << std::endl;
+            glDeleteShader(id);
+            return 0;
         }
 
         return id;
     }
 
-    void Shader::CheckProgramLink(unsigned int program) const
+    bool Shader::CheckProgramLink(unsigned int program)
     {
         int success = 0;
         glGetProgramiv(program, GL_LINK_STATUS, &success);
 
         if (!success)
         {
-            char log[1024];
-            glGetProgramInfoLog(program, 1024, nullptr, log);
-
-            std::cerr
-                << "[Shader] Link error:\n"
-                << log
-                << std::endl;
+            char log[2048];
+            glGetProgramInfoLog(program, 2048, nullptr, log);
+            m_LastError = "Link error:\n" + std::string(log);
+            std::cerr << "[Shader] " << m_LastError << std::endl;
+            return false;
         }
+
+        return true;
+    }
+
+    bool Shader::ShouldHotReload() const
+    {
+        std::error_code ec;
+        auto vertWrite = std::filesystem::last_write_time(m_VertexPath, ec);
+        if (!ec && vertWrite != m_VertexWriteTime)
+            return true;
+
+        ec.clear();
+        auto fragWrite = std::filesystem::last_write_time(m_FragmentPath, ec);
+        if (!ec && fragWrite != m_FragmentWriteTime)
+            return true;
+
+        if (!m_GeometryPath.empty())
+        {
+            ec.clear();
+            auto geomWrite = std::filesystem::last_write_time(m_GeometryPath, ec);
+            if (!ec && geomWrite != m_GeometryWriteTime)
+                return true;
+        }
+
+        return false;
     }
 }

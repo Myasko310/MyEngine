@@ -14,13 +14,72 @@
 #include "components/AnimationComponent.h"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <limits>
+#include <unordered_map>
 #include <vector>
+#include <glad/glad.h>
 
 namespace MyEngine
 {
+	std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> AssetManager::s_ModelCache;
+	std::unordered_map<std::string, SkinnedModelData> AssetManager::s_SkinnedModelCache;
+	std::unordered_map<std::string, std::shared_ptr<Texture>> AssetManager::s_TextureCache;
+	std::unordered_map<std::string, std::shared_ptr<Shader>> AssetManager::s_ShaderCache;
+	bool AssetManager::s_ShaderAutoHotReloadEnabled = true;
+	std::unordered_map<std::string, std::shared_ptr<Material>> AssetManager::s_MaterialCache;
+	std::unordered_map<std::string, std::shared_ptr<AudioClip>> AssetManager::s_AudioClipCache;
+	bool AssetManager::s_TextureStreamingEnabled = false;
+	AssetManager::TextureStreamingQuality AssetManager::s_TextureStreamingQuality = AssetManager::TextureStreamingQuality::FullResolution;
+
+	static std::string CanonicalBoneName(const std::string& name)
+	{
+		if (name.empty())
+			return name;
+
+		std::string leaf = name;
+		size_t delimiterPos = leaf.find_last_of("|:/\\");
+		if (delimiterPos != std::string::npos && delimiterPos + 1 < leaf.size())
+			leaf = leaf.substr(delimiterPos + 1);
+
+		// Remove Blender-style suffixes (.001, .002, etc.)
+		if (leaf.size() > 4)
+		{
+			size_t dotPos = leaf.rfind('.');
+			if (dotPos != std::string::npos && dotPos + 1 < leaf.size())
+			{
+				std::string suffix = leaf.substr(dotPos + 1);
+				// Check if suffix is all digits
+				bool allDigits = true;
+				for (char c : suffix)
+				{
+					if (!std::isdigit(static_cast<unsigned char>(c)))
+					{
+						allDigits = false;
+						break;
+					}
+				}
+				if (allDigits && suffix.size() <= 3)
+					leaf = leaf.substr(0, dotPos);
+			}
+		}
+
+		// Convert to lowercase and keep only alphanumeric characters
+		std::string out;
+		out.reserve(leaf.size());
+		for (char c : leaf)
+		{
+			unsigned char uc = static_cast<unsigned char>(c);
+			if (std::isalnum(uc))
+				out.push_back(static_cast<char>(std::tolower(uc)));
+		}
+
+		return out.empty() ? leaf : out;
+	}
+
 	static bool ComputeSkeletonBindBounds(
 		const std::shared_ptr<Skeleton>& skeleton,
 		glm::vec3& outCenter,
@@ -222,13 +281,6 @@ namespace MyEngine
 		return true;
 	}
 
-	std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> AssetManager::s_ModelCache;
-	std::unordered_map<std::string, SkinnedModelData> AssetManager::s_SkinnedModelCache;
-	std::unordered_map<std::string, std::shared_ptr<Texture>> AssetManager::s_TextureCache;
-	std::unordered_map<std::string, std::shared_ptr<Shader>> AssetManager::s_ShaderCache;
-	std::unordered_map<std::string, std::shared_ptr<Material>> AssetManager::s_MaterialCache;
-	std::unordered_map<std::string, std::shared_ptr<AudioClip>> AssetManager::s_AudioClipCache;
-
 	std::vector<std::shared_ptr<Mesh>> AssetManager::LoadModel(const std::string& path)
 	{
 		auto it = s_ModelCache.find(path);
@@ -280,13 +332,139 @@ namespace MyEngine
 		if (!skeleton)
 			return static_cast<int>(clip.tracks.size());
 
-		int matches = 0;
-		for (const auto& track : clip.tracks)
+		// Build skeleton bone names map
+		std::unordered_map<std::string, std::string> canonicalToOriginal;  // For debugging
+		std::unordered_map<std::string, bool> skeletonNames;
+		skeletonNames.reserve(skeleton->GetBoneCount());
+
+		std::cerr << "\n========== ANIMATION COMPATIBILITY CHECK ==========\n";
+		std::cerr << "Clip: " << clip.name << " (" << clip.tracks.size() << " tracks)\n";
+		std::cerr << "Skeleton: " << skeleton->GetBoneCount() << " bones\n\n";
+
+		std::cerr << "SKELETON BONES (in order):\n";
+		for (const auto& bone : skeleton->GetBones())
 		{
-			if (skeleton->GetBoneIndex(track.boneName) >= 0)
-				++matches;
+			std::string canonical = CanonicalBoneName(bone.name);
+			skeletonNames[canonical] = true;
+			canonicalToOriginal[canonical] = bone.name;
+			std::cerr << "  [" << bone.name << "] -> [" << canonical << "]\n";
 		}
+
+		std::cerr << "\nANIMATION TRACKS (in order):\n";
+		int matches = 0;
+		for (size_t i = 0; i < clip.tracks.size(); ++i)
+		{
+			const auto& track = clip.tracks[i];
+			std::string canonicalTrack = CanonicalBoneName(track.boneName);
+			bool found = skeletonNames.find(canonicalTrack) != skeletonNames.end();
+
+			std::cerr << "  [" << track.boneName << "] -> [" << canonicalTrack << "]";
+			if (found)
+			{
+				std::cerr << " ✓ MATCHES [" << canonicalToOriginal[canonicalTrack] << "]\n";
+				++matches;
+			}
+			else
+			{
+				std::cerr << " ✗ NO MATCH\n";
+			}
+		}
+
+		std::cerr << "\nRESULT: " << matches << " / " << clip.tracks.size() << " tracks matched\n";
+		std::cerr << "====================================================\n\n";
+
 		return matches;
+	}
+
+	bool AssetManager::RetargetAnimationClip(
+		const AnimationClip& sourceClip,
+		const std::shared_ptr<Skeleton>& sourceSkeleton,
+		const std::shared_ptr<Skeleton>& targetSkeleton,
+		AnimationClip& outRetargetedClip)
+	{
+		if (!targetSkeleton || targetSkeleton->GetBoneCount() == 0)
+			return false;
+
+		auto findTrackByNormalizedName = [&](const std::string& targetBoneName) -> const BoneAnimationTrack*
+		{
+			const std::string normalizedTarget = CanonicalBoneName(targetBoneName);
+			for (const auto& track : sourceClip.tracks)
+			{
+				if (CanonicalBoneName(track.boneName) == normalizedTarget)
+					return &track;
+			}
+			return nullptr;
+		};
+
+		float sourceScale = 1.0f;
+		float targetScale = 1.0f;
+		if (sourceSkeleton && sourceSkeleton->GetBoneCount() > 0)
+		{
+			glm::vec3 sourceMin(std::numeric_limits<float>::max());
+			glm::vec3 sourceMax(std::numeric_limits<float>::lowest());
+			for (const auto& bone : sourceSkeleton->GetBones())
+			{
+				glm::vec3 p = glm::vec3(bone.localBindTransform[3]);
+				sourceMin = glm::min(sourceMin, p);
+				sourceMax = glm::max(sourceMax, p);
+			}
+			sourceScale = std::max(glm::length(sourceMax - sourceMin), 0.0001f);
+		}
+		{
+			glm::vec3 targetMin(std::numeric_limits<float>::max());
+			glm::vec3 targetMax(std::numeric_limits<float>::lowest());
+			for (const auto& bone : targetSkeleton->GetBones())
+			{
+				glm::vec3 p = glm::vec3(bone.localBindTransform[3]);
+				targetMin = glm::min(targetMin, p);
+				targetMax = glm::max(targetMax, p);
+			}
+			targetScale = std::max(glm::length(targetMax - targetMin), 0.0001f);
+		}
+		const float scaleRatio = targetScale / sourceScale;
+
+		outRetargetedClip = sourceClip;
+		outRetargetedClip.tracks.clear();
+		outRetargetedClip.name = sourceClip.name + "_retargeted";
+
+		int mappedTracks = 0;
+		for (const auto& targetBone : targetSkeleton->GetBones())
+		{
+			const BoneAnimationTrack* sourceTrack = findTrackByNormalizedName(targetBone.name);
+			if (!sourceTrack)
+				continue;
+
+			BoneAnimationTrack mapped = *sourceTrack;
+			mapped.boneName = targetBone.name;
+			for (auto& posKey : mapped.positionKeys)
+				posKey.value *= scaleRatio;
+			outRetargetedClip.tracks.push_back(std::move(mapped));
+			++mappedTracks;
+		}
+
+		return mappedTracks > 0;
+	}
+
+	std::shared_ptr<std::vector<AnimationClip>> AssetManager::RetargetAnimationClips(
+		const std::shared_ptr<std::vector<AnimationClip>>& sourceClips,
+		const std::shared_ptr<Skeleton>& sourceSkeleton,
+		const std::shared_ptr<Skeleton>& targetSkeleton)
+	{
+		if (!sourceClips || sourceClips->empty() || !targetSkeleton)
+			return nullptr;
+
+		auto retargeted = std::make_shared<std::vector<AnimationClip>>();
+		retargeted->reserve(sourceClips->size());
+		for (const auto& clip : *sourceClips)
+		{
+			AnimationClip outClip;
+			if (RetargetAnimationClip(clip, sourceSkeleton, targetSkeleton, outClip))
+				retargeted->push_back(std::move(outClip));
+		}
+
+		if (retargeted->empty())
+			return nullptr;
+		return retargeted;
 	}
 
 	bool AssetManager::IsAnimationClipCompatible(const AnimationClip& clip, const std::shared_ptr<Skeleton>& skeleton, float minimumTrackMatchRatio)
@@ -300,6 +478,8 @@ namespace MyEngine
 		if (matchingTracks <= 0)
 			return false;
 
+		// Use just the number of matching tracks as the ratio
+		// (more lenient: any clip with at least one matching track is compatible)
 		float matchRatio = static_cast<float>(matchingTracks) / static_cast<float>(clip.tracks.size());
 		return matchRatio >= std::clamp(minimumTrackMatchRatio, 0.0f, 1.0f);
 	}
@@ -318,8 +498,57 @@ namespace MyEngine
 			return nullptr;
 
 		auto texture = std::make_shared<Texture>(path, generateMipmaps);
+		if (texture && s_TextureStreamingEnabled)
+		{
+			float mipBias = 0.0f;
+			switch (s_TextureStreamingQuality)
+			{
+			case TextureStreamingQuality::HalfResolution: mipBias = 1.0f; break;
+			case TextureStreamingQuality::QuarterResolution: mipBias = 2.0f; break;
+			default: break;
+			}
+			texture->Bind(0);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, mipBias);
+			texture->Unbind();
+		}
 		s_TextureCache[path] = texture;
 		return texture;
+	}
+
+	void AssetManager::SetTextureStreamingQuality(TextureStreamingQuality quality)
+	{
+		s_TextureStreamingQuality = quality;
+		for (auto& [_, texture] : s_TextureCache)
+		{
+			if (!texture)
+				continue;
+			float mipBias = 0.0f;
+			switch (s_TextureStreamingQuality)
+			{
+			case TextureStreamingQuality::HalfResolution: mipBias = 1.0f; break;
+			case TextureStreamingQuality::QuarterResolution: mipBias = 2.0f; break;
+			default: break;
+			}
+			texture->Bind(0);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, s_TextureStreamingEnabled ? mipBias : 0.0f);
+			texture->Unbind();
+		}
+	}
+
+	AssetManager::TextureStreamingQuality AssetManager::GetTextureStreamingQuality()
+	{
+		return s_TextureStreamingQuality;
+	}
+
+	void AssetManager::SetTextureStreamingEnabled(bool enabled)
+	{
+		s_TextureStreamingEnabled = enabled;
+		SetTextureStreamingQuality(s_TextureStreamingQuality);
+	}
+
+	bool AssetManager::GetTextureStreamingEnabled()
+	{
+		return s_TextureStreamingEnabled;
 	}
 
 	std::shared_ptr<Shader> AssetManager::LoadShader(const std::string& vertexPath, const std::string& fragmentPath)
@@ -330,8 +559,48 @@ namespace MyEngine
 			return it->second;
 
 		auto shader = std::make_shared<Shader>(vertexPath, fragmentPath);
+		Shader::SetAutoHotReloadEnabled(s_ShaderAutoHotReloadEnabled);
 		s_ShaderCache[key] = shader;
 		return shader;
+	}
+
+	bool AssetManager::ReloadAllShaders(bool onlyDirty)
+	{
+		bool allOk = true;
+		for (auto& [_, shader] : s_ShaderCache)
+		{
+			if (!shader)
+				continue;
+			bool ok = onlyDirty ? shader->TryHotReloadFromDisk() : shader->ReloadFromDisk();
+			allOk = allOk && ok;
+		}
+		return allOk;
+	}
+
+	bool AssetManager::SetShaderAutoHotReloadEnabled(bool enabled)
+	{
+		s_ShaderAutoHotReloadEnabled = enabled;
+		Shader::SetAutoHotReloadEnabled(enabled);
+		return true;
+	}
+
+	bool AssetManager::GetShaderAutoHotReloadEnabled()
+	{
+		return s_ShaderAutoHotReloadEnabled;
+	}
+
+	std::vector<std::string> AssetManager::GetShaderErrorReport()
+	{
+		std::vector<std::string> errors;
+		for (const auto& [key, shader] : s_ShaderCache)
+		{
+			if (!shader)
+				continue;
+			const std::string& err = shader->GetLastError();
+			if (!err.empty())
+				errors.push_back(key + ": " + err);
+		}
+		return errors;
 	}
 
 	std::shared_ptr<Material> AssetManager::LoadMaterial(const std::string& path)

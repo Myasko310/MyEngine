@@ -73,4 +73,5 @@ struct ParticleEmitterComponent
 	float                 spawnAccum = 0.0f; // fractional particle debt
 	unsigned int          textureID  = 0;    // GL texture handle (0 = none)
 	bool                  poolDirty  = true; // true → rebuild pool next Update
+	int                   burstRequestCount = 0; // one-shot particles requested by gameplay/events
 };

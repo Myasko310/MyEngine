@@ -18,10 +18,18 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/trigonometric.hpp>
 
+#include <mutex>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
 namespace MyEngine
 {
 	namespace
 	{
+		std::mutex s_EventMutex;
+		std::vector<std::string> s_QueuedEvents;
+
 		glm::vec3 ComputeForward(const std::shared_ptr<::Entity>& entity, const TransformComponent& transform)
 		{
 			if (entity->HasComponent<CameraComponent>())
@@ -44,6 +52,15 @@ namespace MyEngine
 
 	AudioSystem::AudioSystem() = default;
 	AudioSystem::~AudioSystem() = default;
+
+	void AudioSystem::QueueEvent(const char* eventName)
+	{
+		if (!eventName || eventName[0] == '\0')
+			return;
+
+		std::lock_guard<std::mutex> lock(s_EventMutex);
+		s_QueuedEvents.emplace_back(eventName);
+	}
 
 	void AudioSystem::Update(Scene& scene, float /*deltaTime*/)
 	{
@@ -71,6 +88,14 @@ namespace MyEngine
 			AudioEngine::SetListenerOrientation(forward, up);
 			AudioEngine::SetListenerGain(listener.gain);
 			break; // only the first primary listener is used
+		}
+
+		std::unordered_set<std::string> firedEvents;
+		{
+			std::lock_guard<std::mutex> lock(s_EventMutex);
+			for (const auto& evt : s_QueuedEvents)
+				firedEvents.insert(evt);
+			s_QueuedEvents.clear();
 		}
 
 		// --- Sources ---
@@ -103,8 +128,12 @@ namespace MyEngine
 					source.playRequested = true;
 			}
 
+			if (!source.eventName.empty() && firedEvents.find(source.eventName) != firedEvents.end())
+				source.playRequested = true;
+
 			// Keep dynamic parameters in sync every frame (cheap to set).
-			alSourcef(source.sourceID, AL_GAIN, source.volume);
+			const float busVolume = AudioEngine::GetBusVolume(source.busName.c_str());
+			alSourcef(source.sourceID, AL_GAIN, source.volume * busVolume);
 			alSourcef(source.sourceID, AL_PITCH, source.pitch);
 			alSourcei(source.sourceID, AL_LOOPING, source.loop ? AL_TRUE : AL_FALSE);
 
@@ -116,6 +145,8 @@ namespace MyEngine
 
 			if (source.playRequested)
 			{
+				if (source.isPlaying)
+					alSourceStop(source.sourceID);
 				alSourcePlay(source.sourceID);
 				source.isPlaying = true;
 				source.playRequested = false;

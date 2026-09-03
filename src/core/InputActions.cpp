@@ -21,10 +21,13 @@ namespace MyEngine
 	std::unordered_map<std::string, InputActions::AxisBinding>   InputActions::s_axes;
 	std::unordered_map<std::string, InputActions::Profile> InputActions::s_profiles;
 	std::string InputActions::s_activeProfile = "Default";
+	std::string InputActions::s_defaultProfile = "Default";
 	std::unordered_map<std::string, bool> InputActions::s_currentActionState;
 	std::unordered_map<std::string, bool> InputActions::s_previousActionState;
+	std::vector<InputActions::ContextLayer> InputActions::s_contextLayers;
 
 	float InputActions::s_gamepadDeadzone = 0.15f;
+	bool  InputActions::s_bindingsDirty = false;
 	int   InputActions::s_gamepadId = -1;
 	bool  InputActions::s_gamepadStateValid = false;
 	unsigned char InputActions::s_gamepadButtons[15] = {};
@@ -36,6 +39,11 @@ namespace MyEngine
 		auto& profile = s_profiles[s_activeProfile];
 		profile.actions = s_actions;
 		profile.axes = s_axes;
+	}
+
+	void InputActions::MarkBindingsDirty()
+	{
+		s_bindingsDirty = true;
 	}
 
 	void InputActions::LoadCurrentFromActiveProfile()
@@ -58,6 +66,30 @@ namespace MyEngine
 			s_currentActionState[name] = false;
 			s_previousActionState[name] = false;
 		}
+	}
+
+	float InputActions::ApplyAxisCalibration(int axis, float rawValue)
+	{
+		auto it = s_profiles.find(s_activeProfile);
+		if (it == s_profiles.end() || axis < 0 || axis >= static_cast<int>(it->second.axisCalibration.size()))
+			return rawValue;
+
+		const AxisCalibration& calibration = it->second.axisCalibration[axis];
+		float deadzone = calibration.deadzone > 0.0f ? std::clamp(calibration.deadzone, 0.0f, 0.95f) : s_gamepadDeadzone;
+		float magnitude = std::fabs(rawValue);
+		if (magnitude <= deadzone)
+			return 0.0f;
+
+		float normalized = (magnitude - deadzone) / (1.0f - deadzone);
+		normalized = std::clamp(normalized, 0.0f, 1.0f);
+		normalized = std::pow(normalized, std::max(0.1f, calibration.exponent));
+		normalized *= std::max(0.01f, calibration.saturation);
+		normalized = std::clamp(normalized, 0.0f, 1.0f);
+
+		float signedValue = (rawValue >= 0.0f ? normalized : -normalized);
+		if (calibration.invert)
+			signedValue = -signedValue;
+		return signedValue;
 	}
 
 	void InputActions::Update()
@@ -84,14 +116,22 @@ namespace MyEngine
 			}
 		}
 
-		if (s_gamepadId >= 0)
+		if (Input::IsInputPlayback())
 		{
-			GLFWgamepadstate state;
-			if (glfwGetGamepadState(s_gamepadId, &state))
-			{
-				std::memcpy(s_gamepadButtons, state.buttons, sizeof(s_gamepadButtons));
-				std::memcpy(s_gamepadAxes, state.axes, sizeof(s_gamepadAxes));
+			if (Input::TryGetPlaybackGamepadState(s_gamepadButtons, static_cast<int>(sizeof(s_gamepadButtons)), s_gamepadAxes, static_cast<int>(sizeof(s_gamepadAxes) / sizeof(float))))
 				s_gamepadStateValid = true;
+		}
+		else
+		{
+			if (s_gamepadId >= 0)
+			{
+				GLFWgamepadstate state;
+				if (glfwGetGamepadState(s_gamepadId, &state))
+				{
+					std::memcpy(s_gamepadButtons, state.buttons, sizeof(s_gamepadButtons));
+					std::memcpy(s_gamepadAxes, state.axes, sizeof(s_gamepadAxes));
+					s_gamepadStateValid = true;
+				}
 			}
 		}
 		if (!s_gamepadStateValid)
@@ -110,58 +150,82 @@ namespace MyEngine
 	{
 		s_actions.clear();
 		s_axes.clear();
+		if (s_activeProfile.empty())
+			s_activeProfile = "Default";
+		if (s_defaultProfile.empty())
+			s_defaultProfile = "Default";
 
 		ActionBinding jump;
 		jump.keys = { GLFW_KEY_SPACE };
 		jump.gamepadButtons = { GLFW_GAMEPAD_BUTTON_A };
+		jump.context = InputContext::Gameplay;
 		BindAction("Jump", jump);
 
 		ActionBinding fire;
 		fire.mouseButtons = { GLFW_MOUSE_BUTTON_LEFT };
 		fire.gamepadButtons = { GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER };
+		fire.context = InputContext::Gameplay;
 		BindAction("Fire", fire);
 
 		ActionBinding interact;
 		interact.keys = { GLFW_KEY_E };
 		interact.gamepadButtons = { GLFW_GAMEPAD_BUTTON_X };
+		interact.context = InputContext::Gameplay;
 		BindAction("Interact", interact);
 
 		ActionBinding sprint;
 		sprint.keys = { GLFW_KEY_LEFT_SHIFT };
 		sprint.gamepadButtons = { GLFW_GAMEPAD_BUTTON_LEFT_THUMB };
+		sprint.context = InputContext::Gameplay;
 		BindAction("Sprint", sprint);
 
 		ActionBinding crouch;
 		crouch.keys = { GLFW_KEY_LEFT_CONTROL };
 		crouch.gamepadButtons = { GLFW_GAMEPAD_BUTTON_B };
+		crouch.context = InputContext::Gameplay;
 		BindAction("Crouch", crouch);
+
+		ActionBinding fight;
+		fight.keys = { GLFW_KEY_F };
+		fight.mouseButtons = { GLFW_MOUSE_BUTTON_RIGHT };
+		fight.gamepadButtons = { GLFW_GAMEPAD_BUTTON_Y };
+		fight.context = InputContext::Gameplay;
+		BindAction("Fight", fight);
 
 		ActionBinding pause;
 		pause.keys = { GLFW_KEY_ESCAPE };
 		pause.gamepadButtons = { GLFW_GAMEPAD_BUTTON_START };
+		pause.context = InputContext::UI;
 		BindAction("Pause", pause);
 
 		AxisBinding moveForward;
 		moveForward.keyPairs = { { GLFW_KEY_W, GLFW_KEY_S } };
 		moveForward.gamepadAxes = { GLFW_GAMEPAD_AXIS_LEFT_Y };
 		moveForward.invert = true;
+		moveForward.context = InputContext::Gameplay;
 		BindAxis("MoveForward", moveForward);
 
 		AxisBinding moveRight;
 		moveRight.keyPairs = { { GLFW_KEY_D, GLFW_KEY_A } };
 		moveRight.gamepadAxes = { GLFW_GAMEPAD_AXIS_LEFT_X };
+		moveRight.context = InputContext::Gameplay;
 		BindAxis("MoveRight", moveRight);
 
 		AxisBinding lookX;
 		lookX.gamepadAxes = { GLFW_GAMEPAD_AXIS_RIGHT_X };
+		lookX.context = InputContext::Gameplay;
 		BindAxis("LookX", lookX);
 
 		AxisBinding lookY;
 		lookY.gamepadAxes = { GLFW_GAMEPAD_AXIS_RIGHT_Y };
 		lookY.invert = true;
+		lookY.context = InputContext::Gameplay;
 		BindAxis("LookY", lookY);
 
 		SyncActiveProfileFromCurrent();
+		ClearContextLayers();
+		PushContextLayer(InputContext::Gameplay, 0, false);
+		s_bindingsDirty = false;
 	}
 
 	std::vector<std::string> InputActions::GetProfileNames()
@@ -181,6 +245,11 @@ namespace MyEngine
 		return s_activeProfile;
 	}
 
+	std::string InputActions::GetDefaultProfileName()
+	{
+		return s_defaultProfile;
+	}
+
 	bool InputActions::SetActiveProfile(const std::string& name)
 	{
 		if (name.empty() || s_profiles.find(name) == s_profiles.end())
@@ -188,6 +257,15 @@ namespace MyEngine
 		SyncActiveProfileFromCurrent();
 		s_activeProfile = name;
 		LoadCurrentFromActiveProfile();
+		return true;
+	}
+
+	bool InputActions::SetDefaultProfile(const std::string& name)
+	{
+		if (name.empty() || s_profiles.find(name) == s_profiles.end())
+			return false;
+		s_defaultProfile = name;
+		MarkBindingsDirty();
 		return true;
 	}
 
@@ -200,8 +278,12 @@ namespace MyEngine
 		{
 			p.actions = s_actions;
 			p.axes = s_axes;
+			auto activeIt = s_profiles.find(s_activeProfile);
+			if (activeIt != s_profiles.end())
+				p.axisCalibration = activeIt->second.axisCalibration;
 		}
 		s_profiles[name] = std::move(p);
+		MarkBindingsDirty();
 		return true;
 	}
 
@@ -210,19 +292,79 @@ namespace MyEngine
 		if (name.empty() || s_profiles.size() <= 1 || s_profiles.find(name) == s_profiles.end())
 			return false;
 		const bool deletingActive = (name == s_activeProfile);
+		const bool deletingDefault = (name == s_defaultProfile);
 		s_profiles.erase(name);
 		if (deletingActive)
 		{
-			s_activeProfile = s_profiles.begin()->first;
+			s_activeProfile = s_defaultProfile;
+			if (s_profiles.find(s_activeProfile) == s_profiles.end())
+				s_activeProfile = s_profiles.begin()->first;
 			LoadCurrentFromActiveProfile();
 		}
+		if (deletingDefault)
+			s_defaultProfile = s_activeProfile;
+		MarkBindingsDirty();
 		return true;
+	}
+
+	bool InputActions::RenameProfile(const std::string& oldName, const std::string& newName)
+	{
+		if (oldName.empty() || newName.empty() || oldName == newName)
+			return false;
+		auto it = s_profiles.find(oldName);
+		if (it == s_profiles.end() || s_profiles.find(newName) != s_profiles.end())
+			return false;
+
+		Profile moved = std::move(it->second);
+		s_profiles.erase(it);
+		s_profiles[newName] = std::move(moved);
+		if (s_activeProfile == oldName)
+			s_activeProfile = newName;
+		if (s_defaultProfile == oldName)
+			s_defaultProfile = newName;
+		MarkBindingsDirty();
+		return true;
+	}
+
+	bool InputActions::DuplicateProfile(const std::string& sourceName, const std::string& newName)
+	{
+		if (sourceName.empty() || newName.empty() || sourceName == newName)
+			return false;
+		auto it = s_profiles.find(sourceName);
+		if (it == s_profiles.end() || s_profiles.find(newName) != s_profiles.end())
+			return false;
+		s_profiles[newName] = it->second;
+		MarkBindingsDirty();
+		return true;
+	}
+
+	bool InputActions::IsBindingsDirty()
+	{
+		return s_bindingsDirty;
 	}
 
 	bool InputActions::IsAction(const std::string& name)
 	{
 		auto it = s_currentActionState.find(name);
-		return it != s_currentActionState.end() && it->second;
+		if (it == s_currentActionState.end() || !it->second)
+			return false;
+		ActionBinding binding;
+		if (TryGetActionBinding(name, binding))
+			return IsBindingContextAllowed(binding.context);
+		return true;
+	}
+
+	bool InputActions::IsAction(const std::string& name, InputContext context)
+	{
+		if (!IsContextAllowed(context))
+			return false;
+		auto it = s_currentActionState.find(name);
+		if (it == s_currentActionState.end() || !it->second)
+			return false;
+		ActionBinding binding;
+		if (TryGetActionBinding(name, binding))
+			return binding.context == context;
+		return false;
 	}
 
 	bool InputActions::IsActionPressed(const std::string& name)
@@ -249,6 +391,18 @@ namespace MyEngine
 		auto it = s_axes.find(name);
 		if (it == s_axes.end())
 			return 0.0f;
+		if (!IsBindingContextAllowed(it->second.context))
+			return 0.0f;
+		return EvaluateAxis(it->second);
+	}
+
+	float InputActions::GetAxis(const std::string& name, InputContext context)
+	{
+		auto it = s_axes.find(name);
+		if (it == s_axes.end())
+			return 0.0f;
+		if (it->second.context != context || !IsContextAllowed(context))
+			return 0.0f;
 		return EvaluateAxis(it->second);
 	}
 
@@ -257,12 +411,66 @@ namespace MyEngine
 		s_actions[name] = binding;
 		s_currentActionState.emplace(name, false);
 		SyncActiveProfileFromCurrent();
+		MarkBindingsDirty();
+	}
+
+	void InputActions::PushContextLayer(InputContext context, int priority, bool blocksLowerPriority)
+	{
+		auto existing = std::find_if(s_contextLayers.begin(), s_contextLayers.end(),
+			[&](const ContextLayer& layer) { return layer.context == context; });
+		if (existing != s_contextLayers.end())
+		{
+			existing->priority = priority;
+			existing->blocksLowerPriority = blocksLowerPriority;
+		}
+		else
+		{
+			s_contextLayers.push_back({ context, priority, blocksLowerPriority });
+		}
+		std::sort(s_contextLayers.begin(), s_contextLayers.end(),
+			[](const ContextLayer& a, const ContextLayer& b) { return a.priority > b.priority; });
+	}
+
+	void InputActions::PopContextLayer(InputContext context)
+	{
+		s_contextLayers.erase(std::remove_if(s_contextLayers.begin(), s_contextLayers.end(),
+			[&](const ContextLayer& layer) { return layer.context == context; }), s_contextLayers.end());
+	}
+
+	void InputActions::ClearContextLayers()
+	{
+		s_contextLayers.clear();
+	}
+
+	std::vector<InputActions::ContextLayer> InputActions::GetContextLayers()
+	{
+		return s_contextLayers;
+	}
+
+	bool InputActions::IsContextAllowed(InputContext context)
+	{
+		if (s_contextLayers.empty())
+			return context == InputContext::Gameplay;
+
+		const ContextLayer* topLayer = &s_contextLayers.front();
+		if (topLayer->context == context)
+			return true;
+		if (!topLayer->blocksLowerPriority)
+			return true;
+
+		for (const auto& layer : s_contextLayers)
+		{
+			if (layer.context == context)
+				return layer.priority >= topLayer->priority;
+		}
+		return false;
 	}
 
 	void InputActions::BindAxis(const std::string& name, const AxisBinding& binding)
 	{
 		s_axes[name] = binding;
 		SyncActiveProfileFromCurrent();
+		MarkBindingsDirty();
 	}
 
 	void InputActions::ClearAction(const std::string& name)
@@ -271,12 +479,14 @@ namespace MyEngine
 		s_currentActionState.erase(name);
 		s_previousActionState.erase(name);
 		SyncActiveProfileFromCurrent();
+		MarkBindingsDirty();
 	}
 
 	void InputActions::ClearAxis(const std::string& name)
 	{
 		s_axes.erase(name);
 		SyncActiveProfileFromCurrent();
+		MarkBindingsDirty();
 	}
 
 	bool InputActions::HasAction(const std::string& name)
@@ -428,9 +638,70 @@ namespace MyEngine
 		return s_gamepadAxes[axis];
 	}
 
+	const unsigned char* InputActions::GetGamepadButtonsRaw()
+	{
+		return s_gamepadButtons;
+	}
+
+	const float* InputActions::GetGamepadAxesRaw()
+	{
+		return s_gamepadAxes;
+	}
+
+	int InputActions::GetGamepadButtonCount()
+	{
+		return static_cast<int>(sizeof(s_gamepadButtons));
+	}
+
+	int InputActions::GetGamepadAxisCount()
+	{
+		return static_cast<int>(sizeof(s_gamepadAxes) / sizeof(float));
+	}
+
+	float InputActions::GetGamepadAxisCalibrated(int axis)
+	{
+		if (!s_gamepadStateValid || axis < 0 || axis >= 6)
+			return 0.0f;
+		return ApplyAxisCalibration(axis, s_gamepadAxes[axis]);
+	}
+
+	bool InputActions::TryGetGamepadAxisCalibration(int axis, AxisCalibration& outCalibration)
+	{
+		auto it = s_profiles.find(s_activeProfile);
+		if (it == s_profiles.end() || axis < 0 || axis >= static_cast<int>(it->second.axisCalibration.size()))
+			return false;
+		outCalibration = it->second.axisCalibration[axis];
+		return true;
+	}
+
+	bool InputActions::SetGamepadAxisCalibration(int axis, const AxisCalibration& calibration)
+	{
+		auto it = s_profiles.find(s_activeProfile);
+		if (it == s_profiles.end() || axis < 0 || axis >= static_cast<int>(it->second.axisCalibration.size()))
+			return false;
+		AxisCalibration clamped = calibration;
+		clamped.deadzone = std::clamp(clamped.deadzone, -1.0f, 0.95f);
+		clamped.exponent = std::clamp(clamped.exponent, 0.1f, 4.0f);
+		clamped.saturation = std::clamp(clamped.saturation, 0.01f, 2.0f);
+		it->second.axisCalibration[axis] = clamped;
+		MarkBindingsDirty();
+		return true;
+	}
+
+	void InputActions::ResetGamepadCalibration()
+	{
+		auto it = s_profiles.find(s_activeProfile);
+		if (it == s_profiles.end())
+			return;
+		for (auto& calibration : it->second.axisCalibration)
+			calibration = AxisCalibration{};
+		MarkBindingsDirty();
+	}
+
 	void InputActions::SetGamepadDeadzone(float deadzone)
 	{
 		s_gamepadDeadzone = std::clamp(deadzone, 0.0f, 0.95f);
+		MarkBindingsDirty();
 	}
 
 	float InputActions::GetGamepadDeadzone()
@@ -440,6 +711,8 @@ namespace MyEngine
 
 	bool InputActions::EvaluateAction(const ActionBinding& binding)
 	{
+		if (!IsBindingContextAllowed(binding.context))
+			return false;
 		for (int key : binding.keys)
 			if (Input::IsKeyDown(key))
 				return true;
@@ -458,7 +731,7 @@ namespace MyEngine
 			{
 				if (axis < 0 || axis >= 6)
 					continue;
-				float value = s_gamepadAxes[axis];
+				float value = ApplyAxisCalibration(axis, s_gamepadAxes[axis]);
 				if (binding.invertAxis)
 					value = -value;
 				if (std::fabs(value) >= threshold)
@@ -470,6 +743,8 @@ namespace MyEngine
 
 	float InputActions::EvaluateAxis(const AxisBinding& binding)
 	{
+		if (!IsBindingContextAllowed(binding.context))
+			return 0.0f;
 		float value = 0.0f;
 
 		for (const auto& [positiveKey, negativeKey] : binding.keyPairs)
@@ -480,18 +755,24 @@ namespace MyEngine
 
 		if (s_gamepadStateValid)
 		{
-			float deadzone = (binding.deadzone > 0.0f) ? std::clamp(binding.deadzone, 0.0f, 0.95f) : s_gamepadDeadzone;
 			for (int axis : binding.gamepadAxes)
 			{
 				if (axis < 0 || axis >= 6)
 					continue;
-				float raw = s_gamepadAxes[axis];
-				if (std::fabs(raw) > deadzone)
+				float calibrated = ApplyAxisCalibration(axis, s_gamepadAxes[axis]);
+				if (binding.deadzone > 0.0f)
 				{
-					float sign = raw > 0.0f ? 1.0f : -1.0f;
-					float scaled = (std::fabs(raw) - deadzone) / (1.0f - deadzone);
-					value += sign * scaled;
+					float localDeadzone = std::clamp(binding.deadzone, 0.0f, 0.95f);
+					if (std::fabs(calibrated) <= localDeadzone)
+						calibrated = 0.0f;
+					else
+					{
+						float sign = calibrated > 0.0f ? 1.0f : -1.0f;
+						float scaled = (std::fabs(calibrated) - localDeadzone) / (1.0f - localDeadzone);
+						calibrated = sign * std::clamp(scaled, 0.0f, 1.0f);
+					}
 				}
+				value += calibrated;
 			}
 			for (const auto& [positiveBtn, negativeBtn] : binding.gamepadButtonPairs)
 			{
@@ -505,6 +786,11 @@ namespace MyEngine
 		value *= std::max(binding.sensitivity, 0.01f);
 		value = std::clamp(value, -1.0f, 1.0f);
 		return binding.invert ? -value : value;
+	}
+
+	bool InputActions::IsBindingContextAllowed(InputContext bindingContext)
+	{
+		return IsContextAllowed(bindingContext);
 	}
 
 	// ---------------- Persistence ----------------
@@ -539,6 +825,7 @@ namespace MyEngine
 				obj.AddMember("gamepadAxes", padAxes, alloc);
 				obj.AddMember("axisThreshold", binding.axisThreshold, alloc);
 				obj.AddMember("invertAxis", binding.invertAxis, alloc);
+				obj.AddMember("context", static_cast<int>(binding.context), alloc);
 				out.AddMember(rapidjson::Value(name.c_str(), alloc), obj, alloc);
 			}
 		};
@@ -573,6 +860,7 @@ namespace MyEngine
 				obj.AddMember("invert", binding.invert, alloc);
 				obj.AddMember("deadzone", binding.deadzone, alloc);
 				obj.AddMember("sensitivity", binding.sensitivity, alloc);
+				obj.AddMember("context", static_cast<int>(binding.context), alloc);
 				out.AddMember(rapidjson::Value(name.c_str(), alloc), obj, alloc);
 			}
 		};
@@ -583,13 +871,25 @@ namespace MyEngine
 			rapidjson::Value profileObj(rapidjson::kObjectType);
 			rapidjson::Value actions(rapidjson::kObjectType);
 			rapidjson::Value axes(rapidjson::kObjectType);
+			rapidjson::Value calibrationArray(rapidjson::kArrayType);
 			writeActionMap(profile.actions, actions);
 			writeAxisMap(profile.axes, axes);
+			for (const auto& calibration : profile.axisCalibration)
+			{
+				rapidjson::Value calibrationObj(rapidjson::kObjectType);
+				calibrationObj.AddMember("deadzone", calibration.deadzone, alloc);
+				calibrationObj.AddMember("exponent", calibration.exponent, alloc);
+				calibrationObj.AddMember("saturation", calibration.saturation, alloc);
+				calibrationObj.AddMember("invert", calibration.invert, alloc);
+				calibrationArray.PushBack(calibrationObj, alloc);
+			}
 			profileObj.AddMember("actions", actions, alloc);
 			profileObj.AddMember("axes", axes, alloc);
+			profileObj.AddMember("axisCalibration", calibrationArray, alloc);
 			profiles.AddMember(rapidjson::Value(profileName.c_str(), alloc), profileObj, alloc);
 		}
 		doc.AddMember("profiles", profiles, alloc);
+		doc.AddMember("defaultProfile", rapidjson::Value(s_defaultProfile.c_str(), alloc), alloc);
 
 		// Legacy compatibility: duplicate active profile into root actions/axes.
 		rapidjson::Value rootActions(rapidjson::kObjectType);
@@ -609,6 +909,7 @@ namespace MyEngine
 			return false;
 		}
 		file << buffer.GetString();
+		s_bindingsDirty = false;
 		return true;
 	}
 
@@ -651,6 +952,8 @@ namespace MyEngine
 					for (const auto& v : obj["gamepadAxes"].GetArray()) if (v.IsInt()) binding.gamepadAxes.push_back(v.GetInt());
 				if (obj.HasMember("axisThreshold") && obj["axisThreshold"].IsNumber()) binding.axisThreshold = obj["axisThreshold"].GetFloat();
 				if (obj.HasMember("invertAxis") && obj["invertAxis"].IsBool()) binding.invertAxis = obj["invertAxis"].GetBool();
+				if (obj.HasMember("context") && obj["context"].IsInt())
+					binding.context = static_cast<InputContext>(std::clamp(obj["context"].GetInt(), 0, 2));
 				out[it->name.GetString()] = binding;
 			}
 		};
@@ -677,6 +980,8 @@ namespace MyEngine
 				if (obj.HasMember("invert") && obj["invert"].IsBool()) binding.invert = obj["invert"].GetBool();
 				if (obj.HasMember("deadzone") && obj["deadzone"].IsNumber()) binding.deadzone = obj["deadzone"].GetFloat();
 				if (obj.HasMember("sensitivity") && obj["sensitivity"].IsNumber()) binding.sensitivity = obj["sensitivity"].GetFloat();
+				if (obj.HasMember("context") && obj["context"].IsInt())
+					binding.context = static_cast<InputContext>(std::clamp(obj["context"].GetInt(), 0, 2));
 				out[it->name.GetString()] = binding;
 			}
 		};
@@ -690,6 +995,22 @@ namespace MyEngine
 				Profile profile;
 				if (it->value.HasMember("actions")) readActionMap(it->value["actions"], profile.actions);
 				if (it->value.HasMember("axes")) readAxisMap(it->value["axes"], profile.axes);
+				if (it->value.HasMember("axisCalibration") && it->value["axisCalibration"].IsArray())
+				{
+					const auto& calibrationArray = it->value["axisCalibration"].GetArray();
+					for (rapidjson::SizeType axis = 0; axis < calibrationArray.Size() && axis < profile.axisCalibration.size(); ++axis)
+					{
+						if (!calibrationArray[axis].IsObject())
+							continue;
+						auto calibration = profile.axisCalibration[axis];
+						const auto& obj = calibrationArray[axis];
+						if (obj.HasMember("deadzone") && obj["deadzone"].IsNumber()) calibration.deadzone = obj["deadzone"].GetFloat();
+						if (obj.HasMember("exponent") && obj["exponent"].IsNumber()) calibration.exponent = obj["exponent"].GetFloat();
+						if (obj.HasMember("saturation") && obj["saturation"].IsNumber()) calibration.saturation = obj["saturation"].GetFloat();
+						if (obj.HasMember("invert") && obj["invert"].IsBool()) calibration.invert = obj["invert"].GetBool();
+						profile.axisCalibration[axis] = calibration;
+					}
+				}
 				s_profiles[it->name.GetString()] = std::move(profile);
 			}
 		}
@@ -708,7 +1029,14 @@ namespace MyEngine
 		if (s_profiles.find(s_activeProfile) == s_profiles.end())
 			s_activeProfile = s_profiles.begin()->first;
 
+		s_defaultProfile = s_activeProfile;
+		if (doc.HasMember("defaultProfile") && doc["defaultProfile"].IsString())
+			s_defaultProfile = doc["defaultProfile"].GetString();
+		if (s_profiles.find(s_defaultProfile) == s_profiles.end())
+			s_defaultProfile = s_activeProfile;
+
 		LoadCurrentFromActiveProfile();
+		s_bindingsDirty = false;
 		return true;
 	}
 }

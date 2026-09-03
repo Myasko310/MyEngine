@@ -39,6 +39,16 @@ namespace MyEngine
 		const std::string& GetPath() const { return m_Path; }
 		void SetPath(const std::string& path) { m_Path = path; }
 
+		// Material instance inheritance
+		bool useBaseMaterial = false;
+		std::string baseMaterialPath;
+		std::shared_ptr<Material> baseMaterial = nullptr;
+		bool overrideShader = true;
+		bool overrideSurface = true;
+		bool overrideTextures = true;
+		bool overridePBR = true;
+		bool overrideRenderFlags = true;
+
 		std::shared_ptr<Shader> shader = nullptr;
 		std::string shaderVertexPath;
 		std::string shaderFragmentPath;
@@ -67,7 +77,29 @@ namespace MyEngine
 		bool      depthTest   = true;
 		int       renderQueue = 2000; // lower = earlier draw; use >2500 for transparent
 
+		std::shared_ptr<Shader> GetResolvedShader() const;
+		glm::vec3 GetResolvedAlbedo() const;
+		float GetResolvedShininess() const;
+		std::shared_ptr<Texture> GetResolvedTexture() const;
+		bool GetResolvedUseTexture() const;
+		bool GetResolvedUsePBR() const;
+		float GetResolvedMetallic() const;
+		float GetResolvedRoughness() const;
+		float GetResolvedAOStrength() const;
+		glm::vec3 GetResolvedEmissive() const;
+		std::shared_ptr<Texture> GetResolvedAlbedoMap() const;
+		std::shared_ptr<Texture> GetResolvedNormalMap() const;
+		std::shared_ptr<Texture> GetResolvedMetallicRoughnessMap() const;
+		std::shared_ptr<Texture> GetResolvedAOMap() const;
+		std::shared_ptr<Texture> GetResolvedEmissiveMap() const;
+		BlendMode GetResolvedBlendMode() const;
+		CullMode GetResolvedCullMode() const;
+		bool GetResolvedDepthWrite() const;
+		bool GetResolvedDepthTest() const;
+		int GetResolvedRenderQueue() const;
+
 	private:
+		const Material* GetBaseMaterialResolved() const;
 		std::string m_Path;
 	};
 }

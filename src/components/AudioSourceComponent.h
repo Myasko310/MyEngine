@@ -30,6 +30,12 @@ struct AudioSourceComponent
 	float minDistance = 1.0f;
 	float maxDistance = 100.0f;
 
+	// Mixer/event metadata.
+	// busName routes the source through a named bus gain (default: Master).
+	// eventName allows event-based playback by name via AudioSystem::QueueEvent.
+	std::string busName = "Master";
+	std::string eventName;
+
 	// Runtime-only state (not serialized): the underlying OpenAL source handle
 	// and whether playback has been requested. Managed by AudioSystem.
 	unsigned int sourceID = 0;

@@ -1,5 +1,6 @@
 #include "systems/ScriptSystem.h"
 
+#include "audio/AudioEngine.h"
 #include "components/CollisionEventsComponent.h"
 #include "components/LightComponent.h"
 #include "components/RigidbodyComponent.h"
@@ -10,6 +11,7 @@
 #include "core/InputActions.h"
 #include "ecs/Entity.h"
 #include "ecs/Scene.h"
+#include "systems/AudioSystem.h"
 
 #include <glm/glm.hpp>
 
@@ -124,6 +126,9 @@ engine.get_light_range = engine_get_light_range
 engine.set_light_range = engine_set_light_range
 engine.get_light_cast_shadows = engine_get_light_cast_shadows
 engine.set_light_cast_shadows = engine_set_light_cast_shadows
+engine.trigger_audio_event = engine_trigger_audio_event
+engine.set_audio_bus_volume = engine_set_audio_bus_volume
+engine.get_audio_bus_volume = engine_get_audio_bus_volume
 
 self = self or {}
 self.get_position = engine_get_position
@@ -207,6 +212,9 @@ engine.get_light_range = engine_get_light_range
 engine.set_light_range = engine_set_light_range
 engine.get_light_cast_shadows = engine_get_light_cast_shadows
 engine.set_light_cast_shadows = engine_set_light_cast_shadows
+engine.trigger_audio_event = engine_trigger_audio_event
+engine.set_audio_bus_volume = engine_set_audio_bus_volume
+engine.get_audio_bus_volume = engine_get_audio_bus_volume
 
 scene = scene or {}
 scene.find_entity_by_name = engine_find_entity_by_name
@@ -412,6 +420,28 @@ scene.log = engine_log
 				lua_pop(L, 1);
 			}
 		}
+	}
+
+	void ScriptSystem::DispatchAnimationEvent(uint32_t entityID, const char* eventName, const char* callbackName)
+	{
+		auto it = m_States.find(entityID);
+		if (it != m_States.end() && it->second.luaState)
+		{
+			lua_State* L = it->second.luaState;
+			lua_getglobal(L, callbackName && callbackName[0] != '\0' ? callbackName : "OnAnimationEvent");
+			if (lua_isfunction(L, -1))
+			{
+				lua_pushinteger(L, static_cast<lua_Integer>(entityID));
+				lua_pushstring(L, eventName ? eventName : "");
+				CallScriptFunction(L, callbackName && callbackName[0] != '\0' ? callbackName : "OnAnimationEvent", 2, 0);
+			}
+			else
+			{
+				lua_pop(L, 1);
+			}
+		}
+
+		DispatchGlobalEventWithString("OnAnimationEvent", entityID, eventName ? eventName : "");
 	}
 
 	void ScriptSystem::SyncEntity(Scene& scene, Entity& entity, float deltaTime)
@@ -815,6 +845,15 @@ scene.log = engine_log
 		lua_pushcfunction(L, &ScriptSystem::LuaSetLightCastShadows);
 		lua_setglobal(L, "engine_set_light_cast_shadows");
 
+		lua_pushcfunction(L, &ScriptSystem::LuaTriggerAudioEvent);
+		lua_setglobal(L, "engine_trigger_audio_event");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetAudioBusVolume);
+		lua_setglobal(L, "engine_set_audio_bus_volume");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetAudioBusVolume);
+		lua_setglobal(L, "engine_get_audio_bus_volume");
+
 		lua_pushcfunction(L, &ScriptSystem::LuaIsAction);
 		lua_setglobal(L, "engine_is_action");
 
@@ -987,6 +1026,15 @@ scene.log = engine_log
 
 		lua_pushcfunction(L, &ScriptSystem::LuaSetLightCastShadows);
 		lua_setglobal(L, "engine_set_light_cast_shadows");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaTriggerAudioEvent);
+		lua_setglobal(L, "engine_trigger_audio_event");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaSetAudioBusVolume);
+		lua_setglobal(L, "engine_set_audio_bus_volume");
+
+		lua_pushcfunction(L, &ScriptSystem::LuaGetAudioBusVolume);
+		lua_setglobal(L, "engine_get_audio_bus_volume");
 
 		lua_pushcfunction(L, &ScriptSystem::LuaIsAction);
 		lua_setglobal(L, "engine_is_action");
@@ -2025,5 +2073,27 @@ scene.log = engine_log
 
 		entity->GetComponent<LightComponent>().castShadows = lua_toboolean(L, valueStartIndex) != 0;
 		return 0;
+	}
+
+	int ScriptSystem::LuaTriggerAudioEvent(lua_State* L)
+	{
+		const char* eventName = luaL_checkstring(L, 1);
+		AudioSystem::QueueEvent(eventName);
+		return 0;
+	}
+
+	int ScriptSystem::LuaSetAudioBusVolume(lua_State* L)
+	{
+		const char* busName = luaL_checkstring(L, 1);
+		float volume = static_cast<float>(luaL_checknumber(L, 2));
+		AudioEngine::SetBusVolume(busName, volume);
+		return 0;
+	}
+
+	int ScriptSystem::LuaGetAudioBusVolume(lua_State* L)
+	{
+		const char* busName = luaL_optstring(L, 1, "Master");
+		lua_pushnumber(L, AudioEngine::GetBusVolume(busName));
+		return 1;
 	}
 }

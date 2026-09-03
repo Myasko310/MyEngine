@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <cstdint>
 
 namespace MyEngine
 {
@@ -51,6 +52,14 @@ namespace MyEngine
 			::Scene& scene,
 			const std::string& path,
 			const std::shared_ptr<MyEngine::Shader>& defaultShader = nullptr
+		);
+
+		bool SavePrefabVariant(
+			const ::Scene& sourceScene,
+			::Entity* rootEntity,
+			const std::string& variantPath,
+			const std::string& basePrefabPath,
+			std::uint32_t baseEntityID
 		);
 	}
 }

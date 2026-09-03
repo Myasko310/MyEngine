@@ -35,6 +35,17 @@ namespace MyEngine
 		return glm::quat(q.w, q.x, q.y, q.z);
 	}
 
+	// Helper: Remove Assimp's internal suffixes like "$AssimpFbx$_Rotation", "$AssimpFbx$_Position", etc.
+	// These are added by Assimp but don't reflect the actual bone names in the skeleton.
+	static std::string StripAssimpSuffix(const std::string& name)
+	{
+		// Look for "$AssimpFbx$" pattern and remove everything from that point
+		size_t pos = name.find("$AssimpFbx$");
+		if (pos != std::string::npos)
+			return name.substr(0, pos);
+		return name;
+	}
+
 	static std::string ResolveMaterialTexturePath(
 		const aiScene* scene,
 		const std::filesystem::path& modelPath,
@@ -125,22 +136,24 @@ namespace MyEngine
 
 	// Recursively registers a bone hierarchy in the skeleton, mirroring the
 	// assimp node tree. Only nodes that are actually referenced as bones by
-	// some mesh (present in `boneOffsets`) are added; other nodes (e.g. mesh
-	// or light nodes) are skipped, but the tree is still walked through them
-	// so bones deeper in the hierarchy are still found and reparented onto
-	// the nearest ancestor bone.
+	// some mesh (present in `boneOffsets`) are added, but transforms from any
+	// skipped non-bone nodes are accumulated so child bones preserve the same
+	// bind-pose relationship as in the source scene graph.
 	static void CollectBones(
 		const aiNode* node,
 		int parentBoneIndex,
 		const std::unordered_map<std::string, glm::mat4>& boneOffsets,
+		const glm::mat4& skippedLocalChain,
 		Skeleton& skeleton)
 	{
 		if (!node)
 			return;
 
 		int thisBoneIndex = parentBoneIndex;
+		glm::mat4 childSkippedChain = skippedLocalChain;
 
-		std::string nodeName = node->mName.C_Str();
+		const glm::mat4 nodeLocal = ToGlmMat4(node->mTransformation);
+		const std::string nodeName = node->mName.C_Str();
 		auto offsetIt = boneOffsets.find(nodeName);
 		if (offsetIt != boneOffsets.end())
 		{
@@ -148,13 +161,19 @@ namespace MyEngine
 			bone.name = nodeName;
 			bone.parentIndex = parentBoneIndex;
 			bone.offsetMatrix = offsetIt->second;
-			bone.localBindTransform = ToGlmMat4(node->mTransformation);
+			bone.localBindTransform = skippedLocalChain * nodeLocal;
+			bone.skippedNodeLocalPrefix = skippedLocalChain;
 			thisBoneIndex = skeleton.AddBone(bone);
+			childSkippedChain = glm::mat4(1.0f);
+		}
+		else
+		{
+			childSkippedChain = skippedLocalChain * nodeLocal;
 		}
 
 		for (unsigned int i = 0; i < node->mNumChildren; ++i)
 		{
-			CollectBones(node->mChildren[i], thisBoneIndex, boneOffsets, skeleton);
+			CollectBones(node->mChildren[i], thisBoneIndex, boneOffsets, childSkippedChain, skeleton);
 		}
 	}
 
@@ -199,7 +218,25 @@ namespace MyEngine
 		if (!boneOffsets.empty())
 		{
 			m_Skeleton = std::make_shared<Skeleton>();
-			CollectBones(scene->mRootNode, -1, boneOffsets, *m_Skeleton);
+			CollectBones(scene->mRootNode, -1, boneOffsets, glm::mat4(1.0f), *m_Skeleton);
+
+			// Debug: log loaded skeleton
+			std::cerr << "\n========== SKELETON LOADED ==========\n";
+			std::cerr << "File: " << path << "\n";
+			std::cerr << "Total bones: " << m_Skeleton->GetBoneCount() << "\n";
+			std::cerr << "Bone names:\n";
+			for (const auto& bone : m_Skeleton->GetBones())
+			{
+				std::cerr << "  - " << bone.name << "\n";
+			}
+			std::cerr << "====================================\n\n";
+		}
+		else
+		{
+			std::cerr << "\n========== NO SKELETON ==========\n";
+			std::cerr << "File: " << path << "\n";
+			std::cerr << "Scene has no bones! This model has no skeleton.\n";
+			std::cerr << "=================================\n\n";
 		}
 
 		// Process meshes
@@ -365,7 +402,8 @@ namespace MyEngine
 				aiNodeAnim* channel = aAnim->mChannels[c];
 
 				BoneAnimationTrack track;
-				track.boneName = channel->mNodeName.C_Str();
+				// Strip Assimp's internal suffixes to match skeleton bone names
+				track.boneName = StripAssimpSuffix(channel->mNodeName.C_Str());
 
 				track.positionKeys.reserve(channel->mNumPositionKeys);
 				for (unsigned int k = 0; k < channel->mNumPositionKeys; ++k)

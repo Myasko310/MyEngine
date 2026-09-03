@@ -131,5 +131,71 @@ namespace MyEngine
 			}
 			return nullptr;
 		}
+
+		// Normalized lookup: matches bones by canonical name (leaf part, lowercased, alphanumeric only).
+		// Falls back to exact match if normalized match not found.
+		const BoneAnimationTrack* FindTrackNormalized(const std::string& boneName) const
+		{
+			// First try exact match for performance
+			const BoneAnimationTrack* exactMatch = FindTrack(boneName);
+			if (exactMatch)
+				return exactMatch;
+
+			// Try normalized comparison
+			std::string normalized = NormalizeNameForLookup(boneName);
+			for (const auto& track : tracks)
+			{
+				if (NormalizeNameForLookup(track.boneName) == normalized)
+					return &track;
+			}
+			return nullptr;
+		}
+
+	private:
+		static std::string NormalizeNameForLookup(const std::string& name)
+		{
+			if (name.empty())
+				return name;
+
+			// Extract leaf part after last delimiter
+			std::string leaf = name;
+			size_t delimiterPos = leaf.find_last_of("|:/\\");
+			if (delimiterPos != std::string::npos && delimiterPos + 1 < leaf.size())
+				leaf = leaf.substr(delimiterPos + 1);
+
+			// Remove Blender-style suffixes (.001, .002, etc.)
+			if (leaf.size() > 4)
+			{
+				size_t dotPos = leaf.rfind('.');
+				if (dotPos != std::string::npos && dotPos + 1 < leaf.size())
+				{
+					std::string suffix = leaf.substr(dotPos + 1);
+					// Check if suffix is all digits
+					bool allDigits = true;
+					for (char c : suffix)
+					{
+						if (!std::isdigit(static_cast<unsigned char>(c)))
+						{
+							allDigits = false;
+							break;
+						}
+					}
+					if (allDigits && suffix.size() <= 3)
+						leaf = leaf.substr(0, dotPos);
+				}
+			}
+
+			// Convert to lowercase and keep only alphanumeric characters
+			std::string result;
+			result.reserve(leaf.size());
+			for (char c : leaf)
+			{
+				unsigned char uc = static_cast<unsigned char>(c);
+				if (std::isalnum(uc))
+					result.push_back(static_cast<char>(std::tolower(uc)));
+			}
+
+			return result.empty() ? leaf : result;
+		}
 	};
 }

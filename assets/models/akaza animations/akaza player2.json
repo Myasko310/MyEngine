@@ -1,0 +1,882 @@
+{
+    "sceneVersion": 3,
+    "layerNames": [
+        "Default",
+        "TransparentFX",
+        "IgnoreRaycast",
+        "Water",
+        "UI",
+        "Layer 5",
+        "Layer 6",
+        "Layer 7",
+        "Layer 8",
+        "Layer 9",
+        "Layer 10",
+        "Layer 11",
+        "Layer 12",
+        "Layer 13",
+        "Layer 14",
+        "Layer 15",
+        "Layer 16",
+        "Layer 17",
+        "Layer 18",
+        "Layer 19",
+        "Layer 20",
+        "Layer 21",
+        "Layer 22",
+        "Layer 23",
+        "Layer 24",
+        "Layer 25",
+        "Layer 26",
+        "Layer 27",
+        "Layer 28",
+        "Layer 29",
+        "Layer 30",
+        "Layer 31"
+    ],
+    "collisionMatrix": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+    ],
+    "entities": [
+        {
+            "id": 1,
+            "name": "Camera",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -1.0055632591247559,
+                    3.493307113647461,
+                    7.2736358642578125
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "Camera": {
+                "isPrimary": true,
+                "fov": 60.0,
+                "nearPlane": 0.10000000149011612,
+                "farPlane": 1000.0
+            },
+            "AudioListener": {
+                "isPrimary": true,
+                "gain": 1.0
+            }
+        },
+        {
+            "id": 2,
+            "name": "Ground",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_plane",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "PlaneCollider": {
+                "normal": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "distance": 0.0,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 3,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    2.2341930866241455,
+                    0.40123462677001953,
+                    -2.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.7830357551574707,
+                    0.6433132886886597,
+                    0.39200663566589355
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            },
+            "CollisionEvents": {
+                "enabled": true
+            },
+            "Script": {
+                "scriptPath": "assets/scripts/spin_and_bob.lua",
+                "enabled": true,
+                "autoStart": true
+            }
+        },
+        {
+            "id": 4,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -1.0,
+                    0.5,
+                    -3.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.7000000476837158,
+                    0.4000000059604645,
+                    0.4000000059604645
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 5,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    0.5,
+                    -4.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.800000011920929,
+                    0.5,
+                    0.4000000059604645
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 6,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    1.0,
+                    0.5,
+                    -5.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.9000000357627869,
+                    0.6000000238418579,
+                    0.4000000059604645
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 7,
+            "name": "Cube",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    2.0,
+                    0.5,
+                    -6.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    0.7000000476837158,
+                    0.4000000059604645
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 8,
+            "name": "Player",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -0.3401266932487488,
+                    0.03049999475479126,
+                    2.5389349460601807
+                ],
+                "rotation": [
+                    0.0,
+                    0.12049249559640884,
+                    0.0
+                ],
+                "scale": [
+                    0.010000050067901611,
+                    0.010000050067901611,
+                    0.010000050067901611
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "assets/models/akaza (2).fbx",
+                "isSkinned": true
+            },
+            "SkeletonComponent": {
+                "present": true
+            },
+            "AnimationComponent": {
+                "activeClipIndex": 33,
+                "time": 5.160861968994141,
+                "playbackSpeed": 1.0,
+                "playing": true,
+                "looping": true,
+                "events": [],
+                "importedAnimationFiles": [
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Armada.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Back Flip To Uppercut.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Bboy Uprock Start.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Bencao.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Big Jump.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Bouncing Fight Idle.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Boxing (1).fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Boxing.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Breakdance Footwork To Idle.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Capoeira (1).fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Capoeira.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Cross Punch.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Crouched To Sprinting.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Crouched Walking.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Crouching Idle.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Crouching.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Diagonal Wall Run.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Fighting Idle.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Flair.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Flip Kick.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Front Flip.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Gangnam Style.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Happy Walk Backward.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Head Spinning.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Hook Punch.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Hook.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Idle.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Illegal Knee.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Jumping (1).fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Jumping.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Kicking (1).fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Kicking (2).fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Kicking.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Lead Jab.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Left Strafe Walking.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Leg Sweep.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Martelo 3.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Meia Lua De Compasso Back.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Meia Lua De Compasso.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Mma Kick (1).fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Mma Kick.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Northern Soul Floor Spin.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Punch Combo.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Quad Punch.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Quick Roll To Run.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Right Strafe Walk.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Roundhouse Kick.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Run Backward.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Run To Flip.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Running Jump.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Running Slide.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Running.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Soccer Tackle.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Spin Flip Kick.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Sprint.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Stand To Roll.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Standard Walk.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Standing Dive Forward.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Standing To Crouched.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Step Backward.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Stop Walking.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Stylish Flip.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Surprise Uppercut.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Swagger Walk.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Uppercut Jab.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Walking Backwards.fbx",
+                    "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Warrior Idle.fbx"
+                ]
+            },
+            "AnimationStateMachineComponent": {
+                "assetPath": "",
+                "currentStateIndex": 0,
+                "pendingStateIndex": 0,
+                "currentStateTime": 5.156193256378174,
+                "autoInitialize": true,
+                "debugPauseTransitions": false,
+                "parameterValues": [
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
+                        "triggerValue": false
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": true,
+                        "triggerValue": false
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
+                        "triggerValue": true
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
+                        "triggerValue": false
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
+                        "triggerValue": false
+                    }
+                ]
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit_skinned.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "CapsuleCollider": {
+                "pointA": [
+                    0.0,
+                    0.30000001192092896,
+                    0.0
+                ],
+                "pointB": [
+                    0.0,
+                    1.7999999523162842,
+                    0.0
+                ],
+                "radius": 0.3499999940395355,
+                "isTrigger": false
+            },
+            "CharacterController": {
+                "moveSpeed": 4.5,
+                "airControl": 0.3499999940395355,
+                "jumpSpeed": 6.0,
+                "gravityScale": 1.0,
+                "maxSlopeAngleDegrees": 50.0,
+                "groundSnapDistance": 0.18000000715255737,
+                "skinWidth": 0.029999999329447746,
+                "maxStepHeight": 0.3499999940395355,
+                "acceleration": 36.0,
+                "airAcceleration": 12.0,
+                "braking": 28.0,
+                "slideGravityScale": 1.350000023841858,
+                "enableGroundSnap": true,
+                "orientToMovement": true,
+                "animationSpeedParameter": "Speed",
+                "animationGroundedParameter": "IsGrounded",
+                "animationJumpTriggerParameter": "Jump"
+            },
+            "CollisionEvents": {
+                "enabled": true
+            }
+        },
+        {
+            "id": 9,
+            "name": "TriggerZone",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    1.0,
+                    -1.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    1.0,
+                    0.8500000238418579,
+                    0.20000000298023224
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "isTrigger": true
+            },
+            "CollisionEvents": {
+                "enabled": true
+            }
+        },
+        {
+            "id": 10,
+            "name": "SwingingBall",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    2.5,
+                    3.0,
+                    2.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.4000000059604645,
+                    0.4000000059604645,
+                    0.4000000059604645
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_sphere",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.8999999761581421,
+                    0.30000001192092896,
+                    0.30000001192092896
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    -3.9789694162112827e-26,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    7.98989833021731e-27,
+                    -9.8100004196167,
+                    0.0
+                ],
+                "mass": 0.5,
+                "drag": 0.10000000149011612,
+                "bounciness": 0.0,
+                "useGravity": true,
+                "gravityScale": 1.0,
+                "isKinematic": false,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            },
+            "Joint": {
+                "type": 2,
+                "connectedEntityID": 0,
+                "anchor": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "connectedAnchor": [
+                    2.5,
+                    4.0,
+                    2.0
+                ],
+                "restLength": 1.0,
+                "stiffness": 50.0,
+                "damping": 2.0,
+                "hingeDistance": 1.0,
+                "enabled": true
+            }
+        },
+        {
+            "id": 11,
+            "name": "PbrDemoSphere",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -3.0,
+                    1.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_sphere",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.800000011920929,
+                    0.5,
+                    0.20000000298023224
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/pbr.vert",
+                "shaderFragmentPath": "shaders/pbr.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 12,
+            "name": "DirectionalLight",
+            "tag": "",
+            "layer": 0,
+            "Light": {
+                "type": 0,
+                "color": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "intensity": 1.1382262706756592,
+                "direction": [
+                    -4.10752676316406e-8,
+                    -0.3420201241970062,
+                    -0.9396926164627075
+                ],
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "range": 10.0,
+                "innerCone": 12.5,
+                "outerCone": 17.5,
+                "shadowBias": 0.004999999888241291,
+                "castShadows": true,
+                "pointShadowSizeOverride": 0,
+                "pointShadowPCFSamplesOverride": 0,
+                "pointShadowPCFRadiusOverride": -1.0,
+                "spotShadowSizeOverride": 0,
+                "spotShadowPCFRadiusOverride": -1.0
+            }
+        }
+    ],
+    "globalScripts": [
+        {
+            "order": 0,
+            "scriptPath": "",
+            "enabled": true,
+            "autoStart": true
+        }
+    ]
+}

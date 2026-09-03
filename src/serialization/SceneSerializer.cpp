@@ -1110,13 +1110,32 @@ namespace MyEngine
 							std::filesystem::path sourcePath(importedPath);
 							std::string sourceStem = sourcePath.stem().string();
 
+							auto isGenericImportedName = [](const std::string& name)
+							{
+								if (name.empty())
+									return true;
+
+								std::string trimmed = name;
+								trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
+								trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
+
+								std::string lower = trimmed;
+								std::transform(lower.begin(), lower.end(), lower.begin(),
+									[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+								return lower.empty() ||
+									lower == "mixamo.com" ||
+									lower == "mixamo_com" ||
+									lower == "mixamo.com|mixamo.com";
+							};
+
 							for (const auto& clip : *externalClips)
 							{
 								if (skeleton && !MyEngine::AssetManager::IsAnimationClipCompatible(clip, skeleton))
 									continue;
 
 								MyEngine::AnimationClip importedClip = clip;
-								std::string baseName = importedClip.name.empty() ? sourceStem : importedClip.name;
+								std::string baseName = isGenericImportedName(importedClip.name) ? sourceStem : importedClip.name;
 								importedClip.name = baseName;
 
 								bool duplicateName = false;

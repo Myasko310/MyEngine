@@ -730,7 +730,9 @@ namespace MyEngine
 			if (controller.orientToMovement && glm::length(facing) > 0.1f)
 			{
 				facing = glm::normalize(facing);
-				transform.rotation.y = std::atan2(facing.z, facing.x);
+				// TransformComponent rotation uses radians; use +Z-forward yaw convention
+				// so character-facing aligns better with imported humanoid animation sets.
+				transform.rotation.y = std::atan2(facing.x, facing.z);
 			}
 
 			UpdateControllerAnimationState(entity, controller);

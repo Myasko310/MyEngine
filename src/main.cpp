@@ -3932,11 +3932,16 @@ int main(int argc, char** argv)
                                         if (clipLabel.empty())
                                             clipLabel = "Clip " + std::to_string(clipIndex);
 
+                                        std::string selectableLabel = clipLabel + "##animclip_" + std::to_string(clipIndex);
                                         bool isSelected = (clipIndex == anim.activeClipIndex);
-                                        if (ImGui::Selectable(clipLabel.c_str(), isSelected))
+                                        if (ImGui::Selectable(selectableLabel.c_str(), isSelected))
                                         {
                                             if (clipIndex != anim.activeClipIndex)
                                                 anim.TransitionTo(clipIndex, 0.2f);
+                                        }
+                                        if (ImGui::IsItemHovered())
+                                        {
+                                            ImGui::SetTooltip("%s", clipLabel.c_str());
                                         }
                                         if (isSelected)
                                             ImGui::SetItemDefaultFocus();
@@ -4032,6 +4037,25 @@ int main(int argc, char** argv)
                                         std::string sourceStem = sourcePath.stem().string();
                                         bool importedFromThisFile = false;
 
+                                        auto isGenericImportedName = [](const std::string& name)
+                                        {
+                                            if (name.empty())
+                                                return true;
+
+                                            std::string trimmed = name;
+                                            trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
+                                            trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
+
+                                            std::string lower = trimmed;
+                                            std::transform(lower.begin(), lower.end(), lower.begin(),
+                                                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+                                            return lower.empty() ||
+                                                lower == "mixamo.com" ||
+                                                lower == "mixamo_com" ||
+                                                lower == "mixamo.com|mixamo.com";
+                                        };
+
                                         for (const auto& clip : *externalClips)
                                         {
                                             if (!MyEngine::AssetManager::IsAnimationClipCompatible(clip, skeleton))
@@ -4041,7 +4065,7 @@ int main(int argc, char** argv)
                                             }
 
                                             MyEngine::AnimationClip importedClip = clip;
-                                            std::string baseName = importedClip.name.empty()
+                                            std::string baseName = isGenericImportedName(importedClip.name)
                                                 ? sourceStem
                                                 : importedClip.name;
                                             importedClip.name = baseName;
@@ -4194,6 +4218,25 @@ int main(int argc, char** argv)
                                         int importedCount = 0;
                                         int incompatibleCount = 0;
 
+                                        auto isGenericImportedName = [](const std::string& name)
+                                        {
+                                            if (name.empty())
+                                                return true;
+
+                                            std::string trimmed = name;
+                                            trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
+                                            trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
+
+                                            std::string lower = trimmed;
+                                            std::transform(lower.begin(), lower.end(), lower.begin(),
+                                                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+                                            return lower.empty() ||
+                                                lower == "mixamo.com" ||
+                                                lower == "mixamo_com" ||
+                                                lower == "mixamo.com|mixamo.com";
+                                        };
+
                                         for (const auto& clip : *externalClips)
                                         {
                                             if (!MyEngine::AssetManager::IsAnimationClipCompatible(clip, skeleton))
@@ -4203,7 +4246,7 @@ int main(int argc, char** argv)
                                             }
 
                                             MyEngine::AnimationClip importedClip = clip;
-                                            std::string baseName = importedClip.name.empty() ? sourceStem : importedClip.name;
+                                            std::string baseName = isGenericImportedName(importedClip.name) ? sourceStem : importedClip.name;
                                             importedClip.name = baseName;
 
                                             bool duplicateName = false;

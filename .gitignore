@@ -361,3 +361,24 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Project-specific build folders
+build_vcpkg_x64/
+build_x64/
+build/
+bin/
+obj/
+
+# vcpkg installed folder
+vcpkg_installed/
+vcpkg/
+
+# CMake generated project files
+MyEngine/build/
+MyEngine/build/debug/
+
+# Executables and libs
+*.exe
+*.dll
+*.lib
+*.pdb

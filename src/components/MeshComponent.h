@@ -1,0 +1,12 @@
+#pragma once
+
+#include <memory>
+
+#include "rendering/Mesh.h"
+
+struct MeshComponent
+{
+    std::shared_ptr<MyEngine::Mesh> mesh = nullptr;
+    // Optional asset path for serialized/loadable meshes
+    std::string assetPath;
+};

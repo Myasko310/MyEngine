@@ -1,0 +1,14 @@
+{
+  "name": "myengine",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "glfw3",
+    "glm",
+    "glad",
+    "stb",
+    "imguizmo",
+    "openal-soft",
+    "lua"
+  ],
+  "builtin-baseline": "c93f37f1b1d20963ceab60bcd78b946af902ffe9"
+}

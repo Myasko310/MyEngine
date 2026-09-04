@@ -674,6 +674,13 @@ int main(int argc, char** argv)
             std::cout << "[main] Loaded Akaza character from " << akazaModelPath
                       << " with " << akazaData.skeleton->GetBoneCount() << " bones." << std::endl;
 
+            if (playerEntity->HasComponent<AnimationComponent>())
+            {
+                auto& anim = playerEntity->GetComponent<AnimationComponent>();
+                anim.enableRootMotion = true;
+                anim.rootMotionBoneName = "Hips";
+            }
+
             // Add animation state machine component for movement-based animation switching
             auto& stateMachineComp = playerEntity->AddComponent<AnimationStateMachineComponent>();
             stateMachineComp.autoInitialize = true;

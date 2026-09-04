@@ -99,6 +99,211 @@ namespace MyEngine
 			return v;
 		}
 
+		static const char* ToStateMachineParameterTypeString(MyEngine::AnimationStateMachineParameterType type)
+		{
+			switch (type)
+			{
+			case MyEngine::AnimationStateMachineParameterType::Bool: return "Bool";
+			case MyEngine::AnimationStateMachineParameterType::Float: return "Float";
+			case MyEngine::AnimationStateMachineParameterType::Trigger: return "Trigger";
+			default: return "Bool";
+			}
+		}
+
+		static const char* ToStateMachineConditionOperatorString(MyEngine::AnimationStateMachineConditionOperator op)
+		{
+			switch (op)
+			{
+			case MyEngine::AnimationStateMachineConditionOperator::IfTrue: return "IfTrue";
+			case MyEngine::AnimationStateMachineConditionOperator::IfFalse: return "IfFalse";
+			case MyEngine::AnimationStateMachineConditionOperator::Greater: return "Greater";
+			case MyEngine::AnimationStateMachineConditionOperator::Less: return "Less";
+			case MyEngine::AnimationStateMachineConditionOperator::Trigger: return "Trigger";
+			default: return "IfTrue";
+			}
+		}
+
+		static MyEngine::AnimationStateMachineParameterType ParseStateMachineParameterType(const Value& value)
+		{
+			if (!value.IsString())
+				return MyEngine::AnimationStateMachineParameterType::Bool;
+
+			std::string text = value.GetString();
+			if (text == "Float")
+				return MyEngine::AnimationStateMachineParameterType::Float;
+			if (text == "Trigger")
+				return MyEngine::AnimationStateMachineParameterType::Trigger;
+			return MyEngine::AnimationStateMachineParameterType::Bool;
+		}
+
+		static MyEngine::AnimationStateMachineConditionOperator ParseStateMachineConditionOperator(const Value& value)
+		{
+			if (!value.IsString())
+				return MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+
+			std::string text = value.GetString();
+			if (text == "IfFalse")
+				return MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+			if (text == "Greater")
+				return MyEngine::AnimationStateMachineConditionOperator::Greater;
+			if (text == "Less")
+				return MyEngine::AnimationStateMachineConditionOperator::Less;
+			if (text == "Trigger")
+				return MyEngine::AnimationStateMachineConditionOperator::Trigger;
+			return MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+		}
+
+		static void SerializeStateMachineDefinition(PrettyWriter<StringBuffer>& writer, const MyEngine::AnimationStateMachine& sm)
+		{
+			writer.Key("name"); writer.String(sm.name.c_str());
+			writer.Key("defaultStateIndex"); writer.Int(sm.defaultStateIndex);
+
+			writer.Key("parameters");
+			writer.StartArray();
+			for (const auto& parameter : sm.parameters)
+			{
+				writer.StartObject();
+				writer.Key("name"); writer.String(parameter.name.c_str());
+				writer.Key("type"); writer.String(ToStateMachineParameterTypeString(parameter.type));
+				writer.Key("defaultFloatValue"); writer.Double(parameter.defaultFloatValue);
+				writer.Key("defaultBoolValue"); writer.Bool(parameter.defaultBoolValue);
+				writer.EndObject();
+			}
+			writer.EndArray();
+
+			writer.Key("states");
+			writer.StartArray();
+			for (const auto& state : sm.states)
+			{
+				writer.StartObject();
+				writer.Key("name"); writer.String(state.name.c_str());
+				writer.Key("clipName"); writer.String(state.clipName.c_str());
+				writer.Key("loop"); writer.Bool(state.loop);
+				writer.Key("playbackSpeed"); writer.Double(state.playbackSpeed);
+				writer.Key("transitions");
+				writer.StartArray();
+				for (const auto& transition : state.transitions)
+				{
+					writer.StartObject();
+					writer.Key("targetStateIndex"); writer.Int(transition.targetStateIndex);
+					writer.Key("blendDuration"); writer.Double(transition.blendDuration);
+					writer.Key("requiresExitTime"); writer.Bool(transition.requiresExitTime);
+					writer.Key("exitTimeNormalized"); writer.Double(transition.exitTimeNormalized);
+					writer.Key("resetTimeOnEnter"); writer.Bool(transition.resetTimeOnEnter);
+					writer.Key("conditions");
+					writer.StartArray();
+					for (const auto& condition : transition.conditions)
+					{
+						writer.StartObject();
+						writer.Key("parameterName"); writer.String(condition.parameterName.c_str());
+						writer.Key("op"); writer.String(ToStateMachineConditionOperatorString(condition.op));
+						writer.Key("threshold"); writer.Double(condition.threshold);
+						writer.EndObject();
+					}
+					writer.EndArray();
+					writer.EndObject();
+				}
+				writer.EndArray();
+				writer.EndObject();
+			}
+			writer.EndArray();
+		}
+
+		static bool DeserializeStateMachineDefinition(const Value& data, MyEngine::AnimationStateMachine& sm)
+		{
+			if (!data.IsObject())
+				return false;
+
+			sm.name = data.HasMember("name") && data["name"].IsString() ? data["name"].GetString() : std::string();
+			sm.defaultStateIndex = data.HasMember("defaultStateIndex") && data["defaultStateIndex"].IsInt() ? data["defaultStateIndex"].GetInt() : 0;
+			sm.parameters.clear();
+			sm.states.clear();
+
+			if (data.HasMember("parameters") && data["parameters"].IsArray())
+			{
+				for (const auto& paramValue : data["parameters"].GetArray())
+				{
+					if (!paramValue.IsObject())
+						continue;
+
+					MyEngine::AnimationStateMachineParameter param;
+					if (paramValue.HasMember("name") && paramValue["name"].IsString())
+						param.name = paramValue["name"].GetString();
+					if (paramValue.HasMember("type"))
+						param.type = ParseStateMachineParameterType(paramValue["type"]);
+					if (paramValue.HasMember("defaultFloatValue") && paramValue["defaultFloatValue"].IsNumber())
+						param.defaultFloatValue = paramValue["defaultFloatValue"].GetFloat();
+					if (paramValue.HasMember("defaultBoolValue") && paramValue["defaultBoolValue"].IsBool())
+						param.defaultBoolValue = paramValue["defaultBoolValue"].GetBool();
+					sm.parameters.push_back(std::move(param));
+				}
+			}
+
+			if (data.HasMember("states") && data["states"].IsArray())
+			{
+				for (const auto& stateValue : data["states"].GetArray())
+				{
+					if (!stateValue.IsObject())
+						continue;
+
+					MyEngine::AnimationStateMachineState state;
+					if (stateValue.HasMember("name") && stateValue["name"].IsString())
+						state.name = stateValue["name"].GetString();
+					if (stateValue.HasMember("clipName") && stateValue["clipName"].IsString())
+						state.clipName = stateValue["clipName"].GetString();
+					if (stateValue.HasMember("loop") && stateValue["loop"].IsBool())
+						state.loop = stateValue["loop"].GetBool();
+					if (stateValue.HasMember("playbackSpeed") && stateValue["playbackSpeed"].IsNumber())
+						state.playbackSpeed = stateValue["playbackSpeed"].GetFloat();
+
+					if (stateValue.HasMember("transitions") && stateValue["transitions"].IsArray())
+					{
+						for (const auto& transitionValue : stateValue["transitions"].GetArray())
+						{
+							if (!transitionValue.IsObject())
+								continue;
+
+							MyEngine::AnimationStateMachineTransition transition;
+							if (transitionValue.HasMember("targetStateIndex") && transitionValue["targetStateIndex"].IsInt())
+								transition.targetStateIndex = transitionValue["targetStateIndex"].GetInt();
+							if (transitionValue.HasMember("blendDuration") && transitionValue["blendDuration"].IsNumber())
+								transition.blendDuration = transitionValue["blendDuration"].GetFloat();
+							if (transitionValue.HasMember("requiresExitTime") && transitionValue["requiresExitTime"].IsBool())
+								transition.requiresExitTime = transitionValue["requiresExitTime"].GetBool();
+							if (transitionValue.HasMember("exitTimeNormalized") && transitionValue["exitTimeNormalized"].IsNumber())
+								transition.exitTimeNormalized = transitionValue["exitTimeNormalized"].GetFloat();
+							if (transitionValue.HasMember("resetTimeOnEnter") && transitionValue["resetTimeOnEnter"].IsBool())
+								transition.resetTimeOnEnter = transitionValue["resetTimeOnEnter"].GetBool();
+
+							if (transitionValue.HasMember("conditions") && transitionValue["conditions"].IsArray())
+							{
+								for (const auto& conditionValue : transitionValue["conditions"].GetArray())
+								{
+									if (!conditionValue.IsObject())
+										continue;
+
+									MyEngine::AnimationStateMachineCondition condition;
+									if (conditionValue.HasMember("parameterName") && conditionValue["parameterName"].IsString())
+										condition.parameterName = conditionValue["parameterName"].GetString();
+									if (conditionValue.HasMember("op"))
+										condition.op = ParseStateMachineConditionOperator(conditionValue["op"]);
+									if (conditionValue.HasMember("threshold") && conditionValue["threshold"].IsNumber())
+										condition.threshold = conditionValue["threshold"].GetFloat();
+									transition.conditions.push_back(std::move(condition));
+								}
+							}
+
+							state.transitions.push_back(std::move(transition));
+						}
+					}
+
+					sm.states.push_back(std::move(state));
+				}
+			}
+
+			return true;
+		}
+
 		bool SaveScene(
 			const ::Scene& scene,
 			const std::string& path,
@@ -284,6 +489,8 @@ namespace MyEngine
 					writer.Key("playbackSpeed"); writer.Double(ac.playbackSpeed);
 					writer.Key("playing"); writer.Bool(ac.playing);
 					writer.Key("looping"); writer.Bool(ac.looping);
+					writer.Key("enableRootMotion"); writer.Bool(ac.enableRootMotion);
+					writer.Key("rootMotionBoneName"); writer.String(ac.rootMotionBoneName.c_str());
 					writer.Key("events");
 					writer.StartArray();
 					for (const auto& evt : ac.events)
@@ -322,6 +529,13 @@ namespace MyEngine
 					writer.Key("currentStateTime"); writer.Double(sm.currentStateTime);
 					writer.Key("autoInitialize"); writer.Bool(sm.autoInitialize);
 					writer.Key("debugPauseTransitions"); writer.Bool(sm.debugPauseTransitions);
+					if (sm.stateMachine)
+					{
+						writer.Key("stateMachineData");
+						writer.StartObject();
+						SerializeStateMachineDefinition(writer, *sm.stateMachine);
+						writer.EndObject();
+					}
 					writer.Key("parameterValues");
 					writer.StartArray();
 					for (const auto& value : sm.parameterValues)
@@ -1047,6 +1261,8 @@ namespace MyEngine
 					if (aco.HasMember("playbackSpeed")) ac.playbackSpeed = static_cast<float>(aco["playbackSpeed"].GetDouble());
 					if (aco.HasMember("playing")) ac.playing = aco["playing"].GetBool();
 					if (aco.HasMember("looping")) ac.looping = aco["looping"].GetBool();
+					if (aco.HasMember("enableRootMotion")) ac.enableRootMotion = aco["enableRootMotion"].GetBool();
+					if (aco.HasMember("rootMotionBoneName") && aco["rootMotionBoneName"].IsString()) ac.rootMotionBoneName = aco["rootMotionBoneName"].GetString();
 					if (aco.HasMember("events") && aco["events"].IsArray())
 					{
 						ac.events.clear();
@@ -1170,17 +1386,30 @@ namespace MyEngine
 				{
 					auto& sm = ent->AddComponent<AnimationStateMachineComponent>();
 					const auto& smo = v["AnimationStateMachineComponent"];
+					bool loadedFromAsset = false;
 					if (smo.HasMember("assetPath") && smo["assetPath"].IsString())
 					{
 						sm.assetPath = smo["assetPath"].GetString();
 						if (!sm.assetPath.empty())
 						{
 							sm.stateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
-							if (!sm.stateMachine->LoadFromFile(sm.assetPath))
+							if (sm.stateMachine->LoadFromFile(sm.assetPath))
+							{
+								loadedFromAsset = true;
+							}
+							else
 							{
 								sm.stateMachine.reset();
 								sm.assetPath.clear();
 							}
+						}
+					}
+					if (!loadedFromAsset && smo.HasMember("stateMachineData") && smo["stateMachineData"].IsObject())
+					{
+						sm.stateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
+						if (!DeserializeStateMachineDefinition(smo["stateMachineData"], *sm.stateMachine))
+						{
+							sm.stateMachine.reset();
 						}
 					}
 					if (smo.HasMember("currentStateIndex")) sm.currentStateIndex = smo["currentStateIndex"].GetInt();

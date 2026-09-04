@@ -76,9 +76,9 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -1.0055632591247559,
-                    3.493307113647461,
-                    7.2736358642578125
+                    -1.5286980867385864,
+                    2.3778700828552246,
+                    6.1043009757995605
                 ],
                 "rotation": [
                     0.0,
@@ -181,8 +181,8 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    2.2341930866241455,
-                    0.40123462677001953,
+                    -9.572992324829102,
+                    1.0082616806030273,
                     -2.0
                 ],
                 "rotation": [
@@ -204,9 +204,9 @@
             "MeshRenderer": {
                 "visible": true,
                 "albedo": [
-                    0.7830357551574707,
-                    0.6433132886886597,
-                    0.39200663566589355
+                    0.6000000238418579,
+                    0.30000001192092896,
+                    0.4000000059604645
                 ],
                 "shininess": 32.0,
                 "useTexture": false,
@@ -434,13 +434,13 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -0.3401266932487488,
-                    0.03049999475479126,
-                    2.5389349460601807
+                    0.0,
+                    0.0,
+                    2.0
                 ],
                 "rotation": [
                     0.0,
-                    0.12049249559640884,
+                    -0.0,
                     0.0
                 ],
                 "scale": [
@@ -458,11 +458,13 @@
                 "present": true
             },
             "AnimationComponent": {
-                "activeClipIndex": 33,
-                "time": 5.160861968994141,
+                "activeClipIndex": 12,
+                "time": 0.0,
                 "playbackSpeed": 1.0,
                 "playing": true,
                 "looping": true,
+                "enableRootMotion": true,
+                "rootMotionBoneName": "Hips",
                 "events": [],
                 "importedAnimationFiles": [
                     "C:\\Users\\micha\\source\\repos\\MyEngine\\assets\\models\\akaza animations\\Armada.fbx",
@@ -537,10 +539,222 @@
             "AnimationStateMachineComponent": {
                 "assetPath": "",
                 "currentStateIndex": 0,
-                "pendingStateIndex": 0,
-                "currentStateTime": 5.156193256378174,
+                "pendingStateIndex": -1,
+                "currentStateTime": 0.0,
                 "autoInitialize": true,
                 "debugPauseTransitions": false,
+                "stateMachineData": {
+                    "name": "AkazaMovementStateMachine",
+                    "defaultStateIndex": 0,
+                    "parameters": [
+                        {
+                            "name": "Speed",
+                            "type": "Float",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
+                        },
+                        {
+                            "name": "IsGrounded",
+                            "type": "Bool",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": true
+                        },
+                        {
+                            "name": "Jump",
+                            "type": "Trigger",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
+                        },
+                        {
+                            "name": "IsCrouching",
+                            "type": "Bool",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
+                        },
+                        {
+                            "name": "IsFighting",
+                            "type": "Bool",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
+                        }
+                    ],
+                    "states": [
+                        {
+                            "name": "Idle",
+                            "clipName": "Bouncing Fight Idle",
+                            "loop": true,
+                            "playbackSpeed": 1.0,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 1,
+                                    "blendDuration": 0.20000000298023224,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Walk",
+                            "clipName": "Swagger Walk",
+                            "loop": true,
+                            "playbackSpeed": 1.0,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 2,
+                                    "blendDuration": 0.30000001192092896,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 2.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 0,
+                                    "blendDuration": 0.20000000298023224,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Less",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Run",
+                            "clipName": "Running",
+                            "loop": true,
+                            "playbackSpeed": 1.0,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 1,
+                                    "blendDuration": 0.30000001192092896,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Less",
+                                            "threshold": 2.0
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "name": "CrouchIdle",
+                            "clipName": "Crouching Idle",
+                            "loop": true,
+                            "playbackSpeed": 1.0,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 4,
+                                    "blendDuration": 0.20000000298023224,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 0,
+                                    "blendDuration": 0.30000001192092896,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsCrouching",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "name": "CrouchWalk",
+                            "clipName": "Crouched Walking",
+                            "loop": true,
+                            "playbackSpeed": 1.0,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 3,
+                                    "blendDuration": 0.20000000298023224,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Less",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 1,
+                                    "blendDuration": 0.30000001192092896,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsCrouching",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "name": "FightIdle",
+                            "clipName": "Fighting Idle",
+                            "loop": true,
+                            "playbackSpeed": 1.0,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 0,
+                                    "blendDuration": 0.5,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsFighting",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
                 "parameterValues": [
                     {
                         "floatValue": 0.0,
@@ -555,7 +769,7 @@
                     {
                         "floatValue": 0.0,
                         "boolValue": false,
-                        "triggerValue": true
+                        "triggerValue": false
                     },
                     {
                         "floatValue": 0.0,
@@ -577,7 +791,8 @@
                     1.0
                 ],
                 "shininess": 32.0,
-                "useTexture": false,
+                "useTexture": true,
+                "texturePath": "assets/textures/gradient.png",
                 "shaderVertexPath": "shaders/lit_skinned.vert",
                 "shaderFragmentPath": "shaders/lit.frag"
             },
@@ -636,6 +851,15 @@
                 "animationGroundedParameter": "IsGrounded",
                 "animationJumpTriggerParameter": "Jump"
             },
+            "BoundingSphere": {
+                "center": [
+                    -0.00007748603820800781,
+                    -0.005003511905670166,
+                    -0.0014174878597259521
+                ],
+                "radius": 1.2262237071990967,
+                "isTrigger": false
+            },
             "CollisionEvents": {
                 "enabled": true
             }
@@ -692,6 +916,15 @@
                 ],
                 "isTrigger": true
             },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            },
             "CollisionEvents": {
                 "enabled": true
             }
@@ -703,7 +936,7 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    2.5,
+                    3.299999952316284,
                     3.0,
                     2.0
                 ],
@@ -737,13 +970,13 @@
             },
             "Rigidbody": {
                 "velocity": [
-                    -3.9789694162112827e-26,
+                    0.0,
                     0.0,
                     0.0
                 ],
                 "acceleration": [
-                    7.98989833021731e-27,
-                    -9.8100004196167,
+                    0.0,
+                    0.0,
                     0.0
                 ],
                 "mass": 0.5,
@@ -847,7 +1080,7 @@
                     1.0,
                     1.0
                 ],
-                "intensity": 1.1382262706756592,
+                "intensity": 1.0,
                 "direction": [
                     -4.10752676316406e-8,
                     -0.3420201241970062,

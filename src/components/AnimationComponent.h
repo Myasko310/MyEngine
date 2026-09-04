@@ -45,6 +45,13 @@ struct AnimationComponent
 	float playbackSpeed = 1.0f;
 	bool playing = true;
 	bool looping = true;
+
+	// Optional root motion extraction. When enabled, AnimationSystem advances
+	// TransformComponent::position by the root bone's per-frame translation.
+	// If rootMotionBoneName is empty, the first skeleton bone is used.
+	bool enableRootMotion = false;
+	std::string rootMotionBoneName;
+
 	std::vector<AnimationEvent> events;
 	std::vector<std::string> triggeredEventsThisFrame;
 

@@ -3,6 +3,7 @@
 #include "components/AnimationComponent.h"
 #include "components/AnimationStateMachineComponent.h"
 #include "components/SkeletonComponent.h"
+#include "components/TransformComponent.h"
 #include "core/AnimationEventBus.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
@@ -247,7 +248,12 @@ namespace MyEngine
 	// Samples a single bone's local transform (translate * rotate * scale)
 	// from a clip's track at the given time, falling back to the bind-pose
 	// local transform if the clip doesn't animate this bone.
-	static glm::mat4 SampleLocalTransform(const Bone& bone, const AnimationClip* clip, float timeTicks)
+	static glm::mat4 SampleLocalTransform(
+		const Bone& bone,
+		const AnimationClip* clip,
+		float timeTicks,
+		bool removeRootMotionTranslation,
+		bool preserveRootMotionY)
 	{
 		if (!clip)
 			return bone.localBindTransform;
@@ -261,6 +267,13 @@ namespace MyEngine
 		}
 
 		glm::vec3 pos = track->SamplePosition(timeTicks);
+		if (removeRootMotionTranslation)
+		{
+			pos.x = 0.0f;
+			pos.z = 0.0f;
+			if (!preserveRootMotionY)
+				pos.y = 0.0f;
+		}
 		glm::quat rot = track->SampleRotation(timeTicks);
 		glm::vec3 scale = track->SampleScale(timeTicks);
 
@@ -307,6 +320,69 @@ namespace MyEngine
 			glm::scale(glm::mat4(1.0f), scale);
 	}
 
+	static int ResolveRootMotionBoneIndex(const Skeleton& skeleton, const std::string& preferredBoneName)
+	{
+		const auto& bones = skeleton.GetBones();
+		if (bones.empty())
+			return -1;
+
+		if (!preferredBoneName.empty())
+		{
+			int index = skeleton.GetBoneIndex(preferredBoneName);
+			if (index >= 0)
+				return index;
+		}
+
+		return 0;
+	}
+
+	static glm::vec3 SampleRootMotionPosition(const Skeleton& skeleton, int rootBoneIndex, const AnimationClip* clip, float timeTicks)
+	{
+		if (!clip || rootBoneIndex < 0)
+			return glm::vec3(0.0f);
+
+		const auto& bones = skeleton.GetBones();
+		if (rootBoneIndex >= static_cast<int>(bones.size()))
+			return glm::vec3(0.0f);
+
+		const BoneAnimationTrack* track = clip->FindTrackNormalized(bones[rootBoneIndex].name);
+		if (!track)
+			return glm::vec3(0.0f);
+
+		return track->SamplePosition(timeTicks);
+	}
+
+	static glm::vec3 ComputeRootMotionDelta(
+		const Skeleton& skeleton,
+		int rootBoneIndex,
+		const AnimationClip& clip,
+		float previousTimeSeconds,
+		float currentTimeSeconds,
+		bool looping)
+	{
+		if (rootBoneIndex < 0)
+			return glm::vec3(0.0f);
+
+		const float durationSeconds = clip.GetDurationSeconds();
+		if (durationSeconds <= 0.0001f)
+			return glm::vec3(0.0f);
+
+		const float previousTicks = previousTimeSeconds * clip.ticksPerSecond;
+		const float currentTicks = currentTimeSeconds * clip.ticksPerSecond;
+
+		const glm::vec3 previousPos = SampleRootMotionPosition(skeleton, rootBoneIndex, &clip, previousTicks);
+		const glm::vec3 currentPos = SampleRootMotionPosition(skeleton, rootBoneIndex, &clip, currentTicks);
+
+		if (looping && currentTimeSeconds < previousTimeSeconds)
+		{
+			const glm::vec3 endPos = SampleRootMotionPosition(skeleton, rootBoneIndex, &clip, clip.durationTicks);
+			const glm::vec3 startPos = SampleRootMotionPosition(skeleton, rootBoneIndex, &clip, 0.0f);
+			return (endPos - previousPos) + (currentPos - startPos);
+		}
+
+		return currentPos - previousPos;
+	}
+
 	// Recursively computes each bone's final skinning matrix:
 	//   finalMatrix[bone] = parentAccumulatedTransform * localAnimatedTransform * offsetMatrix
 	// `localAnimatedTransform` comes from the sampled clip track for this bone
@@ -317,6 +393,7 @@ namespace MyEngine
 		const Skeleton& skeleton,
 		const AnimationClip* clip,
 		float timeTicks,
+		int rootMotionBoneIndex,
 		std::vector<glm::mat4>& outMatrices)
 	{
 		const auto& bones = skeleton.GetBones();
@@ -328,7 +405,8 @@ namespace MyEngine
 		{
 			const Bone& bone = bones[i];
 
-			glm::mat4 localTransform = SampleLocalTransform(bone, clip, timeTicks);
+			const bool removeRootTranslation = static_cast<int>(i) == rootMotionBoneIndex;
+			glm::mat4 localTransform = SampleLocalTransform(bone, clip, timeTicks, removeRootTranslation, true);
 
 			glm::mat4 parentTransform = bone.parentIndex >= 0
 				? accumulated[bone.parentIndex]
@@ -350,6 +428,7 @@ namespace MyEngine
 		const AnimationClip* toClip,
 		float toTimeTicks,
 		float blendT,
+		int rootMotionBoneIndex,
 		std::vector<glm::mat4>& outMatrices)
 	{
 		const auto& bones = skeleton.GetBones();
@@ -360,9 +439,10 @@ namespace MyEngine
 		for (size_t i = 0; i < bones.size(); ++i)
 		{
 			const Bone& bone = bones[i];
+			const bool removeRootTranslation = static_cast<int>(i) == rootMotionBoneIndex;
 
-			glm::mat4 fromLocal = SampleLocalTransform(bone, fromClip, fromTimeTicks);
-			glm::mat4 toLocal = SampleLocalTransform(bone, toClip, toTimeTicks);
+			glm::mat4 fromLocal = SampleLocalTransform(bone, fromClip, fromTimeTicks, removeRootTranslation, true);
+			glm::mat4 toLocal = SampleLocalTransform(bone, toClip, toTimeTicks, removeRootTranslation, true);
 			glm::mat4 localTransform = BlendLocalTransforms(fromLocal, toLocal, blendT);
 
 			glm::mat4 parentTransform = bone.parentIndex >= 0
@@ -439,6 +519,10 @@ namespace MyEngine
 			if (anim.playing)
 				anim.time += deltaTime * anim.playbackSpeed;
 
+			int rootMotionBoneIndex = -1;
+			if (anim.enableRootMotion)
+				rootMotionBoneIndex = ResolveRootMotionBoneIndex(*skel.skeleton, anim.rootMotionBoneName);
+
 			float durationSeconds = clip.GetDurationSeconds();
 			if (durationSeconds > 0.0001f)
 			{
@@ -459,6 +543,27 @@ namespace MyEngine
 			}
 
 			collectAnimationEvents(anim, previousAnimationTime, anim.time, durationSeconds);
+			if (anim.enableRootMotion && rootMotionBoneIndex >= 0 && entity->HasComponent<TransformComponent>())
+			{
+				const bool reachedEndThisFrame =
+					!anim.looping &&
+					durationSeconds > 0.0001f &&
+					previousAnimationTime < durationSeconds &&
+					anim.time >= durationSeconds;
+
+				if (reachedEndThisFrame)
+				{
+					glm::vec3 localDelta = ComputeRootMotionDelta(*skel.skeleton, rootMotionBoneIndex, clip, 0.0f, durationSeconds, false);
+					localDelta.y = 0.0f;
+					if (glm::dot(localDelta, localDelta) > 0.0f)
+					{
+						auto& transform = entity->GetComponent<TransformComponent>();
+						glm::mat4 yawRotation = glm::rotate(glm::mat4(1.0f), transform.rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
+						glm::vec3 worldDelta = glm::vec3(yawRotation * glm::vec4(localDelta, 0.0f));
+						transform.position += worldDelta;
+					}
+				}
+			}
 			for (const auto& eventName : anim.triggeredEventsThisFrame)
 			{
 				AnimationEventMessage message;
@@ -512,7 +617,7 @@ namespace MyEngine
 				anim.blendElapsed += deltaTime;
 				float blendT = std::clamp(anim.blendElapsed / anim.blendDuration, 0.0f, 1.0f);
 
-				ComputeBlendedBoneMatrices(*skel.skeleton, prevClip, prevTimeTicks, &clip, timeTicks, blendT, anim.boneMatrices);
+				ComputeBlendedBoneMatrices(*skel.skeleton, prevClip, prevTimeTicks, &clip, timeTicks, blendT, rootMotionBoneIndex, anim.boneMatrices);
 
 				if (blendT >= 1.0f)
 				{
@@ -522,7 +627,7 @@ namespace MyEngine
 			}
 			else
 			{
-				ComputeBoneMatrices(*skel.skeleton, &clip, timeTicks, anim.boneMatrices);
+				ComputeBoneMatrices(*skel.skeleton, &clip, timeTicks, rootMotionBoneIndex, anim.boneMatrices);
 			}
 
 			if (static_cast<int>(anim.boneMatrices.size()) > MAX_ANIMATION_BONES)

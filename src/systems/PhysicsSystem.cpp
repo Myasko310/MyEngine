@@ -15,6 +15,7 @@
 #include "components/AnimationStateMachineComponent.h"
 #include "core/CollisionMatrix.h"
 #include "core/Input.h"
+#include "core/InputActions.h"
 
 #include <iostream>
 #include <algorithm>
@@ -254,15 +255,14 @@ namespace MyEngine
 		else
 			flattenedRight = glm::vec3(1.0f, 0.0f, 0.0f);
 
-		glm::vec3 moveInput(0.0f);
-		if (Input::IsKeyDown(GLFW_KEY_W) || Input::IsKeyDown(GLFW_KEY_UP)) moveInput += flattenedForward;
-		if (Input::IsKeyDown(GLFW_KEY_S) || Input::IsKeyDown(GLFW_KEY_DOWN)) moveInput -= flattenedForward;
-		if (Input::IsKeyDown(GLFW_KEY_D) || Input::IsKeyDown(GLFW_KEY_RIGHT)) moveInput += flattenedRight;
-		if (Input::IsKeyDown(GLFW_KEY_A) || Input::IsKeyDown(GLFW_KEY_LEFT)) moveInput -= flattenedRight;
+		float moveForward = InputActions::GetAxis("MoveForward");
+		float moveRight = InputActions::GetAxis("MoveRight");
+
+		glm::vec3 moveInput = flattenedForward * moveForward + flattenedRight * moveRight;
 		if (glm::length(moveInput) > 1.0f)
 			moveInput = glm::normalize(moveInput);
 
-		bool jumpPressed = Input::IsKeyPressed(GLFW_KEY_SPACE) || Input::IsKeyPressed(GLFW_KEY_RIGHT_CONTROL);
+		bool jumpPressed = InputActions::IsActionPressed("Jump");
 
 		for (const auto& entity : scene.GetEntities())
 		{
@@ -557,39 +557,23 @@ namespace MyEngine
 				value.triggerValue = true;
 		});
 
-		// Update Crouch parameter based on input
-		if (MyEngine::Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL))
+		// Update Crouch/Slide parameter from action bindings
 		{
+			const bool crouchOrSlide = InputActions::IsAction("Crouch") || InputActions::IsAction("Slide");
 			int crouchIdx = sm.stateMachine->FindParameterIndex("IsCrouching");
 			if (crouchIdx >= 0 && static_cast<size_t>(crouchIdx) < sm.parameterValues.size())
 			{
-				sm.parameterValues[crouchIdx].boolValue = true;
-			}
-		}
-		else
-		{
-			int crouchIdx = sm.stateMachine->FindParameterIndex("IsCrouching");
-			if (crouchIdx >= 0 && static_cast<size_t>(crouchIdx) < sm.parameterValues.size())
-			{
-				sm.parameterValues[crouchIdx].boolValue = false;
+				sm.parameterValues[crouchIdx].boolValue = crouchOrSlide;
 			}
 		}
 
-		// Update Fight parameter based on input
-		if (MyEngine::Input::IsKeyPressed(GLFW_KEY_F))
+		// Update Fight/Attack parameter from action bindings
 		{
+			const bool isAttacking = InputActions::IsAction("Fight") || InputActions::IsAction("Attack");
 			int fightIdx = sm.stateMachine->FindParameterIndex("IsFighting");
 			if (fightIdx >= 0 && static_cast<size_t>(fightIdx) < sm.parameterValues.size())
 			{
-				sm.parameterValues[fightIdx].boolValue = true;
-			}
-		}
-		else if (MyEngine::Input::IsKeyReleased(GLFW_KEY_F))
-		{
-			int fightIdx = sm.stateMachine->FindParameterIndex("IsFighting");
-			if (fightIdx >= 0 && static_cast<size_t>(fightIdx) < sm.parameterValues.size())
-			{
-				sm.parameterValues[fightIdx].boolValue = false;
+				sm.parameterValues[fightIdx].boolValue = isAttacking;
 			}
 		}
 	}

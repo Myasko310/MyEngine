@@ -192,6 +192,19 @@ namespace MyEngine
 		fight.context = InputContext::Gameplay;
 		BindAction("Fight", fight);
 
+		ActionBinding attack;
+		attack.keys = { GLFW_KEY_F };
+		attack.mouseButtons = { GLFW_MOUSE_BUTTON_RIGHT };
+		attack.gamepadButtons = { GLFW_GAMEPAD_BUTTON_Y };
+		attack.context = InputContext::Gameplay;
+		BindAction("Attack", attack);
+
+		ActionBinding slide;
+		slide.keys = { GLFW_KEY_LEFT_CONTROL };
+		slide.gamepadButtons = { GLFW_GAMEPAD_BUTTON_B };
+		slide.context = InputContext::Gameplay;
+		BindAction("Slide", slide);
+
 		ActionBinding pause;
 		pause.keys = { GLFW_KEY_ESCAPE };
 		pause.gamepadButtons = { GLFW_GAMEPAD_BUTTON_START };

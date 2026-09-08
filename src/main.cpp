@@ -167,6 +167,9 @@ static bool ProjectWorldPointToScreen(
 static const char* kRecentScenesFile = "recent_scenes.txt";
 static const size_t kMaxRecentScenes = 5;
 
+// Optional startup scene path loaded on boot when present.
+static const char* kStartupSceneFile = "startup_scene.txt";
+
 // Loads the recent-scene history from disk.
 static std::vector<std::string> LoadRecentScenes()
 {
@@ -207,6 +210,28 @@ static void AddRecentScene(std::vector<std::string>& recents, const std::string&
         recents.resize(kMaxRecentScenes);
 
     SaveRecentScenes(recents);
+}
+
+// Loads the configured startup scene path from disk.
+static std::string LoadStartupScenePath()
+{
+    std::ifstream ifs(kStartupSceneFile);
+    if (!ifs)
+        return {};
+
+    std::string path;
+    std::getline(ifs, path);
+    return path;
+}
+
+// Persists the startup scene path to disk (empty disables startup scene loading).
+static void SaveStartupScenePath(const std::string& path)
+{
+    std::ofstream ofs(kStartupSceneFile, std::ios::trunc);
+    if (!ofs)
+        return;
+
+    ofs << path;
 }
 
 // Updates the window title to reflect the active scene file.
@@ -459,7 +484,8 @@ int main(int argc, char** argv)
     std::cout << "Controls:\n"
               << "  Right-click: toggle mouse (camera control / UI interaction)\n"
               << "  WASD + mouse: move/look (when mouse captured)\n"
-              << "  SPACE: play/pause physics simulation\n"
+              << "  SPACE: jump (gameplay)\n"
+              << "  Shift+SPACE: play/pause physics simulation\n"
               << "  F1: toggle UI visibility\n"
               << "  F: toggle wireframe\n"
               << "  V: toggle third-person follow camera\n"
@@ -692,8 +718,8 @@ int main(int argc, char** argv)
                 playerEntity->RemoveComponent<BoundingSphereComponent>();
             }
             auto& capsule = playerEntity->AddComponent<CapsuleColliderComponent>();
-            capsule.pointA = glm::vec3(0.0f, 0.3f, 0.0f);
-            capsule.pointB = glm::vec3(0.0f, 1.8f, 0.0f);
+            capsule.pointA = glm::vec3(0.0f, 0.35f, 0.0f);
+            capsule.pointB = glm::vec3(0.0f, 1.9f, 0.0f);
             capsule.radius = 0.35f;
 
             auto& rb = playerEntity->AddComponent<RigidbodyComponent>();
@@ -836,6 +862,17 @@ int main(int argc, char** argv)
             toWalk.conditions.push_back(walkCond);
             idleState.transitions.push_back(toWalk);
 
+            // Transition to Jump on jump trigger
+            MyEngine::AnimationStateMachineTransition toJump;
+            toJump.targetStateIndex = 6;
+            toJump.blendDuration = 0.1f;
+            toJump.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition jumpCond;
+            jumpCond.parameterName = "Jump";
+            jumpCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
+            toJump.conditions.push_back(jumpCond);
+            idleState.transitions.push_back(toJump);
+
             stateMachine->states.push_back(idleState);
         }
 
@@ -871,6 +908,17 @@ int main(int argc, char** argv)
             toIdle.conditions.push_back(idleCond);
             walkState.transitions.push_back(toIdle);
 
+            // Transition to Jump on jump trigger
+            MyEngine::AnimationStateMachineTransition toJump;
+            toJump.targetStateIndex = 6;
+            toJump.blendDuration = 0.1f;
+            toJump.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition jumpCond;
+            jumpCond.parameterName = "Jump";
+            jumpCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
+            toJump.conditions.push_back(jumpCond);
+            walkState.transitions.push_back(toJump);
+
             stateMachine->states.push_back(walkState);
         }
 
@@ -893,6 +941,17 @@ int main(int argc, char** argv)
             walkCond.threshold = 2.0f;
             toWalk.conditions.push_back(walkCond);
             runState.transitions.push_back(toWalk);
+
+            // Transition to Jump on jump trigger
+            MyEngine::AnimationStateMachineTransition toJump;
+            toJump.targetStateIndex = 6;
+            toJump.blendDuration = 0.1f;
+            toJump.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition jumpCond;
+            jumpCond.parameterName = "Jump";
+            jumpCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
+            toJump.conditions.push_back(jumpCond);
+            runState.transitions.push_back(toJump);
 
             stateMachine->states.push_back(runState);
         }
@@ -987,6 +1046,65 @@ int main(int argc, char** argv)
             stateMachine->states.push_back(fightIdleState);
         }
 
+        {
+            // Jump state (non-looping). Assign your jump clip in inspector/import map.
+            MyEngine::AnimationStateMachineState jumpState;
+            jumpState.name = "Jump";
+            jumpState.clipName = "Jumping";
+            jumpState.loop = false;
+            jumpState.playbackSpeed = 1.0f;
+
+            // Return to idle once grounded and moving slowly
+            MyEngine::AnimationStateMachineTransition toIdle;
+            toIdle.targetStateIndex = 0;
+            toIdle.blendDuration = 0.12f;
+            toIdle.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition groundedIdle;
+            groundedIdle.parameterName = "IsGrounded";
+            groundedIdle.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+            toIdle.conditions.push_back(groundedIdle);
+            MyEngine::AnimationStateMachineCondition slowCond;
+            slowCond.parameterName = "Speed";
+            slowCond.op = MyEngine::AnimationStateMachineConditionOperator::Less;
+            slowCond.threshold = 0.5f;
+            toIdle.conditions.push_back(slowCond);
+            jumpState.transitions.push_back(toIdle);
+
+            // Return to walk once grounded and moving
+            MyEngine::AnimationStateMachineTransition toWalk;
+            toWalk.targetStateIndex = 1;
+            toWalk.blendDuration = 0.12f;
+            toWalk.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition groundedWalk;
+            groundedWalk.parameterName = "IsGrounded";
+            groundedWalk.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+            toWalk.conditions.push_back(groundedWalk);
+            MyEngine::AnimationStateMachineCondition walkSpeedCond;
+            walkSpeedCond.parameterName = "Speed";
+            walkSpeedCond.op = MyEngine::AnimationStateMachineConditionOperator::Greater;
+            walkSpeedCond.threshold = 0.5f;
+            toWalk.conditions.push_back(walkSpeedCond);
+            jumpState.transitions.push_back(toWalk);
+
+            // Return to run once grounded and moving fast
+            MyEngine::AnimationStateMachineTransition toRun;
+            toRun.targetStateIndex = 2;
+            toRun.blendDuration = 0.12f;
+            toRun.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition groundedRun;
+            groundedRun.parameterName = "IsGrounded";
+            groundedRun.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+            toRun.conditions.push_back(groundedRun);
+            MyEngine::AnimationStateMachineCondition runSpeedCond;
+            runSpeedCond.parameterName = "Speed";
+            runSpeedCond.op = MyEngine::AnimationStateMachineConditionOperator::Greater;
+            runSpeedCond.threshold = 2.0f;
+            toRun.conditions.push_back(runSpeedCond);
+            jumpState.transitions.push_back(toRun);
+
+            stateMachine->states.push_back(jumpState);
+        }
+
         stateMachineComp.stateMachine = stateMachine;
         stateMachineComp.parameterValues.resize(stateMachine->parameters.size());
         for (size_t i = 0; i < stateMachine->parameters.size(); ++i)
@@ -1011,6 +1129,7 @@ int main(int argc, char** argv)
             { "Crouched To Sprinting", "Crouched To Sprinting.fbx" },
             { "Crouching Idle", "Crouching Idle.fbx" },
             { "Fighting Idle", "Fighting Idle.fbx" },
+            { "Jumping", "Jumping.fbx" },
             { "Punch Combo", "Punch Combo.fbx" }
         };
 
@@ -1162,6 +1281,7 @@ int main(int argc, char** argv)
     // Scene file state
     std::string currentScenePath;
     std::vector<std::string> recentScenes = LoadRecentScenes();
+    std::string startupScenePath = LoadStartupScenePath();
 
     // UI state
     Entity* selectedEntity = nullptr;
@@ -1610,6 +1730,22 @@ int main(int argc, char** argv)
     editorContext.ui = &editorUI;
     editorContext.undoStack = &undoStack;
     editorContext.currentScenePath = &currentScenePath;
+
+    // If configured, load startup scene now (once on engine boot).
+    if (!startupScenePath.empty() && std::filesystem::exists(startupScenePath))
+    {
+        MyEngine::Serialization::LoadScene(scene, startupScenePath, litShader, &globalScripts);
+        selectedEntity = nullptr;
+        currentScenePath = startupScenePath;
+        AddRecentScene(recentScenes, startupScenePath);
+    }
+    else if (!startupScenePath.empty() && !std::filesystem::exists(startupScenePath))
+    {
+        std::cout << "[main] Startup scene not found: " << startupScenePath << std::endl;
+        startupScenePath.clear();
+        SaveStartupScenePath(startupScenePath);
+    }
+    UpdateWindowTitle(window, currentScenePath);
     editorContext.recentScenes = &recentScenes;
     editorContext.window = window;
     editorContext.addRecentScene = AddRecentScene;
@@ -1895,8 +2031,10 @@ int main(int argc, char** argv)
 #endif
         }
 
-        // Toggle Play/Pause (press Space)
-        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_SPACE))
+        // Toggle Play/Pause (Shift+Space) so Space remains available for jump.
+        if (allowGlobalHotkeys &&
+            Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT) &&
+            Input::IsKeyPressed(GLFW_KEY_SPACE))
         {
             setPlaying(!isPlaying);
         }
@@ -2133,19 +2271,41 @@ int main(int argc, char** argv)
                 cpuPhysicsMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
             }
 
-            // Toggle third-person follow camera with V (F is already bound to
-            // wireframe toggle above). Resolved against the live primary
+            // Toggle third-person follow camera with V keyboard key or
+            // right-stick click on gamepad. Resolved against the live primary
             // camera entity each press (rather than the original `camera`
             // reference) since play/stop reload destroys and recreates
             // entities, leaving the setup-time reference stale.
-            if (Input::IsKeyPressed(GLFW_KEY_V))
+            const bool toggleFollowCam = Input::IsKeyPressed(GLFW_KEY_V) ||
+                MyEngine::InputActions::IsGamepadButtonPressed(GLFW_GAMEPAD_BUTTON_RIGHT_THUMB);
+            if (toggleFollowCam)
             {
+                std::shared_ptr<Entity> followTarget = playerEntity;
+                if (!followTarget)
+                {
+                    for (auto& candidate : scene.GetEntities())
+                    {
+                        if (candidate && candidate->GetName() == "Player")
+                        {
+                            followTarget = candidate;
+                            break;
+                        }
+                    }
+                }
+
                 for (auto& e : scene.GetEntities())
                 {
                     if (e && e->HasComponent<CameraComponent>())
                     {
                         auto& cam = e->GetComponent<CameraComponent>();
+                        if (!cam.isPrimary)
+                            continue;
+
                         cam.thirdPerson = !cam.thirdPerson;
+
+                        // Ensure follow-cam always has a valid target when enabled.
+                        if (cam.thirdPerson && followTarget)
+                            cam.followTargetID = followTarget->GetID();
                         break;
                     }
                 }
@@ -2357,6 +2517,16 @@ int main(int argc, char** argv)
                         UpdateWindowTitle(window, currentScenePath);
                     }
                 }
+                if (ImGui::MenuItem("Set Current as Startup Scene", nullptr, false, !currentScenePath.empty()))
+                {
+                    startupScenePath = currentScenePath;
+                    SaveStartupScenePath(startupScenePath);
+                }
+                if (ImGui::MenuItem("Clear Startup Scene", nullptr, false, !startupScenePath.empty()))
+                {
+                    startupScenePath.clear();
+                    SaveStartupScenePath(startupScenePath);
+                }
                 if (ImGui::BeginMenu("Open Recent", !recentScenes.empty()))
                 {
                     for (const auto& recentPath : recentScenes)
@@ -2371,6 +2541,10 @@ int main(int argc, char** argv)
                         }
                     }
                     ImGui::EndMenu();
+                }
+                if (!startupScenePath.empty())
+                {
+                    ImGui::TextDisabled("Startup Scene: %s", startupScenePath.c_str());
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Save Scene", "Ctrl+P"))

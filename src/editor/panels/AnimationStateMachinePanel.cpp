@@ -180,7 +180,8 @@ namespace MyEngine::Editor::Panels
 										availableClipName = "Clip " + std::to_string(clipIndex);
 
 									bool isSelected = (resolvedClipIndex == clipIndex);
-									if (ImGui::Selectable(availableClipName.c_str(), isSelected))
+									std::string clipSelectableLabel = availableClipName + "##clip_" + std::to_string(clipIndex);
+									if (ImGui::Selectable(clipSelectableLabel.c_str(), isSelected))
 										state.clipName = (*stateMachineEditorClips)[clipIndex].name;
 									if (isSelected)
 										ImGui::SetItemDefaultFocus();
@@ -212,6 +213,22 @@ namespace MyEngine::Editor::Panels
 						InspectorGroupLabel("Playback");
 						ImGui::Checkbox("Loop", &state.loop);
 						ImGui::DragFloat("Playback Speed", &state.playbackSpeed, 0.01f, 0.0f, 4.0f, "%.2f");
+						float trimStart = state.trimStartNormalized;
+						float trimEnd = state.trimEndNormalized;
+						if (ImGui::DragFloatRange2("Trim Range (Normalized)", &trimStart, &trimEnd, 0.005f, 0.0f, 1.0f, "Start %.2f", "End %.2f"))
+						{
+							trimStart = std::clamp(trimStart, 0.0f, 1.0f);
+							trimEnd = std::clamp(trimEnd, 0.0f, 1.0f);
+							if (trimEnd < trimStart)
+								std::swap(trimStart, trimEnd);
+							state.trimStartNormalized = trimStart;
+							state.trimEndNormalized = trimEnd;
+						}
+						if (InspectorActionButton("Reset Trim##animsmTrim"))
+						{
+							state.trimStartNormalized = 0.0f;
+							state.trimEndNormalized = 1.0f;
+						}
 
 						InspectorGroupLabel("Transitions");
 						if (InspectorActionButton("Add Transition"))

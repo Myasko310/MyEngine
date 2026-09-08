@@ -6,6 +6,7 @@
 #include "ecs/Entity.h"
 #include "ecs/TransformHierarchy.h"
 #include "core/Input.h"
+#include "core/InputActions.h"
 
 #include <GLFW/glfw3.h>
 
@@ -61,6 +62,24 @@ namespace MyEngine
             if (camera.thirdPerson)
                 followTarget = TransformHierarchy::FindEntityByID(scene, camera.followTargetID);
             bool hasFollowTarget = followTarget && followTarget->HasComponent<TransformComponent>();
+
+            // Auto-recover follow target if third-person is enabled but the saved
+            // target ID is stale/missing (e.g. after scene reload).
+            if (camera.thirdPerson && !hasFollowTarget)
+            {
+                for (const auto& candidate : scene.GetEntities())
+                {
+                    if (!candidate || !candidate->HasComponent<TransformComponent>())
+                        continue;
+                    if (candidate->GetName() != "Player")
+                        continue;
+
+                    camera.followTargetID = candidate->GetID();
+                    followTarget = candidate;
+                    hasFollowTarget = true;
+                    break;
+                }
+            }
 
             if (camera.enableInput)
             {
@@ -161,6 +180,18 @@ namespace MyEngine
                     // When mouse is not captured (UI mode), reset smoothed delta
                     // to avoid jumps when returning to camera mode
                     camera.smoothedMouseDelta = glm::vec2(0.0f);
+                }
+
+                // Right-stick orbit look for third-person follow mode.
+                if (camera.thirdPerson)
+                {
+                    const float lookX = InputActions::GetAxis("LookX");
+                    const float lookY = InputActions::GetAxis("LookY");
+                    const float gamepadLookSpeed = 140.0f; // degrees/sec
+
+                    camera.yaw += lookX * gamepadLookSpeed * deltaTime;
+                    camera.pitch += lookY * gamepadLookSpeed * deltaTime;
+                    camera.pitch = std::clamp(camera.pitch, -89.0f, 89.0f);
                 }
             }
 

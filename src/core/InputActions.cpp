@@ -199,6 +199,25 @@ namespace MyEngine
 		attack.context = InputContext::Gameplay;
 		BindAction("Attack", attack);
 
+		ActionBinding attack1;
+		attack1.keys = { GLFW_KEY_J };
+		attack1.mouseButtons = { GLFW_MOUSE_BUTTON_LEFT };
+		attack1.gamepadButtons = { GLFW_GAMEPAD_BUTTON_X };
+		attack1.context = InputContext::Gameplay;
+		BindAction("Attack1", attack1);
+
+		ActionBinding attack2;
+		attack2.keys = { GLFW_KEY_K };
+		attack2.gamepadButtons = { GLFW_GAMEPAD_BUTTON_Y };
+		attack2.context = InputContext::Gameplay;
+		BindAction("Attack2", attack2);
+
+		ActionBinding attack3;
+		attack3.keys = { GLFW_KEY_L };
+		attack3.gamepadButtons = { GLFW_GAMEPAD_BUTTON_LEFT_BUMPER };
+		attack3.context = InputContext::Gameplay;
+		BindAction("Attack3", attack3);
+
 		ActionBinding slide;
 		slide.keys = { GLFW_KEY_LEFT_CONTROL };
 		slide.gamepadButtons = { GLFW_GAMEPAD_BUTTON_B };
@@ -1049,6 +1068,33 @@ namespace MyEngine
 			s_defaultProfile = s_activeProfile;
 
 		LoadCurrentFromActiveProfile();
+
+		if (!HasAction("Attack1"))
+		{
+			ActionBinding attack1;
+			attack1.keys = { GLFW_KEY_J };
+			attack1.mouseButtons = { GLFW_MOUSE_BUTTON_LEFT };
+			attack1.gamepadButtons = { GLFW_GAMEPAD_BUTTON_X };
+			attack1.context = InputContext::Gameplay;
+			BindAction("Attack1", attack1);
+		}
+		if (!HasAction("Attack2"))
+		{
+			ActionBinding attack2;
+			attack2.keys = { GLFW_KEY_K };
+			attack2.gamepadButtons = { GLFW_GAMEPAD_BUTTON_Y };
+			attack2.context = InputContext::Gameplay;
+			BindAction("Attack2", attack2);
+		}
+		if (!HasAction("Attack3"))
+		{
+			ActionBinding attack3;
+			attack3.keys = { GLFW_KEY_L };
+			attack3.gamepadButtons = { GLFW_GAMEPAD_BUTTON_LEFT_BUMPER };
+			attack3.context = InputContext::Gameplay;
+			BindAction("Attack3", attack3);
+		}
+
 		s_bindingsDirty = false;
 		return true;
 	}

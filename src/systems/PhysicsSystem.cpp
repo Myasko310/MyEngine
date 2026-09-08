@@ -262,7 +262,12 @@ namespace MyEngine
 		if (glm::length(moveInput) > 1.0f)
 			moveInput = glm::normalize(moveInput);
 
-		bool jumpPressed = InputActions::IsActionPressed("Jump");
+		const bool jumpDown = InputActions::IsAction("Jump");
+		const bool jumpPressed = InputActions::IsActionPressed("Jump");
+		const bool attack2Pressed = InputActions::IsActionPressed("Attack2");
+		const bool attack3Pressed = InputActions::IsActionPressed("Attack3");
+		const bool legacyAttackPressed = InputActions::IsActionPressed("Attack") || InputActions::IsActionPressed("Fight");
+		const bool attack1Pressed = InputActions::IsActionPressed("Attack1") || (legacyAttackPressed && !attack2Pressed && !attack3Pressed);
 
 		for (const auto& entity : scene.GetEntities())
 		{
@@ -271,7 +276,13 @@ namespace MyEngine
 
 			auto& controller = entity->GetComponent<CharacterControllerComponent>();
 			controller.moveInput = moveInput;
-			controller.jumpRequested = jumpPressed;
+			controller.jumpHeld = jumpDown;
+			// Latch jump input until the next fixed-step character update consumes it.
+			controller.jumpRequested = controller.jumpRequested || jumpPressed;
+			// Latch attack input edges until consumed by animation parameter update.
+			controller.attack1Requested = controller.attack1Requested || attack1Pressed;
+			controller.attack2Requested = controller.attack2Requested || attack2Pressed;
+			controller.attack3Requested = controller.attack3Requested || attack3Pressed;
 		}
 	}
 
@@ -308,10 +319,17 @@ namespace MyEngine
 
 		auto& transform = entity->GetComponent<TransformComponent>();
 		auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
-		glm::vec3 worldScale = ExtractWorldScale(scene, *entity);
-		glm::vec3 segA = transform.position + capsule.pointA * worldScale;
-		glm::vec3 segB = transform.position + capsule.pointB * worldScale;
-		float radius = capsule.radius * glm::compMax(glm::vec2(worldScale.x, worldScale.z));
+		// Character-controller capsule is authored in world units.
+		// Do not scale by visual transform scale.
+		const float radius = std::max(capsule.radius, 0.001f);
+		glm::vec3 pointA = capsule.pointA;
+		glm::vec3 pointB = capsule.pointB;
+		if (pointA.y < radius)
+			pointA.y = radius;
+		if (pointB.y <= pointA.y)
+			pointB.y = pointA.y + std::max(radius, 0.1f);
+		glm::vec3 segA = transform.position + pointA;
+		glm::vec3 segB = transform.position + pointB;
 
 		bool foundHit = false;
 		outPenetration = 0.0f;
@@ -348,10 +366,17 @@ namespace MyEngine
 
 		auto& transform = entity->GetComponent<TransformComponent>();
 		auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
-		glm::vec3 worldScale = ExtractWorldScale(scene, *entity);
-		glm::vec3 segA = transform.position + capsule.pointA * worldScale;
-		glm::vec3 segB = transform.position + capsule.pointB * worldScale;
-		float radius = capsule.radius * glm::compMax(glm::vec2(worldScale.x, worldScale.z));
+		// Character-controller capsule is authored in world units.
+		// Do not scale by visual transform scale.
+		const float radius = std::max(capsule.radius, 0.001f);
+		glm::vec3 pointA = capsule.pointA;
+		glm::vec3 pointB = capsule.pointB;
+		if (pointA.y < radius)
+			pointA.y = radius;
+		if (pointB.y <= pointA.y)
+			pointB.y = pointA.y + std::max(radius, 0.1f);
+		glm::vec3 segA = transform.position + pointA;
+		glm::vec3 segB = transform.position + pointB;
 
 		bool foundHit = false;
 		outPenetration = 0.0f;
@@ -452,21 +477,16 @@ namespace MyEngine
 			if (!QueryCharacterSupport(scene, entity, hitNormal, hitPenetration))
 				break;
 
+			if (hitPenetration <= 0.001f)
+				continue;
+
 			resolvedAny = true;
 			transform.position += hitNormal * (hitPenetration + controller.skinWidth);
 			float intoSurface = glm::dot(rb.velocity, hitNormal);
 			if (intoSurface < 0.0f)
 				rb.velocity -= intoSurface * hitNormal;
 
-			if (IsWalkableSlope(hitNormal, controller.maxSlopeAngleDegrees))
-			{
-				controller.isGrounded = true;
-				controller.groundNormal = glm::normalize(hitNormal);
-				controller.isOnSteepSlope = false;
-				if (rb.velocity.y < 0.0f)
-					rb.velocity.y = 0.0f;
-			}
-			else
+			if (!IsWalkableSlope(hitNormal, controller.maxSlopeAngleDegrees))
 			{
 				controller.isOnSteepSlope = true;
 			}
@@ -557,6 +577,48 @@ namespace MyEngine
 				value.triggerValue = true;
 		});
 
+		// Fallback mappings for scenes/entities where controller parameter names
+		// were not explicitly configured in the component.
+		setParameterByName("Speed", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Float)
+				value.floatValue = controller.currentSpeed;
+		});
+		setParameterByName("IsGrounded", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Bool)
+				value.boolValue = controller.isGrounded;
+		});
+		setParameterByName("Jump", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Trigger && controller.jumpedThisFrame)
+				value.triggerValue = true;
+		});
+		setParameterByName("Attack1", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Trigger && controller.attack1Requested)
+			{
+				value.triggerValue = true;
+				controller.attack1Requested = false;
+			}
+		});
+		setParameterByName("Attack2", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Trigger && controller.attack2Requested)
+			{
+				value.triggerValue = true;
+				controller.attack2Requested = false;
+			}
+		});
+		setParameterByName("Attack3", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Trigger && controller.attack3Requested)
+			{
+				value.triggerValue = true;
+				controller.attack3Requested = false;
+			}
+		});
+
 		// Update Crouch/Slide parameter from action bindings
 		{
 			const bool crouchOrSlide = InputActions::IsAction("Crouch") || InputActions::IsAction("Slide");
@@ -600,10 +662,13 @@ namespace MyEngine
 			controller.groundVelocity = glm::vec3(0.0f);
 			controller.jumpedThisFrame = false;
 
+			controller.jumpUngroundedTimer = std::max(0.0f, controller.jumpUngroundedTimer - dt);
+			const bool ignoreGrounding = controller.jumpUngroundedTimer > 0.0f;
+
 			glm::vec3 probeNormal(0.0f, 1.0f, 0.0f);
 			float probePenetration = 0.0f;
 			bool hasSupport = QueryCharacterSupport(scene, entity, probeNormal, probePenetration);
-			if (hasSupport && IsWalkableSlope(probeNormal, controller.maxSlopeAngleDegrees))
+			if (!ignoreGrounding && rb.velocity.y <= 0.0f && hasSupport && IsWalkableSlope(probeNormal, controller.maxSlopeAngleDegrees))
 			{
 				controller.isGrounded = true;
 				controller.wasGrounded = true;
@@ -611,7 +676,7 @@ namespace MyEngine
 				if (rb.velocity.y < 0.0f)
 					rb.velocity.y = 0.0f;
 			}
-			else if (hasSupport)
+			else if (!ignoreGrounding && rb.velocity.y <= 0.0f && hasSupport)
 			{
 				controller.isOnSteepSlope = true;
 			}
@@ -639,14 +704,27 @@ namespace MyEngine
 			rb.velocity.z = horizontalVelocity.z;
 			controller.currentSpeed = glm::length(glm::vec2(rb.velocity.x, rb.velocity.z));
 
-			if (controller.jumpRequested && controller.isGrounded)
+			if (controller.jumpRequested)
 			{
-				rb.velocity.y = controller.jumpSpeed;
-				controller.isGrounded = false;
-				controller.wasGrounded = false;
-				controller.jumpedThisFrame = true;
+				if (controller.isGrounded)
+				{
+					rb.velocity.y = std::max(rb.velocity.y, controller.jumpSpeed);
+					// Nudge upward on takeoff so we clearly separate from ground contact
+					// before overlap/snap logic runs again.
+					transform.position += controller.groundNormal * (controller.skinWidth * 2.0f + 0.05f);
+					controller.isGrounded = false;
+					controller.wasGrounded = false;
+					controller.jumpedThisFrame = true;
+					controller.jumpUngroundedTimer = std::max(controller.jumpUngroundedDuration, 0.0f);
+					controller.jumpRequested = false;
+				}
+				else if (!controller.jumpHeld)
+				{
+					// If the button has been released before grounding, clear stale request.
+					controller.jumpRequested = false;
+				}
 			}
-			else if (!controller.isGrounded)
+			if (!controller.isGrounded)
 			{
 				rb.velocity += gravity * controller.gravityScale * dt;
 			}
@@ -690,7 +768,7 @@ namespace MyEngine
 
 			controller.groundVelocity = glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z);
 
-			if (controller.enableGroundSnap && !controller.jumpRequested && rb.velocity.y <= 0.0f)
+			if (controller.enableGroundSnap && !controller.jumpRequested && controller.jumpUngroundedTimer <= 0.0f && rb.velocity.y <= 0.0f)
 			{
 				glm::vec3 originalPosition = transform.position;
 				transform.position -= glm::vec3(0.0f, controller.groundSnapDistance, 0.0f);
@@ -1725,10 +1803,13 @@ namespace MyEngine
 		float distB = glm::dot(segB, planeNormal) - planeDistance;
 		float minDist = std::min(distA, distB);
 
-		if (minDist < capsuleRadius)
+		// Treat near-contact as support to avoid grounded/airborne oscillation,
+		// but only produce positive penetration when actually interpenetrating.
+		constexpr float kSupportTolerance = 0.03f;
+		if (minDist <= (capsuleRadius + kSupportTolerance))
 		{
 			outNormal = planeNormal;
-			outPenetration = capsuleRadius - minDist;
+			outPenetration = std::max(0.0f, capsuleRadius - minDist);
 			return true;
 		}
 

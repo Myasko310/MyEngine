@@ -125,6 +125,12 @@ namespace MyEngine
 					state.loop = stateValue["loop"].GetBool();
 				if (stateValue.HasMember("playbackSpeed") && stateValue["playbackSpeed"].IsNumber())
 					state.playbackSpeed = stateValue["playbackSpeed"].GetFloat();
+				if (stateValue.HasMember("trimStartNormalized") && stateValue["trimStartNormalized"].IsNumber())
+					state.trimStartNormalized = std::clamp(stateValue["trimStartNormalized"].GetFloat(), 0.0f, 1.0f);
+				if (stateValue.HasMember("trimEndNormalized") && stateValue["trimEndNormalized"].IsNumber())
+					state.trimEndNormalized = std::clamp(stateValue["trimEndNormalized"].GetFloat(), 0.0f, 1.0f);
+				if (state.trimEndNormalized < state.trimStartNormalized)
+					std::swap(state.trimStartNormalized, state.trimEndNormalized);
 
 				if (stateValue.HasMember("transitions") && stateValue["transitions"].IsArray())
 				{
@@ -212,6 +218,8 @@ namespace MyEngine
 			writer.Key("clipName"); writer.String(state.clipName.c_str());
 			writer.Key("loop"); writer.Bool(state.loop);
 			writer.Key("playbackSpeed"); writer.Double(state.playbackSpeed);
+			writer.Key("trimStartNormalized"); writer.Double(std::clamp(state.trimStartNormalized, 0.0f, 1.0f));
+			writer.Key("trimEndNormalized"); writer.Double(std::clamp(state.trimEndNormalized, 0.0f, 1.0f));
 			writer.Key("transitions");
 			writer.StartArray();
 			for (const auto& transition : state.transitions)

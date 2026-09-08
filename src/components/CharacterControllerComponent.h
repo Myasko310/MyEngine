@@ -24,14 +24,20 @@ namespace MyEngine
 		float airAcceleration = 10.0f;
 		float braking = 24.0f;
 		float slideGravityScale = 1.25f;
+		float jumpUngroundedDuration = 0.30f;
 
 		std::string animationSpeedParameter;
 		std::string animationGroundedParameter;
 		std::string animationJumpTriggerParameter;
 		float currentSpeed = 0.0f;
+		float jumpUngroundedTimer = 0.0f;
 		bool jumpedThisFrame = false;
 
 		bool jumpRequested = false;
+		bool jumpHeld = false;
+		bool attack1Requested = false;
+		bool attack2Requested = false;
+		bool attack3Requested = false;
 		bool isGrounded = false;
 		bool wasGrounded = false;
 		bool isOnSteepSlope = false;
@@ -42,6 +48,10 @@ namespace MyEngine
 		{
 			moveInput = glm::vec3(0.0f);
 			jumpRequested = false;
+			jumpHeld = false;
+			attack1Requested = false;
+			attack2Requested = false;
+			attack3Requested = false;
 			jumpedThisFrame = false;
 		}
 	};

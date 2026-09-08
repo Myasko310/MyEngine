@@ -4,6 +4,7 @@
 #include "components/AnimationStateMachineComponent.h"
 #include "components/SkeletonComponent.h"
 #include "components/TransformComponent.h"
+#include "components/CharacterControllerComponent.h"
 #include "core/AnimationEventBus.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
@@ -88,6 +89,32 @@ namespace MyEngine
 		}
 	}
 
+	static void ComputeTrimmedTimeRangeSeconds(
+		const AnimationStateMachineState& state,
+		const AnimationClip* clip,
+		float& outStartSeconds,
+		float& outEndSeconds)
+	{
+		outStartSeconds = 0.0f;
+		outEndSeconds = 0.0f;
+		if (!clip)
+			return;
+
+		const float durationSeconds = clip->GetDurationSeconds();
+		if (durationSeconds <= 0.0001f)
+			return;
+
+		float startNormalized = std::clamp(state.trimStartNormalized, 0.0f, 1.0f);
+		float endNormalized = std::clamp(state.trimEndNormalized, 0.0f, 1.0f);
+		if (endNormalized < startNormalized)
+			std::swap(startNormalized, endNormalized);
+
+		outStartSeconds = startNormalized * durationSeconds;
+		outEndSeconds = endNormalized * durationSeconds;
+		if (outEndSeconds - outStartSeconds < 0.0001f)
+			outEndSeconds = std::min(durationSeconds, outStartSeconds + 0.0001f);
+	}
+
 	static bool ShouldTakeTransition(
 		const AnimationStateMachine& stateMachine,
 		AnimationStateMachineComponent& stateMachineComponent,
@@ -106,10 +133,13 @@ namespace MyEngine
 
 		if (transition.requiresExitTime && currentClip)
 		{
-			float durationSeconds = currentClip->GetDurationSeconds();
-			if (durationSeconds > 0.0001f)
+			float trimStartSeconds = 0.0f;
+			float trimEndSeconds = 0.0f;
+			ComputeTrimmedTimeRangeSeconds(currentState, currentClip, trimStartSeconds, trimEndSeconds);
+			const float trimmedDurationSeconds = trimEndSeconds - trimStartSeconds;
+			if (trimmedDurationSeconds > 0.0001f)
 			{
-				float normalizedTime = std::clamp(anim.time / durationSeconds, 0.0f, 1.0f);
+				float normalizedTime = std::clamp((anim.time - trimStartSeconds) / trimmedDurationSeconds, 0.0f, 1.0f);
 				if (normalizedTime < std::clamp(transition.exitTimeNormalized, 0.0f, 1.0f))
 				{
 					if (outReason)
@@ -183,6 +213,13 @@ namespace MyEngine
 			anim.looping = currentState.loop;
 			anim.playbackSpeed = currentState.playbackSpeed;
 			stateMachineComponent.currentStateTime = 0.0f;
+			const AnimationClip* currentStateClip = (resolvedClipIndex >= 0 && resolvedClipIndex < static_cast<int>(anim.clips->size()))
+				? &(*anim.clips)[resolvedClipIndex]
+				: nullptr;
+			float trimStartSeconds = 0.0f;
+			float trimEndSeconds = 0.0f;
+			ComputeTrimmedTimeRangeSeconds(currentState, currentStateClip, trimStartSeconds, trimEndSeconds);
+			anim.time = trimStartSeconds;
 		}
 		else
 		{
@@ -235,8 +272,16 @@ namespace MyEngine
 					anim.looping = nextState.loop;
 					anim.playbackSpeed = nextState.playbackSpeed;
 					anim.TransitionTo(nextClipIndex, transition.blendDuration);
+					const AnimationClip* nextClip = (nextClipIndex >= 0 && nextClipIndex < static_cast<int>(anim.clips->size()))
+						? &(*anim.clips)[nextClipIndex]
+						: nullptr;
+					float trimStartSeconds = 0.0f;
+					float trimEndSeconds = 0.0f;
+					ComputeTrimmedTimeRangeSeconds(nextState, nextClip, trimStartSeconds, trimEndSeconds);
 					if (!transition.resetTimeOnEnter)
-						anim.time = stateMachineComponent.currentStateTime;
+						anim.time = std::clamp(stateMachineComponent.currentStateTime, trimStartSeconds, trimEndSeconds);
+					else
+						anim.time = trimStartSeconds;
 				}
 			}
 
@@ -524,17 +569,27 @@ namespace MyEngine
 				rootMotionBoneIndex = ResolveRootMotionBoneIndex(*skel.skeleton, anim.rootMotionBoneName);
 
 			float durationSeconds = clip.GetDurationSeconds();
+			float trimStartSeconds = 0.0f;
+			float trimEndSeconds = durationSeconds;
+			if (stateMachineComponent && stateMachineComponent->stateMachine &&
+				stateMachineComponent->stateMachine->IsValidStateIndex(stateMachineComponent->currentStateIndex))
+			{
+				const auto& activeState = stateMachineComponent->stateMachine->states[stateMachineComponent->currentStateIndex];
+				ComputeTrimmedTimeRangeSeconds(activeState, &clip, trimStartSeconds, trimEndSeconds);
+			}
 			if (durationSeconds > 0.0001f)
 			{
+				const float trimmedDurationSeconds = std::max(0.0001f, trimEndSeconds - trimStartSeconds);
 				if (anim.looping)
 				{
-					anim.time = std::fmod(anim.time, durationSeconds);
-					if (anim.time < 0.0f)
-						anim.time += durationSeconds;
+					float localTime = std::fmod(anim.time - trimStartSeconds, trimmedDurationSeconds);
+					if (localTime < 0.0f)
+						localTime += trimmedDurationSeconds;
+					anim.time = trimStartSeconds + localTime;
 				}
 				else
 				{
-					anim.time = std::clamp(anim.time, 0.0f, durationSeconds);
+					anim.time = std::clamp(anim.time, trimStartSeconds, trimEndSeconds);
 				}
 			}
 			else
@@ -545,15 +600,23 @@ namespace MyEngine
 			collectAnimationEvents(anim, previousAnimationTime, anim.time, durationSeconds);
 			if (anim.enableRootMotion && rootMotionBoneIndex >= 0 && entity->HasComponent<TransformComponent>())
 			{
+				bool applyRootMotion = true;
+				if (entity->HasComponent<CharacterControllerComponent>())
+				{
+					const auto& controller = entity->GetComponent<CharacterControllerComponent>();
+					if (!controller.isGrounded)
+						applyRootMotion = false;
+				}
+
 				const bool reachedEndThisFrame =
 					!anim.looping &&
 					durationSeconds > 0.0001f &&
-					previousAnimationTime < durationSeconds &&
-					anim.time >= durationSeconds;
+					previousAnimationTime < trimEndSeconds &&
+					anim.time >= trimEndSeconds;
 
-				if (reachedEndThisFrame)
+				if (applyRootMotion && reachedEndThisFrame)
 				{
-					glm::vec3 localDelta = ComputeRootMotionDelta(*skel.skeleton, rootMotionBoneIndex, clip, 0.0f, durationSeconds, false);
+					glm::vec3 localDelta = ComputeRootMotionDelta(*skel.skeleton, rootMotionBoneIndex, clip, trimStartSeconds, trimEndSeconds, false);
 					localDelta.y = 0.0f;
 					if (glm::dot(localDelta, localDelta) > 0.0f)
 					{

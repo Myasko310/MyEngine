@@ -57,6 +57,8 @@
             "clipName": "Bouncing Fight Idle",
             "loop": true,
             "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 6,
@@ -149,6 +151,8 @@
             "clipName": "Swagger Walk",
             "loop": true,
             "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 6,
@@ -260,6 +264,8 @@
             "clipName": "Running",
             "loop": true,
             "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 6,
@@ -357,6 +363,8 @@
             "clipName": "Crouching Idle",
             "loop": true,
             "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 6,
@@ -449,6 +457,8 @@
             "clipName": "Crouched Walking",
             "loop": true,
             "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 6,
@@ -541,6 +551,8 @@
             "clipName": "Fighting Idle",
             "loop": true,
             "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 6,
@@ -619,10 +631,12 @@
             "clipName": "Lead Jab",
             "loop": false,
             "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 7,
-                    "blendDuration": 0.0800000000,
+                    "blendDuration": 0.07999999821186066,
                     "requiresExitTime": false,
                     "exitTimeNormalized": 1.0,
                     "resetTimeOnEnter": true,
@@ -636,9 +650,9 @@
                 },
                 {
                     "targetStateIndex": 0,
-                    "blendDuration": 0.1400000000,
+                    "blendDuration": 0.14000000059604645,
                     "requiresExitTime": true,
-                    "exitTimeNormalized": 0.9200000167,
+                    "exitTimeNormalized": 0.9200000166893005,
                     "resetTimeOnEnter": true,
                     "conditions": []
                 }
@@ -648,11 +662,13 @@
             "name": "Attack1_2",
             "clipName": "Cross Punch",
             "loop": false,
-            "playbackSpeed": 1.0,
+            "playbackSpeed": 1.1299999952316284,
+            "trimStartNormalized": 0.4000000059604645,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 8,
-                    "blendDuration": 0.0800000000,
+                    "blendDuration": 0.07999999821186066,
                     "requiresExitTime": false,
                     "exitTimeNormalized": 1.0,
                     "resetTimeOnEnter": true,
@@ -666,9 +682,9 @@
                 },
                 {
                     "targetStateIndex": 0,
-                    "blendDuration": 0.1400000000,
+                    "blendDuration": 0.14000000059604645,
                     "requiresExitTime": true,
-                    "exitTimeNormalized": 0.9200000167,
+                    "exitTimeNormalized": 0.9200000166893005,
                     "resetTimeOnEnter": true,
                     "conditions": []
                 }
@@ -678,13 +694,15 @@
             "name": "Attack1_3",
             "clipName": "Hook Punch",
             "loop": false,
-            "playbackSpeed": 1.0,
+            "playbackSpeed": 1.440000057220459,
+            "trimStartNormalized": 0.3100000023841858,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 0,
-                    "blendDuration": 0.1400000000,
+                    "blendDuration": 0.14000000059604645,
                     "requiresExitTime": true,
-                    "exitTimeNormalized": 0.9200000167,
+                    "exitTimeNormalized": 0.9200000166893005,
                     "resetTimeOnEnter": true,
                     "conditions": []
                 }
@@ -694,11 +712,13 @@
             "name": "Attack2_1",
             "clipName": "Kicking",
             "loop": false,
-            "playbackSpeed": 1.0,
+            "playbackSpeed": 1.5099999904632568,
+            "trimStartNormalized": 0.36000001430511475,
+            "trimEndNormalized": 0.9399999976158142,
             "transitions": [
                 {
                     "targetStateIndex": 10,
-                    "blendDuration": 0.0800000000,
+                    "blendDuration": 0.07999999821186066,
                     "requiresExitTime": false,
                     "exitTimeNormalized": 1.0,
                     "resetTimeOnEnter": true,
@@ -712,9 +732,9 @@
                 },
                 {
                     "targetStateIndex": 0,
-                    "blendDuration": 0.1400000000,
+                    "blendDuration": 0.14000000059604645,
                     "requiresExitTime": true,
-                    "exitTimeNormalized": 0.9200000167,
+                    "exitTimeNormalized": 0.9200000166893005,
                     "resetTimeOnEnter": true,
                     "conditions": []
                 }
@@ -724,11 +744,13 @@
             "name": "Attack2_2",
             "clipName": "Kicking (1)",
             "loop": false,
-            "playbackSpeed": 1.0,
+            "playbackSpeed": 1.2400000095367432,
+            "trimStartNormalized": 0.3100000023841858,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 11,
-                    "blendDuration": 0.0800000000,
+                    "blendDuration": 0.07999999821186066,
                     "requiresExitTime": false,
                     "exitTimeNormalized": 1.0,
                     "resetTimeOnEnter": true,
@@ -742,9 +764,9 @@
                 },
                 {
                     "targetStateIndex": 0,
-                    "blendDuration": 0.1400000000,
+                    "blendDuration": 0.14000000059604645,
                     "requiresExitTime": true,
-                    "exitTimeNormalized": 0.9200000167,
+                    "exitTimeNormalized": 0.9200000166893005,
                     "resetTimeOnEnter": true,
                     "conditions": []
                 }
@@ -755,10 +777,12 @@
             "clipName": "Kicking (2)",
             "loop": false,
             "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.17000000178813934,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 12,
-                    "blendDuration": 0.0800000000,
+                    "blendDuration": 0.07999999821186066,
                     "requiresExitTime": false,
                     "exitTimeNormalized": 1.0,
                     "resetTimeOnEnter": true,
@@ -772,9 +796,9 @@
                 },
                 {
                     "targetStateIndex": 0,
-                    "blendDuration": 0.1400000000,
+                    "blendDuration": 0.14000000059604645,
                     "requiresExitTime": true,
-                    "exitTimeNormalized": 0.9200000167,
+                    "exitTimeNormalized": 0.9200000166893005,
                     "resetTimeOnEnter": true,
                     "conditions": []
                 }
@@ -784,13 +808,15 @@
             "name": "Attack2_4",
             "clipName": "Mma Kick",
             "loop": false,
-            "playbackSpeed": 1.0,
+            "playbackSpeed": 1.4299999475479126,
+            "trimStartNormalized": 0.25,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 0,
-                    "blendDuration": 0.1400000000,
+                    "blendDuration": 0.14000000059604645,
                     "requiresExitTime": true,
-                    "exitTimeNormalized": 0.9200000167,
+                    "exitTimeNormalized": 0.9200000166893005,
                     "resetTimeOnEnter": true,
                     "conditions": []
                 }
@@ -800,11 +826,13 @@
             "name": "Attack3_1",
             "clipName": "Uppercut Jab",
             "loop": false,
-            "playbackSpeed": 1.0,
+            "playbackSpeed": 1.309999942779541,
+            "trimStartNormalized": 0.09000000357627869,
+            "trimEndNormalized": 0.8299999833106995,
             "transitions": [
                 {
                     "targetStateIndex": 14,
-                    "blendDuration": 0.0800000000,
+                    "blendDuration": 0.07999999821186066,
                     "requiresExitTime": false,
                     "exitTimeNormalized": 1.0,
                     "resetTimeOnEnter": true,
@@ -818,9 +846,9 @@
                 },
                 {
                     "targetStateIndex": 0,
-                    "blendDuration": 0.1400000000,
+                    "blendDuration": 0.14000000059604645,
                     "requiresExitTime": true,
-                    "exitTimeNormalized": 0.9200000167,
+                    "exitTimeNormalized": 0.9200000166893005,
                     "resetTimeOnEnter": true,
                     "conditions": []
                 }
@@ -830,13 +858,15 @@
             "name": "Attack3_2",
             "clipName": "Mma Kick (1)",
             "loop": false,
-            "playbackSpeed": 1.0,
+            "playbackSpeed": 1.5399999618530273,
+            "trimStartNormalized": 0.07000000029802322,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 0,
-                    "blendDuration": 0.1400000000,
+                    "blendDuration": 0.14000000059604645,
                     "requiresExitTime": true,
-                    "exitTimeNormalized": 0.9200000167,
+                    "exitTimeNormalized": 0.9200000166893005,
                     "resetTimeOnEnter": true,
                     "conditions": []
                 }
@@ -847,6 +877,8 @@
             "clipName": "Jumping",
             "loop": false,
             "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
             "transitions": [
                 {
                     "targetStateIndex": 0,

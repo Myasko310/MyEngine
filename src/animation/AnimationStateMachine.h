@@ -55,6 +55,8 @@ namespace MyEngine
 		std::string clipName;
 		bool loop = true;
 		float playbackSpeed = 1.0f;
+		float trimStartNormalized = 0.0f;
+		float trimEndNormalized = 1.0f;
 		std::vector<AnimationStateMachineTransition> transitions;
 	};
 

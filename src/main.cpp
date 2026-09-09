@@ -17,6 +17,8 @@
 #include <fstream>
 #include <cmath>
 #include <unordered_set>
+#include <unordered_map>
+#include <memory>
 
 #include "core/Input.h"
 #include "core/InputActions.h"
@@ -101,6 +103,9 @@
 #include "renderer/RenderPlatform.h"
 #include "renderer/RenderPlatformFactory.h"
 #include "renderer/RenderDocCapture.h"
+#include "network/NetTransport.h"
+#include "network/SocketNetTransport.h"
+#include "network/NetReplicationSystem.h"
 
 using namespace MyEngine;
 #ifdef USE_IMGUI
@@ -1278,6 +1283,26 @@ int main(int argc, char** argv)
     std::string playSnapshotJSON;  // in-memory snapshot (replaces temp file)
     bool        showStopPlayPrompt = false;
 
+    // Networking runtime scaffolding (authoritative server + local client)
+    bool networkingEnabled = true;
+    MyEngine::Net::NetTick networkTick = 0;
+    MyEngine::Net::ClientID localClientID = 0u;
+    std::unique_ptr<MyEngine::Net::INetTransport> networkTransport = std::make_unique<MyEngine::Net::InMemoryTransport>();
+    bool usingSocketTransport = false;
+    MyEngine::Net::SnapshotInterpolationBuffer snapshotInterpolationBuffer(64);
+    MyEngine::Net::ClientReconciliationState clientReconciliationState;
+    std::unordered_map<MyEngine::Net::NetTick, MyEngine::Net::InputCommand> pendingInputByTick;
+    bool networkSessionBootstrapPending = false;
+    Scene authoritativeServerScene;
+    bool hasAuthoritativeServerScene = false;
+    MyEngine::Net::ReplicationInterestSettings networkInterestSettings;
+    float networkSnapshotInterval = 1.0f / 20.0f;
+    float networkSnapshotTimer = 0.0f;
+    MyEngine::Net::WorldSnapshot serverBaselineSnapshot;
+    bool hasServerBaselineSnapshot = false;
+    MyEngine::Net::NetTick transportInputDelayTicks = 1u;
+    MyEngine::Net::NetTick transportSnapshotDelayTicks = 2u;
+
     // Scene file state
     std::string currentScenePath;
     std::vector<std::string> recentScenes = LoadRecentScenes();
@@ -1377,6 +1402,24 @@ int main(int argc, char** argv)
         {
             return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
         };
+        auto vec4Equal = [&](const glm::vec4& a, const glm::vec4& b)
+        {
+            return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z) && nearlyEqual(a.w, b.w);
+        };
+        auto meshTrianglesEqual = [&](const std::vector<std::array<glm::vec3, 3>>& lhs, const std::vector<std::array<glm::vec3, 3>>& rhs)
+        {
+            if (lhs.size() != rhs.size())
+                return false;
+            for (size_t tri = 0; tri < lhs.size(); ++tri)
+            {
+                for (int v = 0; v < 3; ++v)
+                {
+                    if (!vec3Equal(lhs[tri][v], rhs[tri][v]))
+                        return false;
+                }
+            }
+            return true;
+        };
 
         if (entity->GetName() != source->GetName()) { addOverride("Name"); prefab.overrideName = true; }
         else { prefab.overrideName = false; }
@@ -1386,7 +1429,12 @@ int main(int argc, char** argv)
         else { prefab.overrideLayer = false; }
 
         bool hasTransformOverride = false;
-        if (entity->HasComponent<TransformComponent>() && source->HasComponent<TransformComponent>())
+        if (entity->HasComponent<TransformComponent>() != source->HasComponent<TransformComponent>())
+        {
+            addOverride("Transform: Component Presence");
+            hasTransformOverride = true;
+        }
+        else if (entity->HasComponent<TransformComponent>())
         {
             const auto& current = entity->GetComponent<TransformComponent>();
             const auto& original = source->GetComponent<TransformComponent>();
@@ -1398,7 +1446,12 @@ int main(int argc, char** argv)
         prefab.overrideTransform = hasTransformOverride;
 
         bool hasMeshRendererOverride = false;
-        if (entity->HasComponent<MeshRendererComponent>() && source->HasComponent<MeshRendererComponent>())
+        if (entity->HasComponent<MeshRendererComponent>() != source->HasComponent<MeshRendererComponent>())
+        {
+            addOverride("Mesh Renderer: Component Presence");
+            hasMeshRendererOverride = true;
+        }
+        else if (entity->HasComponent<MeshRendererComponent>())
         {
             const auto& current = entity->GetComponent<MeshRendererComponent>();
             const auto& original = source->GetComponent<MeshRendererComponent>();
@@ -1410,7 +1463,12 @@ int main(int argc, char** argv)
         prefab.overrideMeshRenderer = hasMeshRendererOverride;
 
         bool hasLightOverride = false;
-        if (entity->HasComponent<LightComponent>() && source->HasComponent<LightComponent>())
+        if (entity->HasComponent<LightComponent>() != source->HasComponent<LightComponent>())
+        {
+            addOverride("Light: Component Presence");
+            hasLightOverride = true;
+        }
+        else if (entity->HasComponent<LightComponent>())
         {
             const auto& current = entity->GetComponent<LightComponent>();
             const auto& original = source->GetComponent<LightComponent>();
@@ -1425,7 +1483,12 @@ int main(int argc, char** argv)
         prefab.overrideLight = hasLightOverride;
 
         bool hasRigidbodyOverride = false;
-        if (entity->HasComponent<RigidbodyComponent>() && source->HasComponent<RigidbodyComponent>())
+        if (entity->HasComponent<RigidbodyComponent>() != source->HasComponent<RigidbodyComponent>())
+        {
+            addOverride("Rigidbody: Component Presence");
+            hasRigidbodyOverride = true;
+        }
+        else if (entity->HasComponent<RigidbodyComponent>())
         {
             const auto& current = entity->GetComponent<RigidbodyComponent>();
             const auto& original = source->GetComponent<RigidbodyComponent>();
@@ -1437,7 +1500,12 @@ int main(int argc, char** argv)
         prefab.overrideRigidbody = hasRigidbodyOverride;
 
         bool hasScriptOverride = false;
-        if (entity->HasComponent<ScriptComponent>() && source->HasComponent<ScriptComponent>())
+        if (entity->HasComponent<ScriptComponent>() != source->HasComponent<ScriptComponent>())
+        {
+            addOverride("Script: Component Presence");
+            hasScriptOverride = true;
+        }
+        else if (entity->HasComponent<ScriptComponent>())
         {
             const auto& current = entity->GetComponent<ScriptComponent>();
             const auto& original = source->GetComponent<ScriptComponent>();
@@ -1448,7 +1516,12 @@ int main(int argc, char** argv)
         prefab.overrideScript = hasScriptOverride;
 
         bool hasAnimationOverride = false;
-        if (entity->HasComponent<AnimationComponent>() && source->HasComponent<AnimationComponent>())
+        if (entity->HasComponent<AnimationComponent>() != source->HasComponent<AnimationComponent>())
+        {
+            addOverride("Animation: Component Presence");
+            hasAnimationOverride = true;
+        }
+        else if (entity->HasComponent<AnimationComponent>())
         {
             const auto& current = entity->GetComponent<AnimationComponent>();
             const auto& original = source->GetComponent<AnimationComponent>();
@@ -1459,6 +1532,255 @@ int main(int argc, char** argv)
             if (current.looping != original.looping) { addOverride("Animation: Looping"); hasAnimationOverride = true; }
         }
         prefab.overrideAnimation = hasAnimationOverride;
+
+        bool hasAudioSourceOverride = false;
+        if (entity->HasComponent<AudioSourceComponent>() != source->HasComponent<AudioSourceComponent>())
+        {
+            addOverride("Audio Source: Component Presence");
+            hasAudioSourceOverride = true;
+        }
+        else if (entity->HasComponent<AudioSourceComponent>())
+        {
+            const auto& current = entity->GetComponent<AudioSourceComponent>();
+            const auto& original = source->GetComponent<AudioSourceComponent>();
+            if (current.clipPath != original.clipPath) { addOverride("Audio Source: Clip Path"); hasAudioSourceOverride = true; }
+            if (!nearlyEqual(current.volume, original.volume)) { addOverride("Audio Source: Volume"); hasAudioSourceOverride = true; }
+            if (!nearlyEqual(current.pitch, original.pitch)) { addOverride("Audio Source: Pitch"); hasAudioSourceOverride = true; }
+            if (current.loop != original.loop) { addOverride("Audio Source: Loop"); hasAudioSourceOverride = true; }
+            if (current.autoPlay != original.autoPlay) { addOverride("Audio Source: Auto Play"); hasAudioSourceOverride = true; }
+            if (current.spatial != original.spatial) { addOverride("Audio Source: Spatial"); hasAudioSourceOverride = true; }
+            if (!nearlyEqual(current.minDistance, original.minDistance)) { addOverride("Audio Source: Min Distance"); hasAudioSourceOverride = true; }
+            if (!nearlyEqual(current.maxDistance, original.maxDistance)) { addOverride("Audio Source: Max Distance"); hasAudioSourceOverride = true; }
+            if (current.busName != original.busName) { addOverride("Audio Source: Bus"); hasAudioSourceOverride = true; }
+            if (current.eventName != original.eventName) { addOverride("Audio Source: Event"); hasAudioSourceOverride = true; }
+        }
+        prefab.overrideAudioSource = hasAudioSourceOverride;
+
+        bool hasAudioListenerOverride = false;
+        if (entity->HasComponent<AudioListenerComponent>() != source->HasComponent<AudioListenerComponent>())
+        {
+            addOverride("Audio Listener: Component Presence");
+            hasAudioListenerOverride = true;
+        }
+        else if (entity->HasComponent<AudioListenerComponent>())
+        {
+            const auto& current = entity->GetComponent<AudioListenerComponent>();
+            const auto& original = source->GetComponent<AudioListenerComponent>();
+            if (current.isPrimary != original.isPrimary) { addOverride("Audio Listener: Primary"); hasAudioListenerOverride = true; }
+            if (!nearlyEqual(current.gain, original.gain)) { addOverride("Audio Listener: Gain"); hasAudioListenerOverride = true; }
+        }
+        prefab.overrideAudioListener = hasAudioListenerOverride;
+
+        bool hasBoxColliderOverride = false;
+        if (entity->HasComponent<BoxColliderComponent>() != source->HasComponent<BoxColliderComponent>())
+        {
+            addOverride("Box Collider: Component Presence");
+            hasBoxColliderOverride = true;
+        }
+        else if (entity->HasComponent<BoxColliderComponent>())
+        {
+            const auto& current = entity->GetComponent<BoxColliderComponent>();
+            const auto& original = source->GetComponent<BoxColliderComponent>();
+            if (!vec3Equal(current.center, original.center)) { addOverride("Box Collider: Center"); hasBoxColliderOverride = true; }
+            if (!vec3Equal(current.halfExtents, original.halfExtents)) { addOverride("Box Collider: Half Extents"); hasBoxColliderOverride = true; }
+            if (current.isTrigger != original.isTrigger) { addOverride("Box Collider: Trigger"); hasBoxColliderOverride = true; }
+        }
+        prefab.overrideBoxCollider = hasBoxColliderOverride;
+
+        bool hasCapsuleColliderOverride = false;
+        if (entity->HasComponent<CapsuleColliderComponent>() != source->HasComponent<CapsuleColliderComponent>())
+        {
+            addOverride("Capsule Collider: Component Presence");
+            hasCapsuleColliderOverride = true;
+        }
+        else if (entity->HasComponent<CapsuleColliderComponent>())
+        {
+            const auto& current = entity->GetComponent<CapsuleColliderComponent>();
+            const auto& original = source->GetComponent<CapsuleColliderComponent>();
+            if (!vec3Equal(current.pointA, original.pointA)) { addOverride("Capsule Collider: Point A"); hasCapsuleColliderOverride = true; }
+            if (!vec3Equal(current.pointB, original.pointB)) { addOverride("Capsule Collider: Point B"); hasCapsuleColliderOverride = true; }
+            if (!nearlyEqual(current.radius, original.radius)) { addOverride("Capsule Collider: Radius"); hasCapsuleColliderOverride = true; }
+            if (current.isTrigger != original.isTrigger) { addOverride("Capsule Collider: Trigger"); hasCapsuleColliderOverride = true; }
+        }
+        prefab.overrideCapsuleCollider = hasCapsuleColliderOverride;
+
+        bool hasPlaneColliderOverride = false;
+        if (entity->HasComponent<PlaneColliderComponent>() != source->HasComponent<PlaneColliderComponent>())
+        {
+            addOverride("Plane Collider: Component Presence");
+            hasPlaneColliderOverride = true;
+        }
+        else if (entity->HasComponent<PlaneColliderComponent>())
+        {
+            const auto& current = entity->GetComponent<PlaneColliderComponent>();
+            const auto& original = source->GetComponent<PlaneColliderComponent>();
+            if (!vec3Equal(current.normal, original.normal)) { addOverride("Plane Collider: Normal"); hasPlaneColliderOverride = true; }
+            if (!nearlyEqual(current.distance, original.distance)) { addOverride("Plane Collider: Distance"); hasPlaneColliderOverride = true; }
+            if (current.isTrigger != original.isTrigger) { addOverride("Plane Collider: Trigger"); hasPlaneColliderOverride = true; }
+        }
+        prefab.overridePlaneCollider = hasPlaneColliderOverride;
+
+        bool hasBoundingSphereOverride = false;
+        if (entity->HasComponent<BoundingSphereComponent>() != source->HasComponent<BoundingSphereComponent>())
+        {
+            addOverride("Bounding Sphere: Component Presence");
+            hasBoundingSphereOverride = true;
+        }
+        else if (entity->HasComponent<BoundingSphereComponent>())
+        {
+            const auto& current = entity->GetComponent<BoundingSphereComponent>();
+            const auto& original = source->GetComponent<BoundingSphereComponent>();
+            if (!vec3Equal(current.center, original.center)) { addOverride("Bounding Sphere: Center"); hasBoundingSphereOverride = true; }
+            if (!nearlyEqual(current.radius, original.radius)) { addOverride("Bounding Sphere: Radius"); hasBoundingSphereOverride = true; }
+            if (current.isTrigger != original.isTrigger) { addOverride("Bounding Sphere: Trigger"); hasBoundingSphereOverride = true; }
+        }
+        prefab.overrideBoundingSphere = hasBoundingSphereOverride;
+
+        bool hasMeshColliderOverride = false;
+        if (entity->HasComponent<MeshColliderComponent>() != source->HasComponent<MeshColliderComponent>())
+        {
+            addOverride("Mesh Collider: Component Presence");
+            hasMeshColliderOverride = true;
+        }
+        else if (entity->HasComponent<MeshColliderComponent>())
+        {
+            const auto& current = entity->GetComponent<MeshColliderComponent>();
+            const auto& original = source->GetComponent<MeshColliderComponent>();
+            if (current.modelPath != original.modelPath) { addOverride("Mesh Collider: Model Path"); hasMeshColliderOverride = true; }
+            if (current.isTrigger != original.isTrigger) { addOverride("Mesh Collider: Trigger"); hasMeshColliderOverride = true; }
+            if (!meshTrianglesEqual(current.triangles, original.triangles)) { addOverride("Mesh Collider: Triangles"); hasMeshColliderOverride = true; }
+        }
+        prefab.overrideMeshCollider = hasMeshColliderOverride;
+
+        bool hasCharacterControllerOverride = false;
+        if (entity->HasComponent<CharacterControllerComponent>() != source->HasComponent<CharacterControllerComponent>())
+        {
+            addOverride("Character Controller: Component Presence");
+            hasCharacterControllerOverride = true;
+        }
+        else if (entity->HasComponent<CharacterControllerComponent>())
+        {
+            const auto& current = entity->GetComponent<CharacterControllerComponent>();
+            const auto& original = source->GetComponent<CharacterControllerComponent>();
+            if (!nearlyEqual(current.moveSpeed, original.moveSpeed)) { addOverride("Character Controller: Move Speed"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.airControl, original.airControl)) { addOverride("Character Controller: Air Control"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.jumpSpeed, original.jumpSpeed)) { addOverride("Character Controller: Jump Speed"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.gravityScale, original.gravityScale)) { addOverride("Character Controller: Gravity Scale"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.maxSlopeAngleDegrees, original.maxSlopeAngleDegrees)) { addOverride("Character Controller: Max Slope Angle"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.groundSnapDistance, original.groundSnapDistance)) { addOverride("Character Controller: Ground Snap Distance"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.skinWidth, original.skinWidth)) { addOverride("Character Controller: Skin Width"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.maxStepHeight, original.maxStepHeight)) { addOverride("Character Controller: Max Step Height"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.acceleration, original.acceleration)) { addOverride("Character Controller: Acceleration"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.airAcceleration, original.airAcceleration)) { addOverride("Character Controller: Air Acceleration"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.braking, original.braking)) { addOverride("Character Controller: Braking"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.slideGravityScale, original.slideGravityScale)) { addOverride("Character Controller: Slide Gravity Scale"); hasCharacterControllerOverride = true; }
+            if (current.enableGroundSnap != original.enableGroundSnap) { addOverride("Character Controller: Enable Ground Snap"); hasCharacterControllerOverride = true; }
+            if (current.orientToMovement != original.orientToMovement) { addOverride("Character Controller: Orient To Movement"); hasCharacterControllerOverride = true; }
+            if (current.animationSpeedParameter != original.animationSpeedParameter) { addOverride("Character Controller: Animation Speed Parameter"); hasCharacterControllerOverride = true; }
+            if (current.animationGroundedParameter != original.animationGroundedParameter) { addOverride("Character Controller: Animation Grounded Parameter"); hasCharacterControllerOverride = true; }
+            if (current.animationJumpTriggerParameter != original.animationJumpTriggerParameter) { addOverride("Character Controller: Animation Jump Trigger Parameter"); hasCharacterControllerOverride = true; }
+        }
+        prefab.overrideCharacterController = hasCharacterControllerOverride;
+
+        bool hasNavigationAgentOverride = false;
+        if (entity->HasComponent<NavigationAgentComponent>() != source->HasComponent<NavigationAgentComponent>())
+        {
+            addOverride("Nav Agent: Component Presence");
+            hasNavigationAgentOverride = true;
+        }
+        else if (entity->HasComponent<NavigationAgentComponent>())
+        {
+            const auto& current = entity->GetComponent<NavigationAgentComponent>();
+            const auto& original = source->GetComponent<NavigationAgentComponent>();
+            if (!nearlyEqual(current.speed, original.speed)) { addOverride("Nav Agent: Speed"); hasNavigationAgentOverride = true; }
+            if (!nearlyEqual(current.stoppingDistance, original.stoppingDistance)) { addOverride("Nav Agent: Stopping Distance"); hasNavigationAgentOverride = true; }
+        }
+        prefab.overrideNavigationAgent = hasNavigationAgentOverride;
+
+        bool hasTerrainOverride = false;
+        if (entity->HasComponent<TerrainComponent>() != source->HasComponent<TerrainComponent>())
+        {
+            addOverride("Terrain: Component Presence");
+            hasTerrainOverride = true;
+        }
+        else if (entity->HasComponent<TerrainComponent>())
+        {
+            const auto& current = entity->GetComponent<TerrainComponent>();
+            const auto& original = source->GetComponent<TerrainComponent>();
+            if (current.heightmapPath != original.heightmapPath) { addOverride("Terrain: Heightmap"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.width, original.width)) { addOverride("Terrain: Width"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.depth, original.depth)) { addOverride("Terrain: Depth"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.heightScale, original.heightScale)) { addOverride("Terrain: Height Scale"); hasTerrainOverride = true; }
+            if (current.resolution != original.resolution) { addOverride("Terrain: Resolution"); hasTerrainOverride = true; }
+            if (current.surfaceTexturePath != original.surfaceTexturePath) { addOverride("Terrain: Surface Texture"); hasTerrainOverride = true; }
+            if (current.shaderVertPath != original.shaderVertPath) { addOverride("Terrain: Shader Vert"); hasTerrainOverride = true; }
+            if (current.shaderFragPath != original.shaderFragPath) { addOverride("Terrain: Shader Frag"); hasTerrainOverride = true; }
+        }
+        prefab.overrideTerrain = hasTerrainOverride;
+
+        auto lodLevelsEqual = [&](const std::vector<LODComponent::Level>& lhs, const std::vector<LODComponent::Level>& rhs)
+        {
+            if (lhs.size() != rhs.size())
+                return false;
+            for (size_t i = 0; i < lhs.size(); ++i)
+            {
+                if (!nearlyEqual(lhs[i].distanceThreshold, rhs[i].distanceThreshold) || lhs[i].assetPath != rhs[i].assetPath)
+                    return false;
+            }
+            return true;
+        };
+
+        bool hasLODOverride = false;
+        if (entity->HasComponent<LODComponent>() != source->HasComponent<LODComponent>())
+        {
+            addOverride("LOD: Component Presence");
+            hasLODOverride = true;
+        }
+        else if (entity->HasComponent<LODComponent>())
+        {
+            const auto& current = entity->GetComponent<LODComponent>();
+            const auto& original = source->GetComponent<LODComponent>();
+            if (current.enabled != original.enabled) { addOverride("LOD: Enabled"); hasLODOverride = true; }
+            if (!lodLevelsEqual(current.levels, original.levels)) { addOverride("LOD: Levels"); hasLODOverride = true; }
+        }
+        prefab.overrideLOD = hasLODOverride;
+
+        bool hasParticleEmitterOverride = false;
+        if (entity->HasComponent<ParticleEmitterComponent>() != source->HasComponent<ParticleEmitterComponent>())
+        {
+            addOverride("Particle Emitter: Component Presence");
+            hasParticleEmitterOverride = true;
+        }
+        else if (entity->HasComponent<ParticleEmitterComponent>())
+        {
+            const auto& current = entity->GetComponent<ParticleEmitterComponent>();
+            const auto& original = source->GetComponent<ParticleEmitterComponent>();
+            if (current.maxParticles != original.maxParticles) { addOverride("Particle Emitter: Max Particles"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.spawnRate, original.spawnRate)) { addOverride("Particle Emitter: Spawn Rate"); hasParticleEmitterOverride = true; }
+            if (current.emitting != original.emitting) { addOverride("Particle Emitter: Emitting"); hasParticleEmitterOverride = true; }
+            if (current.shape != original.shape) { addOverride("Particle Emitter: Shape"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.shapeRadius, original.shapeRadius)) { addOverride("Particle Emitter: Shape Radius"); hasParticleEmitterOverride = true; }
+            if (!vec3Equal(current.shapeExtents, original.shapeExtents)) { addOverride("Particle Emitter: Shape Extents"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.shapeHeight, original.shapeHeight)) { addOverride("Particle Emitter: Shape Height"); hasParticleEmitterOverride = true; }
+            if (!vec4Equal(current.colorStart, original.colorStart)) { addOverride("Particle Emitter: Color Start"); hasParticleEmitterOverride = true; }
+            if (!vec4Equal(current.colorEnd, original.colorEnd)) { addOverride("Particle Emitter: Color End"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.sizeStart, original.sizeStart)) { addOverride("Particle Emitter: Size Start"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.sizeEnd, original.sizeEnd)) { addOverride("Particle Emitter: Size End"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.lifetime, original.lifetime)) { addOverride("Particle Emitter: Lifetime"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.lifetimeVariance, original.lifetimeVariance)) { addOverride("Particle Emitter: Lifetime Variance"); hasParticleEmitterOverride = true; }
+            if (!vec3Equal(current.emitDirection, original.emitDirection)) { addOverride("Particle Emitter: Emit Direction"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.emitSpeed, original.emitSpeed)) { addOverride("Particle Emitter: Emit Speed"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.emitSpeedVariance, original.emitSpeedVariance)) { addOverride("Particle Emitter: Emit Speed Variance"); hasParticleEmitterOverride = true; }
+            if (!nearlyEqual(current.spreadAngle, original.spreadAngle)) { addOverride("Particle Emitter: Spread Angle"); hasParticleEmitterOverride = true; }
+            if (!vec3Equal(current.gravity, original.gravity)) { addOverride("Particle Emitter: Gravity"); hasParticleEmitterOverride = true; }
+            if (current.texturePath != original.texturePath) { addOverride("Particle Emitter: Texture"); hasParticleEmitterOverride = true; }
+        }
+        prefab.overrideParticleEmitter = hasParticleEmitterOverride;
+
+        bool hasCollisionEventsOverride = (entity->HasComponent<CollisionEventsComponent>() != source->HasComponent<CollisionEventsComponent>());
+        if (hasCollisionEventsOverride)
+            addOverride("Collision Events: Presence");
+        prefab.overrideCollisionEvents = hasCollisionEventsOverride;
 
         return overrides;
     };
@@ -1614,6 +1936,186 @@ int main(int argc, char** argv)
                 entity->RemoveComponent<AnimationComponent>();
             }
         }
+        else if (overrideCategory == "Audio Source")
+        {
+            if (source->HasComponent<AudioSourceComponent>())
+            {
+                if (!entity->HasComponent<AudioSourceComponent>())
+                    entity->AddComponent<AudioSourceComponent>() = source->GetComponent<AudioSourceComponent>();
+                else
+                    entity->GetComponent<AudioSourceComponent>() = source->GetComponent<AudioSourceComponent>();
+            }
+            else if (entity->HasComponent<AudioSourceComponent>())
+            {
+                entity->RemoveComponent<AudioSourceComponent>();
+            }
+        }
+        else if (overrideCategory == "Audio Listener")
+        {
+            if (source->HasComponent<AudioListenerComponent>())
+            {
+                if (!entity->HasComponent<AudioListenerComponent>())
+                    entity->AddComponent<AudioListenerComponent>() = source->GetComponent<AudioListenerComponent>();
+                else
+                    entity->GetComponent<AudioListenerComponent>() = source->GetComponent<AudioListenerComponent>();
+            }
+            else if (entity->HasComponent<AudioListenerComponent>())
+            {
+                entity->RemoveComponent<AudioListenerComponent>();
+            }
+        }
+        else if (overrideCategory == "Box Collider")
+        {
+            if (source->HasComponent<BoxColliderComponent>())
+            {
+                if (!entity->HasComponent<BoxColliderComponent>())
+                    entity->AddComponent<BoxColliderComponent>() = source->GetComponent<BoxColliderComponent>();
+                else
+                    entity->GetComponent<BoxColliderComponent>() = source->GetComponent<BoxColliderComponent>();
+            }
+            else if (entity->HasComponent<BoxColliderComponent>())
+            {
+                entity->RemoveComponent<BoxColliderComponent>();
+            }
+        }
+        else if (overrideCategory == "Capsule Collider")
+        {
+            if (source->HasComponent<CapsuleColliderComponent>())
+            {
+                if (!entity->HasComponent<CapsuleColliderComponent>())
+                    entity->AddComponent<CapsuleColliderComponent>() = source->GetComponent<CapsuleColliderComponent>();
+                else
+                    entity->GetComponent<CapsuleColliderComponent>() = source->GetComponent<CapsuleColliderComponent>();
+            }
+            else if (entity->HasComponent<CapsuleColliderComponent>())
+            {
+                entity->RemoveComponent<CapsuleColliderComponent>();
+            }
+        }
+        else if (overrideCategory == "Plane Collider")
+        {
+            if (source->HasComponent<PlaneColliderComponent>())
+            {
+                if (!entity->HasComponent<PlaneColliderComponent>())
+                    entity->AddComponent<PlaneColliderComponent>() = source->GetComponent<PlaneColliderComponent>();
+                else
+                    entity->GetComponent<PlaneColliderComponent>() = source->GetComponent<PlaneColliderComponent>();
+            }
+            else if (entity->HasComponent<PlaneColliderComponent>())
+            {
+                entity->RemoveComponent<PlaneColliderComponent>();
+            }
+        }
+        else if (overrideCategory == "Bounding Sphere")
+        {
+            if (source->HasComponent<BoundingSphereComponent>())
+            {
+                if (!entity->HasComponent<BoundingSphereComponent>())
+                    entity->AddComponent<BoundingSphereComponent>() = source->GetComponent<BoundingSphereComponent>();
+                else
+                    entity->GetComponent<BoundingSphereComponent>() = source->GetComponent<BoundingSphereComponent>();
+            }
+            else if (entity->HasComponent<BoundingSphereComponent>())
+            {
+                entity->RemoveComponent<BoundingSphereComponent>();
+            }
+        }
+        else if (overrideCategory == "Mesh Collider")
+        {
+            if (source->HasComponent<MeshColliderComponent>())
+            {
+                if (!entity->HasComponent<MeshColliderComponent>())
+                    entity->AddComponent<MeshColliderComponent>() = source->GetComponent<MeshColliderComponent>();
+                else
+                    entity->GetComponent<MeshColliderComponent>() = source->GetComponent<MeshColliderComponent>();
+            }
+            else if (entity->HasComponent<MeshColliderComponent>())
+            {
+                entity->RemoveComponent<MeshColliderComponent>();
+            }
+        }
+        else if (overrideCategory == "Character Controller")
+        {
+            if (source->HasComponent<CharacterControllerComponent>())
+            {
+                if (!entity->HasComponent<CharacterControllerComponent>())
+                    entity->AddComponent<CharacterControllerComponent>() = source->GetComponent<CharacterControllerComponent>();
+                else
+                    entity->GetComponent<CharacterControllerComponent>() = source->GetComponent<CharacterControllerComponent>();
+            }
+            else if (entity->HasComponent<CharacterControllerComponent>())
+            {
+                entity->RemoveComponent<CharacterControllerComponent>();
+            }
+        }
+        else if (overrideCategory == "Nav Agent")
+        {
+            if (source->HasComponent<NavigationAgentComponent>())
+            {
+                if (!entity->HasComponent<NavigationAgentComponent>())
+                    entity->AddComponent<NavigationAgentComponent>() = source->GetComponent<NavigationAgentComponent>();
+                else
+                    entity->GetComponent<NavigationAgentComponent>() = source->GetComponent<NavigationAgentComponent>();
+            }
+            else if (entity->HasComponent<NavigationAgentComponent>())
+            {
+                entity->RemoveComponent<NavigationAgentComponent>();
+            }
+        }
+        else if (overrideCategory == "Terrain")
+        {
+            if (source->HasComponent<TerrainComponent>())
+            {
+                if (!entity->HasComponent<TerrainComponent>())
+                    entity->AddComponent<TerrainComponent>() = source->GetComponent<TerrainComponent>();
+                else
+                    entity->GetComponent<TerrainComponent>() = source->GetComponent<TerrainComponent>();
+            }
+            else if (entity->HasComponent<TerrainComponent>())
+            {
+                entity->RemoveComponent<TerrainComponent>();
+            }
+        }
+        else if (overrideCategory == "LOD")
+        {
+            if (source->HasComponent<LODComponent>())
+            {
+                if (!entity->HasComponent<LODComponent>())
+                    entity->AddComponent<LODComponent>() = source->GetComponent<LODComponent>();
+                else
+                    entity->GetComponent<LODComponent>() = source->GetComponent<LODComponent>();
+            }
+            else if (entity->HasComponent<LODComponent>())
+            {
+                entity->RemoveComponent<LODComponent>();
+            }
+        }
+        else if (overrideCategory == "Particle Emitter")
+        {
+            if (source->HasComponent<ParticleEmitterComponent>())
+            {
+                if (!entity->HasComponent<ParticleEmitterComponent>())
+                    entity->AddComponent<ParticleEmitterComponent>() = source->GetComponent<ParticleEmitterComponent>();
+                else
+                    entity->GetComponent<ParticleEmitterComponent>() = source->GetComponent<ParticleEmitterComponent>();
+            }
+            else if (entity->HasComponent<ParticleEmitterComponent>())
+            {
+                entity->RemoveComponent<ParticleEmitterComponent>();
+            }
+        }
+        else if (overrideCategory == "Collision Events")
+        {
+            if (source->HasComponent<CollisionEventsComponent>())
+            {
+                if (!entity->HasComponent<CollisionEventsComponent>())
+                    entity->AddComponent<CollisionEventsComponent>();
+            }
+            else if (entity->HasComponent<CollisionEventsComponent>())
+            {
+                entity->RemoveComponent<CollisionEventsComponent>();
+            }
+        }
         else
         {
             outMessage = "Unsupported override selection.";
@@ -1670,6 +2172,10 @@ int main(int argc, char** argv)
                 dst.scale = src.scale;
             }
         }
+        else if (source->HasComponent<TransformComponent>())
+        {
+            source->RemoveComponent<TransformComponent>();
+        }
 
         if (entity->HasComponent<MeshRendererComponent>())
         {
@@ -1677,6 +2183,10 @@ int main(int argc, char** argv)
                 source->AddComponent<MeshRendererComponent>() = entity->GetComponent<MeshRendererComponent>();
             else
                 source->GetComponent<MeshRendererComponent>() = entity->GetComponent<MeshRendererComponent>();
+        }
+        else if (source->HasComponent<MeshRendererComponent>())
+        {
+            source->RemoveComponent<MeshRendererComponent>();
         }
 
         if (entity->HasComponent<LightComponent>())
@@ -1686,6 +2196,10 @@ int main(int argc, char** argv)
             else
                 source->GetComponent<LightComponent>() = entity->GetComponent<LightComponent>();
         }
+        else if (source->HasComponent<LightComponent>())
+        {
+            source->RemoveComponent<LightComponent>();
+        }
 
         if (entity->HasComponent<RigidbodyComponent>())
         {
@@ -1693,6 +2207,10 @@ int main(int argc, char** argv)
                 source->AddComponent<RigidbodyComponent>() = entity->GetComponent<RigidbodyComponent>();
             else
                 source->GetComponent<RigidbodyComponent>() = entity->GetComponent<RigidbodyComponent>();
+        }
+        else if (source->HasComponent<RigidbodyComponent>())
+        {
+            source->RemoveComponent<RigidbodyComponent>();
         }
 
         if (entity->HasComponent<ScriptComponent>())
@@ -1702,6 +2220,10 @@ int main(int argc, char** argv)
             else
                 source->GetComponent<ScriptComponent>() = entity->GetComponent<ScriptComponent>();
         }
+        else if (source->HasComponent<ScriptComponent>())
+        {
+            source->RemoveComponent<ScriptComponent>();
+        }
 
         if (entity->HasComponent<AnimationComponent>())
         {
@@ -1709,6 +2231,164 @@ int main(int argc, char** argv)
                 source->AddComponent<AnimationComponent>() = entity->GetComponent<AnimationComponent>();
             else
                 source->GetComponent<AnimationComponent>() = entity->GetComponent<AnimationComponent>();
+        }
+        else if (source->HasComponent<AnimationComponent>())
+        {
+            source->RemoveComponent<AnimationComponent>();
+        }
+
+        if (entity->HasComponent<AudioSourceComponent>())
+        {
+            if (!source->HasComponent<AudioSourceComponent>())
+                source->AddComponent<AudioSourceComponent>() = entity->GetComponent<AudioSourceComponent>();
+            else
+                source->GetComponent<AudioSourceComponent>() = entity->GetComponent<AudioSourceComponent>();
+        }
+        else if (source->HasComponent<AudioSourceComponent>())
+        {
+            source->RemoveComponent<AudioSourceComponent>();
+        }
+
+        if (entity->HasComponent<AudioListenerComponent>())
+        {
+            if (!source->HasComponent<AudioListenerComponent>())
+                source->AddComponent<AudioListenerComponent>() = entity->GetComponent<AudioListenerComponent>();
+            else
+                source->GetComponent<AudioListenerComponent>() = entity->GetComponent<AudioListenerComponent>();
+        }
+        else if (source->HasComponent<AudioListenerComponent>())
+        {
+            source->RemoveComponent<AudioListenerComponent>();
+        }
+
+        if (entity->HasComponent<BoxColliderComponent>())
+        {
+            if (!source->HasComponent<BoxColliderComponent>())
+                source->AddComponent<BoxColliderComponent>() = entity->GetComponent<BoxColliderComponent>();
+            else
+                source->GetComponent<BoxColliderComponent>() = entity->GetComponent<BoxColliderComponent>();
+        }
+        else if (source->HasComponent<BoxColliderComponent>())
+        {
+            source->RemoveComponent<BoxColliderComponent>();
+        }
+
+        if (entity->HasComponent<CapsuleColliderComponent>())
+        {
+            if (!source->HasComponent<CapsuleColliderComponent>())
+                source->AddComponent<CapsuleColliderComponent>() = entity->GetComponent<CapsuleColliderComponent>();
+            else
+                source->GetComponent<CapsuleColliderComponent>() = entity->GetComponent<CapsuleColliderComponent>();
+        }
+        else if (source->HasComponent<CapsuleColliderComponent>())
+        {
+            source->RemoveComponent<CapsuleColliderComponent>();
+        }
+
+        if (entity->HasComponent<PlaneColliderComponent>())
+        {
+            if (!source->HasComponent<PlaneColliderComponent>())
+                source->AddComponent<PlaneColliderComponent>() = entity->GetComponent<PlaneColliderComponent>();
+            else
+                source->GetComponent<PlaneColliderComponent>() = entity->GetComponent<PlaneColliderComponent>();
+        }
+        else if (source->HasComponent<PlaneColliderComponent>())
+        {
+            source->RemoveComponent<PlaneColliderComponent>();
+        }
+
+        if (entity->HasComponent<BoundingSphereComponent>())
+        {
+            if (!source->HasComponent<BoundingSphereComponent>())
+                source->AddComponent<BoundingSphereComponent>() = entity->GetComponent<BoundingSphereComponent>();
+            else
+                source->GetComponent<BoundingSphereComponent>() = entity->GetComponent<BoundingSphereComponent>();
+        }
+        else if (source->HasComponent<BoundingSphereComponent>())
+        {
+            source->RemoveComponent<BoundingSphereComponent>();
+        }
+
+        if (entity->HasComponent<MeshColliderComponent>())
+        {
+            if (!source->HasComponent<MeshColliderComponent>())
+                source->AddComponent<MeshColliderComponent>() = entity->GetComponent<MeshColliderComponent>();
+            else
+                source->GetComponent<MeshColliderComponent>() = entity->GetComponent<MeshColliderComponent>();
+        }
+        else if (source->HasComponent<MeshColliderComponent>())
+        {
+            source->RemoveComponent<MeshColliderComponent>();
+        }
+
+        if (entity->HasComponent<CharacterControllerComponent>())
+        {
+            if (!source->HasComponent<CharacterControllerComponent>())
+                source->AddComponent<CharacterControllerComponent>() = entity->GetComponent<CharacterControllerComponent>();
+            else
+                source->GetComponent<CharacterControllerComponent>() = entity->GetComponent<CharacterControllerComponent>();
+        }
+        else if (source->HasComponent<CharacterControllerComponent>())
+        {
+            source->RemoveComponent<CharacterControllerComponent>();
+        }
+
+        if (entity->HasComponent<NavigationAgentComponent>())
+        {
+            if (!source->HasComponent<NavigationAgentComponent>())
+                source->AddComponent<NavigationAgentComponent>() = entity->GetComponent<NavigationAgentComponent>();
+            else
+                source->GetComponent<NavigationAgentComponent>() = entity->GetComponent<NavigationAgentComponent>();
+        }
+        else if (source->HasComponent<NavigationAgentComponent>())
+        {
+            source->RemoveComponent<NavigationAgentComponent>();
+        }
+
+        if (entity->HasComponent<TerrainComponent>())
+        {
+            if (!source->HasComponent<TerrainComponent>())
+                source->AddComponent<TerrainComponent>() = entity->GetComponent<TerrainComponent>();
+            else
+                source->GetComponent<TerrainComponent>() = entity->GetComponent<TerrainComponent>();
+        }
+        else if (source->HasComponent<TerrainComponent>())
+        {
+            source->RemoveComponent<TerrainComponent>();
+        }
+
+        if (entity->HasComponent<LODComponent>())
+        {
+            if (!source->HasComponent<LODComponent>())
+                source->AddComponent<LODComponent>() = entity->GetComponent<LODComponent>();
+            else
+                source->GetComponent<LODComponent>() = entity->GetComponent<LODComponent>();
+        }
+        else if (source->HasComponent<LODComponent>())
+        {
+            source->RemoveComponent<LODComponent>();
+        }
+
+        if (entity->HasComponent<ParticleEmitterComponent>())
+        {
+            if (!source->HasComponent<ParticleEmitterComponent>())
+                source->AddComponent<ParticleEmitterComponent>() = entity->GetComponent<ParticleEmitterComponent>();
+            else
+                source->GetComponent<ParticleEmitterComponent>() = entity->GetComponent<ParticleEmitterComponent>();
+        }
+        else if (source->HasComponent<ParticleEmitterComponent>())
+        {
+            source->RemoveComponent<ParticleEmitterComponent>();
+        }
+
+        if (entity->HasComponent<CollisionEventsComponent>())
+        {
+            if (!source->HasComponent<CollisionEventsComponent>())
+                source->AddComponent<CollisionEventsComponent>();
+        }
+        else if (source->HasComponent<CollisionEventsComponent>())
+        {
+            source->RemoveComponent<CollisionEventsComponent>();
         }
 
         if (!MyEngine::Serialization::SaveScene(prefabScene, prefabInfo.sourcePrefabPath))
@@ -1844,10 +2524,62 @@ int main(int argc, char** argv)
             hasPlaySnapshot = !playSnapshotJSON.empty();
             showStopPlayPrompt = false;
             isPlaying = true;
+
+            networkTick = 0;
+            networkSnapshotTimer = 0.0f;
+            {
+                auto socketTransport = std::make_unique<MyEngine::Net::SocketNetTransport>();
+                usingSocketTransport = socketTransport->Initialize();
+                if (usingSocketTransport)
+                {
+                    networkTransport = std::move(socketTransport);
+                }
+                else
+                {
+                    networkTransport = std::make_unique<MyEngine::Net::InMemoryTransport>();
+                }
+            }
+            networkTransport->Clear();
+            networkTransport->BeginServerSession();
+            localClientID = 0u;
+            networkSessionBootstrapPending = networkingEnabled;
+            if (networkingEnabled)
+                networkTransport->SendConnectRequest(0u);
+            snapshotInterpolationBuffer = MyEngine::Net::SnapshotInterpolationBuffer(64);
+            clientReconciliationState = MyEngine::Net::ClientReconciliationState{};
+            pendingInputByTick.clear();
+            serverBaselineSnapshot = MyEngine::Net::WorldSnapshot{};
+            hasServerBaselineSnapshot = false;
+            authoritativeServerScene = Scene();
+            hasAuthoritativeServerScene = false;
+            if (networkingEnabled && hasPlaySnapshot)
+            {
+                MyEngine::Serialization::LoadSceneFromString(authoritativeServerScene, playSnapshotJSON, litShader, &globalScripts);
+                hasAuthoritativeServerScene = true;
+            }
         }
         else
         {
             isPlaying = false;
+            networkTick = 0;
+            networkSnapshotTimer = 0.0f;
+            if (usingSocketTransport)
+            {
+                if (auto* socketTransport = dynamic_cast<MyEngine::Net::SocketNetTransport*>(networkTransport.get()))
+                    socketTransport->Shutdown();
+            }
+            networkTransport = std::make_unique<MyEngine::Net::InMemoryTransport>();
+            usingSocketTransport = false;
+            networkTransport->Clear();
+            localClientID = 0u;
+            networkSessionBootstrapPending = false;
+            snapshotInterpolationBuffer = MyEngine::Net::SnapshotInterpolationBuffer(64);
+            clientReconciliationState = MyEngine::Net::ClientReconciliationState{};
+            pendingInputByTick.clear();
+            serverBaselineSnapshot = MyEngine::Net::WorldSnapshot{};
+            hasServerBaselineSnapshot = false;
+            authoritativeServerScene = Scene();
+            hasAuthoritativeServerScene = false;
 #ifdef USE_IMGUI
             if (hasPlaySnapshot)
             {
@@ -2265,10 +2997,130 @@ int main(int argc, char** argv)
                 break;
             }
 
+            if (networkingEnabled)
+            {
+                ++networkTick;
+                networkTransport->AdvanceToTick(networkTick);
+
+                if (networkSessionBootstrapPending)
+                {
+                    MyEngine::Net::SessionControlMessage connectRequest;
+                    while (networkTransport->PollConnectRequestForServer(connectRequest))
+                        networkTransport->AcceptConnectRequest(connectRequest);
+
+                    MyEngine::Net::SessionControlMessage sessionMessage;
+                    while (networkTransport->PollSessionControlForClient(sessionMessage))
+                    {
+                        if (sessionMessage.type == MyEngine::Net::SessionControlType::ConnectAccept)
+                        {
+                            localClientID = sessionMessage.assignedClientID;
+                            networkSessionBootstrapPending = false;
+                        }
+                    }
+                }
+
+                if (networkTransport->IsSessionReady() && localClientID != 0u)
+                {
+                    MyEngine::Net::InputCommand localInput;
+                    localInput.tick = networkTick;
+                    localInput.moveAxis = glm::vec2(
+                        MyEngine::InputActions::GetAxis("MoveRight"),
+                        MyEngine::InputActions::GetAxis("MoveForward"));
+                    localInput.jumpPressed = MyEngine::InputActions::IsActionPressed("Jump");
+
+                    clientReconciliationState.RecordPredictedInput(localInput);
+                    pendingInputByTick[localInput.tick] = localInput;
+                    networkTransport->SendInputToServerDelayed({ localClientID, localInput }, networkTick + transportInputDelayTicks);
+
+                    MyEngine::Net::InputMessage serverInput;
+                    while (networkTransport->PollInputForServer(serverInput))
+                    {
+                        pendingInputByTick.erase(serverInput.command.tick);
+                        clientReconciliationState.Acknowledge(serverInput.command.tick);
+                    }
+                }
+            }
+
             {
                 auto cpuStart = std::chrono::high_resolution_clock::now();
-                physicsSystem.OnUpdate(scene, deltaTime, window, controllerCameraForward, controllerCameraRight);
+                Scene& simulationScene = (networkingEnabled && hasAuthoritativeServerScene)
+                    ? authoritativeServerScene
+                    : scene;
+                physicsSystem.OnUpdate(simulationScene, deltaTime, window, controllerCameraForward, controllerCameraRight);
                 cpuPhysicsMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
+            }
+
+            if (networkingEnabled && networkTransport->IsSessionReady() && localClientID != 0u)
+            {
+                networkSnapshotTimer += deltaTime;
+                while (networkSnapshotTimer >= networkSnapshotInterval)
+                {
+                    networkSnapshotTimer -= networkSnapshotInterval;
+                    MyEngine::Net::ReplicationInterestSettings effectiveInterestSettings = networkInterestSettings;
+                    if (effectiveInterestSettings.enabled)
+                    {
+                        for (const auto& entity : scene.GetEntities())
+                        {
+                            if (!entity || !entity->HasComponent<CameraComponent>() || !entity->HasComponent<TransformComponent>())
+                                continue;
+                            const auto& cam = entity->GetComponent<CameraComponent>();
+                            if (!cam.isPrimary)
+                                continue;
+                            effectiveInterestSettings.origin = entity->GetComponent<TransformComponent>().position;
+                            break;
+                        }
+                    }
+
+                    const Scene& authoritativeSource = hasAuthoritativeServerScene ? authoritativeServerScene : scene;
+                    const auto fullSnapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(authoritativeSource, networkTick, effectiveInterestSettings);
+                    MyEngine::Net::WorldSnapshot outgoingSnapshot = fullSnapshot;
+                    if (hasServerBaselineSnapshot)
+                        outgoingSnapshot = MyEngine::Net::NetReplicationSystem::BuildDeltaSnapshot(serverBaselineSnapshot, fullSnapshot);
+                    networkTransport->SendSnapshotToClientDelayed({ localClientID, outgoingSnapshot }, networkTick + transportSnapshotDelayTicks);
+                    serverBaselineSnapshot = fullSnapshot;
+                    hasServerBaselineSnapshot = true;
+                }
+
+                networkTransport->AdvanceToTick(networkTick);
+
+                MyEngine::Net::SnapshotMessage snapshotMessage;
+                while (networkTransport->PollSnapshotForClient(snapshotMessage))
+                {
+                    snapshotInterpolationBuffer.PushSnapshot(snapshotMessage.snapshot);
+                }
+
+                if (snapshotInterpolationBuffer.Size() >= 1)
+                {
+                    const MyEngine::Net::NetTick interpolationDelayTicks = (transportSnapshotDelayTicks > 0u) ? transportSnapshotDelayTicks : 1u;
+                    const MyEngine::Net::NetTick targetTick = (networkTick > interpolationDelayTicks)
+                        ? (networkTick - interpolationDelayTicks)
+                        : 0u;
+
+                    for (const auto& entity : scene.GetEntities())
+                    {
+                        if (!entity || !entity->HasComponent<TransformComponent>())
+                            continue;
+
+                        MyEngine::Net::ReplicatedEntityState sampledState;
+                        if (!snapshotInterpolationBuffer.Sample(targetTick, sampledState, entity->GetID()))
+                            continue;
+
+                        auto& transform = entity->GetComponent<TransformComponent>();
+                        transform.position = sampledState.position;
+                        transform.rotation = sampledState.rotation;
+
+                        const bool reconciled = clientReconciliationState.ReconcileEntity(transform, sampledState, 0.0001f, 0.0001f);
+                        if (reconciled && entity->HasComponent<CharacterControllerComponent>())
+                        {
+                            const float replayDelta = std::max(physicsSystem.fixedTimestep, 0.0001f);
+                            const float replaySpeed = entity->GetComponent<CharacterControllerComponent>().moveSpeed;
+                            clientReconciliationState.ReplayPredictedInputs(transform, replaySpeed, replayDelta);
+                        }
+
+                        if (entity->HasComponent<RigidbodyComponent>())
+                            entity->GetComponent<RigidbodyComponent>().velocity = sampledState.velocity;
+                    }
+                }
             }
 
             // Toggle third-person follow camera with V keyboard key or
@@ -6225,6 +7077,73 @@ int main(int argc, char** argv)
                 ImGui::PlotLines("Visible Meshes", visibleCountHistory.data(), static_cast<int>(visibleCountHistory.size()), perfHistoryIndex, nullptr, 0.0f, 500.0f, ImVec2(0, 50));
                 ImGui::PlotLines("Occlusion Rejects", occlusionRejectHistory.data(), static_cast<int>(occlusionRejectHistory.size()), perfHistoryIndex, nullptr, 0.0f, 500.0f, ImVec2(0, 50));
                 ImGui::PlotLines("Frustum Rejects", frustumRejectHistory.data(), static_cast<int>(frustumRejectHistory.size()), perfHistoryIndex, nullptr, 0.0f, 500.0f, ImVec2(0, 50));
+
+                ImGui::Separator();
+                ImGui::Text("Networking");
+                ImGui::Text("Session: %s", networkTransport->IsSessionReady() ? "Ready" : (networkSessionBootstrapPending ? "Connecting" : "Disconnected"));
+                ImGui::Text("Transport: %s", usingSocketTransport ? "Socket (UDP localhost)" : "InMemory Fallback");
+                ImGui::Text("Client ID: %u", static_cast<unsigned int>(localClientID));
+                ImGui::Text("Net Tick: %u", static_cast<unsigned int>(networkTick));
+                ImGui::Text("Authoritative Scene: %s", hasAuthoritativeServerScene ? "Server/Client Split" : "Single Scene");
+                ImGui::Checkbox("Networking Enabled", &networkingEnabled);
+                if (ImGui::Button("Reconnect Session"))
+                {
+                    networkTransport->Clear();
+                    networkTransport->BeginServerSession();
+                    localClientID = 0u;
+                    networkSessionBootstrapPending = networkingEnabled;
+                    if (networkingEnabled)
+                        networkTransport->SendConnectRequest(0u);
+                    clientReconciliationState = MyEngine::Net::ClientReconciliationState{};
+                    pendingInputByTick.clear();
+                    snapshotInterpolationBuffer = MyEngine::Net::SnapshotInterpolationBuffer(64);
+                }
+
+                auto simSettings = networkTransport->GetSimulationSettings();
+                bool simEnabled = simSettings.enabled;
+                if (ImGui::Checkbox("Simulate Packet Conditions", &simEnabled))
+                {
+                    simSettings.enabled = simEnabled;
+                    networkTransport->SetSimulationSettings(simSettings);
+                }
+
+                float lossPercent = simSettings.packetLossChance * 100.0f;
+                if (ImGui::SliderFloat("Packet Loss %", &lossPercent, 0.0f, 100.0f, "%.1f"))
+                {
+                    simSettings.packetLossChance = std::clamp(lossPercent / 100.0f, 0.0f, 1.0f);
+                    networkTransport->SetSimulationSettings(simSettings);
+                }
+
+                int jitterMin = static_cast<int>(simSettings.jitterMinTicks);
+                int jitterMax = static_cast<int>(simSettings.jitterMaxTicks);
+                if (ImGui::SliderInt("Jitter Min (ticks)", &jitterMin, 0, 30))
+                {
+                    simSettings.jitterMinTicks = static_cast<MyEngine::Net::NetTick>(std::max(jitterMin, 0));
+                    networkTransport->SetSimulationSettings(simSettings);
+                }
+                if (ImGui::SliderInt("Jitter Max (ticks)", &jitterMax, 0, 30))
+                {
+                    simSettings.jitterMaxTicks = static_cast<MyEngine::Net::NetTick>(std::max(jitterMax, 0));
+                    networkTransport->SetSimulationSettings(simSettings);
+                }
+
+                float reorderPercent = simSettings.reorderChance * 100.0f;
+                if (ImGui::SliderFloat("Reorder %", &reorderPercent, 0.0f, 100.0f, "%.1f"))
+                {
+                    simSettings.reorderChance = std::clamp(reorderPercent / 100.0f, 0.0f, 1.0f);
+                    networkTransport->SetSimulationSettings(simSettings);
+                }
+
+                int inputDelayTicks = static_cast<int>(transportInputDelayTicks);
+                if (ImGui::SliderInt("Input Delay (ticks)", &inputDelayTicks, 0, 10))
+                    transportInputDelayTicks = static_cast<MyEngine::Net::NetTick>(std::max(inputDelayTicks, 0));
+
+                int snapshotDelayTicks = static_cast<int>(transportSnapshotDelayTicks);
+                if (ImGui::SliderInt("Snapshot Delay (ticks)", &snapshotDelayTicks, 0, 20))
+                    transportSnapshotDelayTicks = static_cast<MyEngine::Net::NetTick>(std::max(snapshotDelayTicks, 0));
+
+                ImGui::Checkbox("Interest Filter Enabled", &networkInterestSettings.enabled);
+                ImGui::SliderFloat("Interest Radius", &networkInterestSettings.radius, 1.0f, 200.0f, "%.1f");
 
                 ImGui::Separator();
                 ImGui::Text("Texture Streaming");

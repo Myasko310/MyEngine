@@ -147,6 +147,10 @@ set(SOURCES
     src/core/FileDialog.cpp
     src/core/LayerMask.cpp
     src/core/CollisionMatrix.cpp
+    src/network/NetTransport.cpp
+    src/network/SocketNetTransport.cpp
+    src/network/NetPluginHooks.cpp
+    src/network/NetReplicationSystem.cpp
     src/editor/EditorStyle.cpp
     src/editor/panels/AnimationStateMachinePanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp

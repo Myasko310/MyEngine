@@ -1,0 +1,948 @@
+{
+    "name": "AkazaMovementStateMachine",
+    "defaultStateIndex": 0,
+    "parameters": [
+        {
+            "name": "Speed",
+            "type": "Float",
+            "defaultFloatValue": 0.0,
+            "defaultBoolValue": false
+        },
+        {
+            "name": "IsGrounded",
+            "type": "Bool",
+            "defaultFloatValue": 0.0,
+            "defaultBoolValue": true
+        },
+        {
+            "name": "Jump",
+            "type": "Trigger",
+            "defaultFloatValue": 0.0,
+            "defaultBoolValue": false
+        },
+        {
+            "name": "IsCrouching",
+            "type": "Bool",
+            "defaultFloatValue": 0.0,
+            "defaultBoolValue": false
+        },
+        {
+            "name": "IsFighting",
+            "type": "Bool",
+            "defaultFloatValue": 0.0,
+            "defaultBoolValue": false
+        },
+        {
+            "name": "Attack1",
+            "type": "Trigger",
+            "defaultFloatValue": 0.0,
+            "defaultBoolValue": false
+        },
+        {
+            "name": "Attack2",
+            "type": "Trigger",
+            "defaultFloatValue": 0.0,
+            "defaultBoolValue": false
+        },
+        {
+            "name": "Attack3",
+            "type": "Trigger",
+            "defaultFloatValue": 0.0,
+            "defaultBoolValue": false
+        }
+    ],
+    "states": [
+        {
+            "name": "Idle",
+            "clipName": "Bouncing Fight Idle",
+            "loop": true,
+            "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 6,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack1",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 9,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack2",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 13,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack3",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 3,
+                    "blendDuration": 0.20000000298023224,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "IsCrouching",
+                            "op": "IfTrue",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 1,
+                    "blendDuration": 0.20000000298023224,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Speed",
+                            "op": "Greater",
+                            "threshold": 0.5
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 15,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Jump",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Walk",
+            "clipName": "Swagger Walk",
+            "loop": true,
+            "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 6,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack1",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 9,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack2",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 13,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack3",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 4,
+                    "blendDuration": 0.20000000298023224,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "IsCrouching",
+                            "op": "IfTrue",
+                            "threshold": 0.0
+                        },
+                        {
+                            "parameterName": "Speed",
+                            "op": "Greater",
+                            "threshold": 0.5
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 2,
+                    "blendDuration": 0.30000001192092896,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Speed",
+                            "op": "Greater",
+                            "threshold": 2.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.20000000298023224,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Speed",
+                            "op": "Less",
+                            "threshold": 0.5
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 15,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Jump",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Run",
+            "clipName": "Running",
+            "loop": true,
+            "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 6,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack1",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 9,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack2",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 13,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack3",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 4,
+                    "blendDuration": 0.20000000298023224,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "IsCrouching",
+                            "op": "IfTrue",
+                            "threshold": 0.0
+                        },
+                        {
+                            "parameterName": "Speed",
+                            "op": "Greater",
+                            "threshold": 0.5
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 1,
+                    "blendDuration": 0.30000001192092896,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Speed",
+                            "op": "Less",
+                            "threshold": 2.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 15,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Jump",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "CrouchIdle",
+            "clipName": "Crouching Idle",
+            "loop": true,
+            "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 6,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack1",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 9,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack2",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 13,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack3",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 4,
+                    "blendDuration": 0.20000000298023224,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Speed",
+                            "op": "Greater",
+                            "threshold": 0.5
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.30000001192092896,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "IsCrouching",
+                            "op": "IfFalse",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 15,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Jump",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "CrouchWalk",
+            "clipName": "Crouched Walking",
+            "loop": true,
+            "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 6,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack1",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 9,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack2",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 13,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack3",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 3,
+                    "blendDuration": 0.20000000298023224,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Speed",
+                            "op": "Less",
+                            "threshold": 0.5
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 1,
+                    "blendDuration": 0.30000001192092896,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "IsCrouching",
+                            "op": "IfFalse",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 15,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Jump",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "FightIdle",
+            "clipName": "Fighting Idle",
+            "loop": true,
+            "playbackSpeed": 1.0,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 6,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack1",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 9,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack2",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 13,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack3",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.5,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "IsFighting",
+                            "op": "IfFalse",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 15,
+                    "blendDuration": 0.10000000149011612,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Jump",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Attack1_1",
+            "clipName": "Lead Jab",
+            "loop": false,
+            "playbackSpeed": 1.190000057220459,
+            "trimStartNormalized": 0.2800000011920929,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 7,
+                    "blendDuration": 0.07999999821186066,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack1",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.14000000059604645,
+                    "requiresExitTime": true,
+                    "exitTimeNormalized": 0.9200000166893005,
+                    "resetTimeOnEnter": true,
+                    "conditions": []
+                }
+            ]
+        },
+        {
+            "name": "Attack1_2",
+            "clipName": "Cross Punch",
+            "loop": false,
+            "playbackSpeed": 1.409999966621399,
+            "trimStartNormalized": 0.4099999964237213,
+            "trimEndNormalized": 0.7900000214576721,
+            "transitions": [
+                {
+                    "targetStateIndex": 8,
+                    "blendDuration": 0.07999999821186066,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack1",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.14000000059604645,
+                    "requiresExitTime": true,
+                    "exitTimeNormalized": 0.9200000166893005,
+                    "resetTimeOnEnter": true,
+                    "conditions": []
+                }
+            ]
+        },
+        {
+            "name": "Attack1_3",
+            "clipName": "Hook Punch",
+            "loop": false,
+            "playbackSpeed": 1.5499999523162842,
+            "trimStartNormalized": 0.3100000023841858,
+            "trimEndNormalized": 0.800000011920929,
+            "transitions": [
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.14000000059604645,
+                    "requiresExitTime": true,
+                    "exitTimeNormalized": 0.9200000166893005,
+                    "resetTimeOnEnter": true,
+                    "conditions": []
+                }
+            ]
+        },
+        {
+            "name": "Attack2_1",
+            "clipName": "Mma Kick (1)",
+            "loop": false,
+            "playbackSpeed": 1.440000057220459,
+            "trimStartNormalized": 0.1899999976158142,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 10,
+                    "blendDuration": 0.07999999821186066,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack2",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.14000000059604645,
+                    "requiresExitTime": true,
+                    "exitTimeNormalized": 0.9200000166893005,
+                    "resetTimeOnEnter": true,
+                    "conditions": []
+                }
+            ]
+        },
+        {
+            "name": "Attack2_2",
+            "clipName": "Kicking (1)",
+            "loop": false,
+            "playbackSpeed": 1.3899999856948853,
+            "trimStartNormalized": 0.25999999046325684,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 11,
+                    "blendDuration": 0.07999999821186066,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack2",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.14000000059604645,
+                    "requiresExitTime": true,
+                    "exitTimeNormalized": 0.9200000166893005,
+                    "resetTimeOnEnter": true,
+                    "conditions": []
+                }
+            ]
+        },
+        {
+            "name": "Attack2_3",
+            "clipName": "Mma Kick",
+            "loop": false,
+            "playbackSpeed": 1.5,
+            "trimStartNormalized": 0.15000000596046448,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 12,
+                    "blendDuration": 0.07999999821186066,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack2",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.14000000059604645,
+                    "requiresExitTime": true,
+                    "exitTimeNormalized": 0.9200000166893005,
+                    "resetTimeOnEnter": true,
+                    "conditions": []
+                }
+            ]
+        },
+        {
+            "name": "Attack2_4",
+            "clipName": "Martelo 3",
+            "loop": false,
+            "playbackSpeed": 1.6399999856948853,
+            "trimStartNormalized": 0.11999999731779099,
+            "trimEndNormalized": 0.7599999904632568,
+            "transitions": [
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.14000000059604645,
+                    "requiresExitTime": true,
+                    "exitTimeNormalized": 0.9200000166893005,
+                    "resetTimeOnEnter": true,
+                    "conditions": []
+                }
+            ]
+        },
+        {
+            "name": "Attack3_1",
+            "clipName": "Capoeira",
+            "loop": false,
+            "playbackSpeed": 1.600000023841858,
+            "trimStartNormalized": 0.029999999329447746,
+            "trimEndNormalized": 0.8700000047683716,
+            "transitions": [
+                {
+                    "targetStateIndex": 14,
+                    "blendDuration": 0.07999999821186066,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "Attack3",
+                            "op": "Trigger",
+                            "threshold": 0.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.14000000059604645,
+                    "requiresExitTime": true,
+                    "exitTimeNormalized": 0.9200000166893005,
+                    "resetTimeOnEnter": true,
+                    "conditions": []
+                }
+            ]
+        },
+        {
+            "name": "Attack3_2",
+            "clipName": "Meia Lua De Compasso",
+            "loop": false,
+            "playbackSpeed": 1.5700000524520874,
+            "trimStartNormalized": 0.10999999940395355,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.14000000059604645,
+                    "requiresExitTime": true,
+                    "exitTimeNormalized": 0.9200000166893005,
+                    "resetTimeOnEnter": true,
+                    "conditions": []
+                }
+            ]
+        },
+        {
+            "name": "Jump",
+            "clipName": "Front Flip",
+            "loop": false,
+            "playbackSpeed": 0.7699999809265137,
+            "trimStartNormalized": 0.0,
+            "trimEndNormalized": 1.0,
+            "transitions": [
+                {
+                    "targetStateIndex": 0,
+                    "blendDuration": 0.18000000715255737,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "IsGrounded",
+                            "op": "IfTrue",
+                            "threshold": 0.0
+                        },
+                        {
+                            "parameterName": "Speed",
+                            "op": "Less",
+                            "threshold": 0.5
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 1,
+                    "blendDuration": 0.18000000715255737,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "IsGrounded",
+                            "op": "IfTrue",
+                            "threshold": 0.0
+                        },
+                        {
+                            "parameterName": "Speed",
+                            "op": "Greater",
+                            "threshold": 0.5
+                        },
+                        {
+                            "parameterName": "Speed",
+                            "op": "Less",
+                            "threshold": 2.0
+                        }
+                    ]
+                },
+                {
+                    "targetStateIndex": 2,
+                    "blendDuration": 0.18000000715255737,
+                    "requiresExitTime": false,
+                    "exitTimeNormalized": 1.0,
+                    "resetTimeOnEnter": true,
+                    "conditions": [
+                        {
+                            "parameterName": "IsGrounded",
+                            "op": "IfTrue",
+                            "threshold": 0.0
+                        },
+                        {
+                            "parameterName": "Speed",
+                            "op": "Greater",
+                            "threshold": 2.0
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

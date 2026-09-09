@@ -77,11 +77,15 @@ namespace MyEngine::Editor::Panels
 			}
 
 			const std::vector<MyEngine::AnimationClip>* stateMachineEditorClips = nullptr;
+			AnimationComponent* stateMachineEditorAnim = nullptr;
 			if (selectedEntity && selectedEntity->HasComponent<AnimationComponent>())
 			{
 				auto& selectedAnim = selectedEntity->GetComponent<AnimationComponent>();
 				if (selectedAnim.clips && !selectedAnim.clips->empty())
+				{
 					stateMachineEditorClips = selectedAnim.clips.get();
+					stateMachineEditorAnim = &selectedAnim;
+				}
 			}
 
 			InspectorGroupLabel("Clip Source");
@@ -228,6 +232,47 @@ namespace MyEngine::Editor::Panels
 						{
 							state.trimStartNormalized = 0.0f;
 							state.trimEndNormalized = 1.0f;
+						}
+						if (stateMachineEditorClips && stateMachineEditorAnim)
+						{
+							const int previewClipIndex = sm.ResolveClipIndex(*stateMachineEditorClips, state);
+							if (previewClipIndex >= 0 && previewClipIndex < static_cast<int>(stateMachineEditorClips->size()))
+							{
+								const auto& previewClip = (*stateMachineEditorClips)[previewClipIndex];
+								const float clipDuration = previewClip.GetDurationSeconds();
+								if (clipDuration > 0.0001f)
+								{
+									InspectorGroupLabel("Preview");
+									float previewNormalized = std::clamp(stateMachineEditorAnim->time / clipDuration, 0.0f, 1.0f);
+									if (ImGui::SliderFloat("Scrub", &previewNormalized, 0.0f, 1.0f, "%.3f"))
+									{
+										stateMachineEditorAnim->activeClipIndex = previewClipIndex;
+										stateMachineEditorAnim->time = previewNormalized * clipDuration;
+										stateMachineEditorAnim->playbackSpeed = state.playbackSpeed;
+										stateMachineEditorAnim->looping = state.loop;
+										stateMachineEditorAnim->playing = false;
+										stateMachineEditorAnim->blending = false;
+										stateMachineEditorAnim->previousClipIndex = -1;
+									}
+									const float trimStartSeconds = std::clamp(state.trimStartNormalized, 0.0f, 1.0f) * clipDuration;
+									const float trimEndSeconds = std::clamp(state.trimEndNormalized, 0.0f, 1.0f) * clipDuration;
+									ImGui::TextDisabled("Trim Window: %.3fs - %.3fs", trimStartSeconds, trimEndSeconds);
+									if (InspectorActionButton("Set Trim Start From Scrub##animsmTrimStart"))
+										state.trimStartNormalized = std::min(previewNormalized, state.trimEndNormalized);
+									if (InspectorActionButton("Set Trim End From Scrub##animsmTrimEnd"))
+										state.trimEndNormalized = std::max(previewNormalized, state.trimStartNormalized);
+									if (InspectorActionButton("Preview Trim Segment##animsmTrimPreview"))
+									{
+										stateMachineEditorAnim->activeClipIndex = previewClipIndex;
+										stateMachineEditorAnim->time = std::clamp(state.trimStartNormalized, 0.0f, 1.0f) * clipDuration;
+										stateMachineEditorAnim->playbackSpeed = state.playbackSpeed;
+										stateMachineEditorAnim->looping = false;
+										stateMachineEditorAnim->playing = true;
+										stateMachineEditorAnim->blending = false;
+										stateMachineEditorAnim->previousClipIndex = -1;
+									}
+								}
+							}
 						}
 
 						InspectorGroupLabel("Transitions");

@@ -4,6 +4,7 @@
 #include "serialization/SceneSerializer.h"
 #include "components/TransformComponent.h"
 #include "components/RigidbodyComponent.h"
+#include "components/CharacterControllerComponent.h"
 #include "components/LightComponent.h"
 #include "components/ScriptComponent.h"
 #include "components/SkeletonComponent.h"
@@ -11,6 +12,10 @@
 #include "components/PrefabInstanceComponent.h"
 #include "components/AnimationComponent.h"
 #include "components/AudioSourceComponent.h"
+#include "components/NavigationAgentComponent.h"
+#include "components/TerrainComponent.h"
+#include "components/ParticleEmitterComponent.h"
+#include "components/LODComponent.h"
 #include "audio/AudioEngine.h"
 #include "rendering/Material.h"
 #include "core/Input.h"
@@ -21,10 +26,15 @@
 #include "renderer/RenderBackend.h"
 #include "renderer/RenderCommandList.h"
 #include "renderer/DirectX12RenderCommandExecutor.h"
+#include "network/NetTransport.h"
+#include "network/SocketNetTransport.h"
+#include "network/NetPluginHooks.h"
+#include "network/NetReplicationSystem.h"
 
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -678,10 +688,36 @@ namespace
 		rootPrefab.overrideName = true;
 		rootPrefab.overrideTag = false;
 		rootPrefab.overrideLayer = true;
+		rootPrefab.overrideAudioSource = true;
+		rootPrefab.overrideAudioListener = false;
+		rootPrefab.overrideBoxCollider = true;
+		rootPrefab.overrideCapsuleCollider = false;
+		rootPrefab.overridePlaneCollider = true;
+		rootPrefab.overrideBoundingSphere = false;
+		rootPrefab.overrideMeshCollider = true;
+		rootPrefab.overrideCharacterController = false;
+		rootPrefab.overrideNavigationAgent = true;
+		rootPrefab.overrideTerrain = false;
+		rootPrefab.overrideParticleEmitter = true;
+		rootPrefab.overrideLOD = false;
+		rootPrefab.overrideCollisionEvents = true;
 
 		std::string json = MyEngine::Serialization::SaveSceneToString(scene, {});
 		if (json.find("\"isVariantInstance\": true") == std::string::npos ||
-			json.find("\"variantBasePrefabPath\"") == std::string::npos)
+			json.find("\"variantBasePrefabPath\"") == std::string::npos ||
+			json.find("\"overrideAudioSource\": true") == std::string::npos ||
+			json.find("\"overrideAudioListener\": false") == std::string::npos ||
+			json.find("\"overrideBoxCollider\": true") == std::string::npos ||
+			json.find("\"overrideCapsuleCollider\": false") == std::string::npos ||
+			json.find("\"overridePlaneCollider\": true") == std::string::npos ||
+			json.find("\"overrideBoundingSphere\": false") == std::string::npos ||
+			json.find("\"overrideMeshCollider\": true") == std::string::npos ||
+			json.find("\"overrideCharacterController\": false") == std::string::npos ||
+			json.find("\"overrideNavigationAgent\": true") == std::string::npos ||
+			json.find("\"overrideTerrain\": false") == std::string::npos ||
+			json.find("\"overrideParticleEmitter\": true") == std::string::npos ||
+			json.find("\"overrideLOD\": false") == std::string::npos ||
+			json.find("\"overrideCollisionEvents\": true") == std::string::npos)
 		{
 			std::cerr << "PrefabVariantMetadataSmokeTest: missing serialized variant metadata" << std::endl;
 			return false;
@@ -705,12 +741,117 @@ namespace
 		if (!loadedPrefab.isVariantInstance ||
 			loadedPrefab.variantBasePrefabPath != "assets/prefabs/base.prefab.json" ||
 			loadedPrefab.variantBaseEntityID != 42 ||
-			!loadedPrefab.overrideName || loadedPrefab.overrideTag || !loadedPrefab.overrideLayer)
+			!loadedPrefab.overrideName || loadedPrefab.overrideTag || !loadedPrefab.overrideLayer ||
+			!loadedPrefab.overrideAudioSource || loadedPrefab.overrideAudioListener ||
+			!loadedPrefab.overrideBoxCollider || loadedPrefab.overrideCapsuleCollider ||
+			!loadedPrefab.overridePlaneCollider || loadedPrefab.overrideBoundingSphere ||
+			!loadedPrefab.overrideMeshCollider || loadedPrefab.overrideCharacterController ||
+			!loadedPrefab.overrideNavigationAgent || loadedPrefab.overrideTerrain ||
+			!loadedPrefab.overrideParticleEmitter || loadedPrefab.overrideLOD ||
+			!loadedPrefab.overrideCollisionEvents)
 		{
 			std::cerr << "PrefabVariantMetadataSmokeTest: variant metadata mismatch after roundtrip" << std::endl;
 			return false;
 		}
 
+		return true;
+	}
+
+	bool PrefabVariantOverrideComputationSmokeTest()
+	{
+		Scene baseScene;
+		auto baseRoot = baseScene.CreateEntity("VariantBaseRoot");
+		if (!baseRoot)
+			return false;
+
+		auto& baseNav = baseRoot->AddComponent<NavigationAgentComponent>();
+		baseNav.speed = 5.0f;
+		baseNav.stoppingDistance = 0.25f;
+
+		auto& baseTerrain = baseRoot->AddComponent<TerrainComponent>();
+		baseTerrain.heightmapPath = "assets/height/base.png";
+		baseTerrain.width = 100.0f;
+		baseTerrain.depth = 100.0f;
+		baseTerrain.heightScale = 20.0f;
+		baseTerrain.resolution = 128;
+		baseTerrain.surfaceTexturePath = "assets/textures/ground.png";
+
+		auto& baseParticle = baseRoot->AddComponent<ParticleEmitterComponent>();
+		baseParticle.spawnRate = 25.0f;
+		baseParticle.emitSpeed = 2.0f;
+
+		auto& baseLod = baseRoot->AddComponent<LODComponent>();
+		baseLod.enabled = true;
+
+		baseRoot->AddComponent<CollisionEventsComponent>();
+
+		const std::filesystem::path basePrefabPath = std::filesystem::temp_directory_path() / "myengine_prefab_variant_base.prefab.json";
+		if (!MyEngine::Serialization::SavePrefab(baseScene, baseRoot.get(), basePrefabPath.string()))
+		{
+			std::cerr << "PrefabVariantOverrideComputationSmokeTest: SavePrefab failed" << std::endl;
+			return false;
+		}
+
+		Scene variantSourceScene;
+		auto variantRoot = variantSourceScene.CreateEntity("VariantSourceRoot");
+		if (!variantRoot)
+			return false;
+
+		auto& variantNav = variantRoot->AddComponent<NavigationAgentComponent>();
+		variantNav.speed = 6.0f;
+		variantNav.stoppingDistance = 0.25f;
+
+		auto& variantTerrain = variantRoot->AddComponent<TerrainComponent>();
+		variantTerrain.heightmapPath = "assets/height/base.png";
+		variantTerrain.width = 140.0f;
+		variantTerrain.depth = 100.0f;
+		variantTerrain.heightScale = 20.0f;
+		variantTerrain.resolution = 128;
+		variantTerrain.surfaceTexturePath = "assets/textures/ground.png";
+
+		auto& variantParticle = variantRoot->AddComponent<ParticleEmitterComponent>();
+		variantParticle.spawnRate = 32.0f;
+		variantParticle.emitSpeed = 2.0f;
+
+		auto& variantLod = variantRoot->AddComponent<LODComponent>();
+		variantLod.enabled = false;
+
+		const std::filesystem::path variantPrefabPath = std::filesystem::temp_directory_path() / "myengine_prefab_variant_output.prefab.json";
+		if (!MyEngine::Serialization::SavePrefabVariant(
+			variantSourceScene,
+			variantRoot.get(),
+			variantPrefabPath.string(),
+			basePrefabPath.string(),
+			baseRoot->GetID()))
+		{
+			std::cerr << "PrefabVariantOverrideComputationSmokeTest: SavePrefabVariant failed" << std::endl;
+			return false;
+		}
+
+		Scene loadedVariant;
+		if (!MyEngine::Serialization::LoadScene(loadedVariant, variantPrefabPath.string(), nullptr, nullptr))
+		{
+			std::cerr << "PrefabVariantOverrideComputationSmokeTest: failed to load generated variant prefab" << std::endl;
+			return false;
+		}
+
+		auto& entities = loadedVariant.GetEntities();
+		if (entities.empty() || !entities.front() || !entities.front()->HasComponent<PrefabInstanceComponent>())
+		{
+			std::cerr << "PrefabVariantOverrideComputationSmokeTest: missing prefab metadata on loaded variant root" << std::endl;
+			return false;
+		}
+
+		const auto& meta = entities.front()->GetComponent<PrefabInstanceComponent>();
+		if (!meta.overrideNavigationAgent || !meta.overrideTerrain || !meta.overrideParticleEmitter || !meta.overrideLOD || !meta.overrideCollisionEvents)
+		{
+			std::cerr << "PrefabVariantOverrideComputationSmokeTest: expected computed overrides were not marked" << std::endl;
+			return false;
+		}
+
+		std::error_code ec;
+		std::filesystem::remove(basePrefabPath, ec);
+		std::filesystem::remove(variantPrefabPath, ec);
 		return true;
 	}
 
@@ -908,6 +1049,749 @@ namespace
 		return true;
 	}
 
+	bool NetworkingReplicationSmokeTest()
+	{
+		Scene serverScene;
+		auto serverEntity = serverScene.CreateEntity("ServerPlayer");
+		if (!serverEntity)
+			return false;
+
+		auto& serverTransform = serverEntity->AddComponent<TransformComponent>();
+		serverTransform.position = glm::vec3(5.0f, 2.0f, -1.0f);
+		serverTransform.rotation = glm::vec3(0.0f, 1.0f, 0.0f);
+		auto& serverRb = serverEntity->AddComponent<MyEngine::RigidbodyComponent>();
+		serverRb.velocity = glm::vec3(1.5f, 0.0f, -0.5f);
+
+		auto snapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(serverScene, 10u);
+		if (snapshot.tick != 10u || snapshot.entities.empty())
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: snapshot generation failed" << std::endl;
+			return false;
+		}
+
+		MyEngine::Net::InMemoryTransport transport;
+		MyEngine::Net::SnapshotMessage outgoing;
+		outgoing.clientID = 1u;
+		outgoing.snapshot = snapshot;
+		transport.SendSnapshotToClient(outgoing);
+
+		MyEngine::Net::SnapshotMessage received;
+		if (!transport.PollSnapshotForClient(received) || received.snapshot.entities.empty())
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: transport snapshot queue failed" << std::endl;
+			return false;
+		}
+
+		MyEngine::Net::InputMessage delayedInput;
+		delayedInput.clientID = 77u;
+		delayedInput.command.tick = 22u;
+		transport.SendInputToServerDelayed(delayedInput, 25u);
+
+		MyEngine::Net::InputMessage polledDelayedInput;
+		if (transport.PollInputForServer(polledDelayedInput))
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: delayed input delivered too early" << std::endl;
+			return false;
+		}
+
+		transport.AdvanceToTick(25u);
+		if (!transport.PollInputForServer(polledDelayedInput) || polledDelayedInput.command.tick != 22u)
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: delayed input delivery failed" << std::endl;
+			return false;
+		}
+
+		MyEngine::Net::SnapshotInterpolationBuffer interpolationBuffer(8);
+		MyEngine::Net::WorldSnapshot tick20;
+		tick20.tick = 20u;
+		tick20.entities.push_back({ serverEntity->GetID(), glm::vec3(0.0f), glm::vec3(0.0f), glm::vec3(0.0f) });
+		MyEngine::Net::WorldSnapshot tick30;
+		tick30.tick = 30u;
+		tick30.entities.push_back({ serverEntity->GetID(), glm::vec3(10.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f) });
+		interpolationBuffer.PushSnapshot(tick20);
+		interpolationBuffer.PushSnapshot(tick30);
+
+		MyEngine::Net::ReplicatedEntityState sampledState;
+		if (!interpolationBuffer.Sample(25u, sampledState, serverEntity->GetID()))
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: interpolation sample failed" << std::endl;
+			return false;
+		}
+		if (!NearlyEqual(sampledState.position.x, 5.0f) || !NearlyEqual(sampledState.rotation.y, 0.5f))
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: interpolation value mismatch" << std::endl;
+			return false;
+		}
+
+		Scene clientScene;
+		auto clientEntity = clientScene.CreateEntityWithID(serverEntity->GetID(), "ClientPlayer");
+		if (!clientEntity)
+			return false;
+		auto& clientTransform = clientEntity->AddComponent<TransformComponent>();
+		clientTransform.position = glm::vec3(0.0f);
+		clientTransform.rotation = glm::vec3(0.0f);
+		auto& clientRb = clientEntity->AddComponent<MyEngine::RigidbodyComponent>();
+		clientRb.velocity = glm::vec3(0.0f);
+
+		if (!MyEngine::Net::NetReplicationSystem::ApplySnapshot(clientScene, received.snapshot))
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: snapshot apply reported no changes" << std::endl;
+			return false;
+		}
+
+		if (!NearlyEqual(clientTransform.position.x, serverTransform.position.x) ||
+			!NearlyEqual(clientTransform.position.y, serverTransform.position.y) ||
+			!NearlyEqual(clientTransform.position.z, serverTransform.position.z) ||
+			!NearlyEqual(clientRb.velocity.x, serverRb.velocity.x) ||
+			!NearlyEqual(clientRb.velocity.y, serverRb.velocity.y) ||
+			!NearlyEqual(clientRb.velocity.z, serverRb.velocity.z))
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: applied snapshot state mismatch" << std::endl;
+			return false;
+		}
+
+		auto& serverController = serverEntity->AddComponent<MyEngine::CharacterControllerComponent>();
+		serverController.isGrounded = true;
+		auto& serverAnimation = serverEntity->AddComponent<AnimationComponent>();
+		serverAnimation.playing = true;
+		serverAnimation.activeClipIndex = 2;
+		serverAnimation.time = 1.25f;
+		auto& serverAudio = serverEntity->AddComponent<AudioSourceComponent>();
+		serverAudio.isPlaying = true;
+		serverAudio.eventName = "NetFootstep";
+
+		auto expandedSnapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(serverScene, 11u);
+		if (expandedSnapshot.entities.empty())
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: expanded payload snapshot missing" << std::endl;
+			return false;
+		}
+
+		auto& clientController = clientEntity->AddComponent<MyEngine::CharacterControllerComponent>();
+		clientController.isGrounded = false;
+		auto& clientAnimation = clientEntity->AddComponent<AnimationComponent>();
+		clientAnimation.playing = false;
+		clientAnimation.activeClipIndex = -1;
+		clientAnimation.time = 0.0f;
+		auto& clientAudio = clientEntity->AddComponent<AudioSourceComponent>();
+		clientAudio.isPlaying = false;
+		clientAudio.eventName.clear();
+
+		if (!MyEngine::Net::NetReplicationSystem::ApplySnapshot(clientScene, expandedSnapshot))
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: expanded payload apply reported no changes" << std::endl;
+			return false;
+		}
+
+		if (!clientController.isGrounded || !clientAnimation.playing ||
+			clientAnimation.activeClipIndex != 2 ||
+			!NearlyEqual(clientAnimation.time, 1.25f) ||
+			!clientAudio.isPlaying || clientAudio.eventName != "NetFootstep")
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: expanded payload apply mismatch" << std::endl;
+			return false;
+		}
+
+		MyEngine::Net::ClientReconciliationState reconcileState;
+		reconcileState.RecordPredictedInput({ 9u, glm::vec2(1.0f, 0.0f), false });
+		reconcileState.RecordPredictedInput({ 10u, glm::vec2(1.0f, 0.0f), false });
+		reconcileState.RecordPredictedInput({ 11u, glm::vec2(0.0f, 1.0f), true });
+		reconcileState.Acknowledge(10u);
+		if (reconcileState.PendingInputCount() != 1)
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: input ack/prune mismatch" << std::endl;
+			return false;
+		}
+
+		MyEngine::Net::ReplicatedEntityState authoritative;
+		authoritative.entityID = clientEntity->GetID();
+		authoritative.position = glm::vec3(8.0f, 2.0f, -1.0f);
+		authoritative.rotation = glm::vec3(0.0f, 0.5f, 0.0f);
+		const bool corrected = reconcileState.ReconcileEntity(clientTransform, authoritative, 0.01f, 0.01f);
+		if (!corrected)
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: expected correction was not applied" << std::endl;
+			return false;
+		}
+
+		if (!NearlyEqual(clientTransform.position.x, authoritative.position.x) ||
+			!NearlyEqual(clientTransform.rotation.y, authoritative.rotation.y))
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: reconciliation target mismatch" << std::endl;
+			return false;
+		}
+
+		{
+			MyEngine::Net::InMemoryTransport handshakeTransport;
+			handshakeTransport.BeginServerSession();
+			handshakeTransport.SendConnectRequest(0u);
+			MyEngine::Net::SessionControlMessage connectRequest;
+			if (!handshakeTransport.PollConnectRequestForServer(connectRequest) ||
+				connectRequest.type != MyEngine::Net::SessionControlType::ConnectRequest)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: connect request handshake failed" << std::endl;
+				return false;
+			}
+			handshakeTransport.AcceptConnectRequest(connectRequest);
+			MyEngine::Net::SessionControlMessage connectAccept;
+			if (!handshakeTransport.PollSessionControlForClient(connectAccept) ||
+				connectAccept.type != MyEngine::Net::SessionControlType::ConnectAccept ||
+				connectAccept.assignedClientID == 0u ||
+				!handshakeTransport.IsSessionReady())
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: connect accept handshake failed" << std::endl;
+				return false;
+			}
+
+			MyEngine::Net::SocketNetTransport socketHandshake;
+			if (!socketHandshake.Initialize(28101, 28102))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket init failed" << std::endl;
+				return false;
+			}
+			socketHandshake.BeginServerSession();
+			socketHandshake.SendConnectRequest(0u);
+			for (MyEngine::Net::NetTick tick = 1u; tick <= 8u; ++tick)
+				socketHandshake.AdvanceToTick(tick);
+			MyEngine::Net::SessionControlMessage socketConnectRequest;
+			if (!socketHandshake.PollConnectRequestForServer(socketConnectRequest) ||
+				socketConnectRequest.type != MyEngine::Net::SessionControlType::ConnectRequest)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket connect request failed" << std::endl;
+				socketHandshake.Shutdown();
+				return false;
+			}
+			socketHandshake.AcceptConnectRequest(socketConnectRequest);
+			for (MyEngine::Net::NetTick tick = 9u; tick <= 16u; ++tick)
+				socketHandshake.AdvanceToTick(tick);
+			MyEngine::Net::SessionControlMessage socketConnectAccept;
+			if (!socketHandshake.PollSessionControlForClient(socketConnectAccept) ||
+				socketConnectAccept.type != MyEngine::Net::SessionControlType::ConnectAccept ||
+				socketConnectAccept.assignedClientID == 0u ||
+				!socketHandshake.IsSessionReady())
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket connect accept failed" << std::endl;
+				socketHandshake.Shutdown();
+				return false;
+			}
+			for (MyEngine::Net::NetTick tick = 17u; tick <= 80u; ++tick)
+				socketHandshake.AdvanceToTick(tick);
+			if (socketHandshake.IsSessionTimedOut())
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket heartbeat timeout regression" << std::endl;
+				socketHandshake.Shutdown();
+				return false;
+			}
+			socketHandshake.Shutdown();
+
+			MyEngine::Net::InMemoryTransport multiClientTransport;
+			multiClientTransport.BeginServerSession();
+			multiClientTransport.SendConnectRequest(0u);
+			multiClientTransport.SendConnectRequest(0u);
+			MyEngine::Net::SessionControlMessage requestA;
+			MyEngine::Net::SessionControlMessage requestB;
+			if (!multiClientTransport.PollConnectRequestForServer(requestA) ||
+				!multiClientTransport.PollConnectRequestForServer(requestB))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: multi-client request dequeue failed" << std::endl;
+				return false;
+			}
+			multiClientTransport.AcceptConnectRequest(requestA);
+			multiClientTransport.AcceptConnectRequest(requestB);
+			MyEngine::Net::SessionControlMessage acceptA;
+			MyEngine::Net::SessionControlMessage acceptB;
+			if (!multiClientTransport.PollSessionControlForClient(acceptA) ||
+				!multiClientTransport.PollSessionControlForClient(acceptB) ||
+				acceptA.assignedClientID == 0u ||
+				acceptB.assignedClientID == 0u ||
+				acceptA.assignedClientID == acceptB.assignedClientID)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: multi-client assignment failed" << std::endl;
+				return false;
+			}
+
+			MyEngine::Net::InMemoryTransport timeoutTransport;
+			timeoutTransport.BeginServerSession();
+			MyEngine::Net::SessionRetrySettings retrySettings;
+			retrySettings.enabled = true;
+			retrySettings.connectTimeoutTicks = 2u;
+			retrySettings.retryIntervalTicks = 1u;
+			retrySettings.maxRetries = 2u;
+			timeoutTransport.SetSessionRetrySettings(retrySettings);
+			timeoutTransport.SendConnectRequest(0u);
+			for (MyEngine::Net::NetTick tick = 1u; tick <= 12u; ++tick)
+				timeoutTransport.AdvanceToTick(tick);
+			if (!timeoutTransport.IsSessionTimedOut() || timeoutTransport.GetConnectRetryCount() != 2u)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: handshake timeout/retry policy failed" << std::endl;
+				return false;
+			}
+			MyEngine::Net::SessionControlMessage disconnectMessage;
+			if (!timeoutTransport.PollSessionControlForClient(disconnectMessage) ||
+				disconnectMessage.type != MyEngine::Net::SessionControlType::Disconnect)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: disconnect message on timeout missing" << std::endl;
+				return false;
+			}
+		}
+
+		{
+			Scene interestScene;
+			auto nearEntity = interestScene.CreateEntityWithID(1001u, "NearEntity");
+			auto farEntity = interestScene.CreateEntityWithID(1002u, "FarEntity");
+			if (!nearEntity || !farEntity)
+				return false;
+
+			auto& nearTransform = nearEntity->AddComponent<TransformComponent>();
+			nearTransform.position = glm::vec3(1.0f, 0.0f, 0.0f);
+			auto& farTransform = farEntity->AddComponent<TransformComponent>();
+			farTransform.position = glm::vec3(100.0f, 0.0f, 0.0f);
+
+			MyEngine::Net::ReplicationInterestSettings interest;
+			interest.enabled = true;
+			interest.radius = 10.0f;
+			interest.origin = glm::vec3(0.0f);
+			auto filteredSnapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(interestScene, 44u, interest);
+			if (filteredSnapshot.entities.size() != 1 || filteredSnapshot.entities.front().entityID != 1001u)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: interest filter snapshot mismatch" << std::endl;
+				return false;
+			}
+		}
+
+		{
+			MyEngine::Net::InMemoryTransport simulatedTransport;
+			MyEngine::Net::NetworkSimulationSettings simSettings;
+			simSettings.enabled = true;
+			simSettings.packetLossChance = 1.0f;
+			simSettings.jitterMinTicks = 0u;
+			simSettings.jitterMaxTicks = 0u;
+			simSettings.reorderChance = 0.0f;
+			simSettings.randomSeed = 123u;
+			simulatedTransport.SetSimulationSettings(simSettings);
+
+			MyEngine::Net::InputMessage droppedInput;
+			droppedInput.clientID = 1u;
+			droppedInput.command.tick = 50u;
+			simulatedTransport.SendInputToServerDelayed(droppedInput, 50u);
+			simulatedTransport.AdvanceToTick(100u);
+			MyEngine::Net::InputMessage polledInput;
+			if (simulatedTransport.PollInputForServer(polledInput))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: packet loss simulation failed" << std::endl;
+				return false;
+			}
+		}
+
+		{
+			MyEngine::Net::InMemoryTransport simulatedTransport;
+			MyEngine::Net::NetworkSimulationSettings simSettings;
+			simSettings.enabled = true;
+			simSettings.packetLossChance = 0.0f;
+			simSettings.jitterMinTicks = 2u;
+			simSettings.jitterMaxTicks = 2u;
+			simSettings.reorderChance = 0.0f;
+			simSettings.randomSeed = 321u;
+			simulatedTransport.SetSimulationSettings(simSettings);
+
+			MyEngine::Net::InputMessage jitteredInput;
+			jitteredInput.clientID = 2u;
+			jitteredInput.command.tick = 60u;
+			simulatedTransport.SendInputToServerDelayed(jitteredInput, 60u);
+
+			MyEngine::Net::InputMessage polledInput;
+			simulatedTransport.AdvanceToTick(61u);
+			if (simulatedTransport.PollInputForServer(polledInput))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: jitter delivered too early" << std::endl;
+				return false;
+			}
+			simulatedTransport.AdvanceToTick(62u);
+			if (!simulatedTransport.PollInputForServer(polledInput) || polledInput.command.tick != 60u)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: jitter delivery failed" << std::endl;
+				return false;
+			}
+		}
+
+		{
+			MyEngine::Net::InMemoryTransport simulatedTransport;
+			MyEngine::Net::NetworkSimulationSettings simSettings;
+			simSettings.enabled = true;
+			simSettings.packetLossChance = 0.0f;
+			simSettings.jitterMinTicks = 0u;
+			simSettings.jitterMaxTicks = 0u;
+			simSettings.reorderChance = 1.0f;
+			simSettings.randomSeed = 777u;
+			simulatedTransport.SetSimulationSettings(simSettings);
+
+			MyEngine::Net::InputMessage firstInput;
+			firstInput.clientID = 3u;
+			firstInput.command.tick = 70u;
+			MyEngine::Net::InputMessage secondInput;
+			secondInput.clientID = 3u;
+			secondInput.command.tick = 71u;
+			simulatedTransport.SendInputToServerDelayed(firstInput, 70u);
+			simulatedTransport.SendInputToServerDelayed(secondInput, 70u);
+			simulatedTransport.AdvanceToTick(70u);
+
+			MyEngine::Net::InputMessage outA;
+			MyEngine::Net::InputMessage outB;
+			if (!simulatedTransport.PollInputForServer(outA) || !simulatedTransport.PollInputForServer(outB))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: reorder polling failed" << std::endl;
+				return false;
+			}
+			if (outA.command.tick != 71u || outB.command.tick != 70u)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: reorder simulation failed" << std::endl;
+				return false;
+			}
+		}
+
+		{
+			MyEngine::Net::InMemoryTransport replayTransport;
+			MyEngine::Net::NetworkSimulationSettings replaySettings;
+			replaySettings.enabled = true;
+			replaySettings.packetLossChance = 0.5f;
+			replaySettings.jitterMinTicks = 1u;
+			replaySettings.jitterMaxTicks = 3u;
+			replaySettings.reorderChance = 0.0f;
+			replaySettings.randomSeed = 2026u;
+			replayTransport.SetSimulationSettings(replaySettings);
+
+			MyEngine::Net::ClientReconciliationState replayState;
+			for (MyEngine::Net::NetTick tick = 1u; tick <= 8u; ++tick)
+			{
+				MyEngine::Net::InputCommand command;
+				command.tick = tick;
+				command.moveAxis = (tick % 2u == 0u) ? glm::vec2(1.0f, 0.0f) : glm::vec2(0.0f, 1.0f);
+				replayState.RecordPredictedInput(command);
+				replayTransport.SendInputToServerDelayed({ 1u, command }, tick);
+			}
+
+			MyEngine::Net::InputMessage delivered;
+			for (MyEngine::Net::NetTick tick = 1u; tick <= 16u; ++tick)
+			{
+				replayTransport.AdvanceToTick(tick);
+				while (replayTransport.PollInputForServer(delivered))
+					replayState.Acknowledge(delivered.command.tick);
+			}
+
+			if (replayState.PendingInputCount() >= 8)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: replay ack under simulated network failed" << std::endl;
+				return false;
+			}
+
+			TransformComponent replayTransform;
+			replayTransform.position = glm::vec3(10.0f, 0.0f, 10.0f);
+			MyEngine::Net::ReplicatedEntityState serverAuthoritative;
+			serverAuthoritative.position = glm::vec3(10.0f, 0.0f, 10.0f);
+			serverAuthoritative.rotation = glm::vec3(0.0f);
+			if (!replayState.ReconcileEntity(replayTransform, serverAuthoritative, 0.0001f, 0.0001f))
+			{
+				replayTransform.position = serverAuthoritative.position;
+			}
+
+			replayState.ReplayPredictedInputs(replayTransform, 5.0f, 0.1f);
+			if (replayState.PendingInputCount() > 0 &&
+				NearlyEqual(replayTransform.position.x, 10.0f) &&
+				NearlyEqual(replayTransform.position.z, 10.0f))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: replay predicted input mismatch" << std::endl;
+				return false;
+			}
+		}
+
+		{
+			Scene pluginScene;
+			auto allowedEntity = pluginScene.CreateEntityWithID(8101u, "AllowedByPlugin");
+			auto filteredEntity = pluginScene.CreateEntityWithID(8102u, "FilteredByPlugin");
+			if (!allowedEntity || !filteredEntity)
+				return false;
+			auto& allowedTransform = allowedEntity->AddComponent<TransformComponent>();
+			allowedTransform.position = glm::vec3(2.0f, 0.0f, 0.0f);
+			auto& filteredTransform = filteredEntity->AddComponent<TransformComponent>();
+			filteredTransform.position = glm::vec3(4.0f, 0.0f, 0.0f);
+
+			MyEngine::Net::NetPluginRegistry::Clear();
+			MyEngine::Net::NetPluginRegistry::RegisterInterestFilter([](const Entity& entity, const MyEngine::Net::ReplicatedEntityState&)
+			{
+				return entity.GetName() != "FilteredByPlugin";
+			});
+			MyEngine::Net::NetPluginRegistry::RegisterStateMutator([](const Entity&, MyEngine::Net::ReplicatedEntityState& state)
+			{
+				state.velocity = glm::vec3(9.0f, 0.0f, 0.0f);
+			});
+
+			auto pluginSnapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(pluginScene, 90u);
+			if (pluginSnapshot.entities.size() != 1 || pluginSnapshot.entities.front().entityID != 8101u ||
+				!NearlyEqual(pluginSnapshot.entities.front().velocity.x, 9.0f))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: plugin hook filtering/mutation failed" << std::endl;
+				MyEngine::Net::NetPluginRegistry::Clear();
+				return false;
+			}
+			MyEngine::Net::NetPluginRegistry::Clear();
+		}
+
+		{
+			Scene deltaScene;
+			auto deltaEntity = deltaScene.CreateEntityWithID(9101u, "DeltaEntity");
+			if (!deltaEntity)
+				return false;
+			auto& deltaTransform = deltaEntity->AddComponent<TransformComponent>();
+			deltaTransform.position = glm::vec3(1.0f, 0.0f, 0.0f);
+			auto baselineSnapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(deltaScene, 100u);
+			deltaTransform.position = glm::vec3(3.0f, 0.0f, 0.0f);
+			auto currentSnapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(deltaScene, 101u);
+			auto deltaSnapshot = MyEngine::Net::NetReplicationSystem::BuildDeltaSnapshot(baselineSnapshot, currentSnapshot);
+			if (deltaSnapshot.entities.size() != 1 || deltaSnapshot.entities.front().entityID != 9101u)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: delta snapshot generation failed" << std::endl;
+				return false;
+			}
+
+			Scene deltaClient;
+			auto deltaClientEntity = deltaClient.CreateEntityWithID(9101u, "DeltaClientEntity");
+			if (!deltaClientEntity)
+				return false;
+			deltaClientEntity->AddComponent<TransformComponent>().position = glm::vec3(1.0f, 0.0f, 0.0f);
+			if (!MyEngine::Net::NetReplicationSystem::ApplyDeltaSnapshot(deltaClient, baselineSnapshot, deltaSnapshot))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: delta snapshot apply failed" << std::endl;
+				return false;
+			}
+			if (!NearlyEqual(deltaClientEntity->GetComponent<TransformComponent>().position.x, 3.0f))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: delta snapshot apply mismatch" << std::endl;
+				return false;
+			}
+		}
+
+		{
+			Scene perfScene;
+			for (std::uint32_t i = 0; i < 128u; ++i)
+			{
+				auto entity = perfScene.CreateEntityWithID(3000u + i, "PerfEntity");
+				if (!entity)
+					return false;
+				auto& transform = entity->AddComponent<TransformComponent>();
+				transform.position = glm::vec3(static_cast<float>(i), static_cast<float>(i % 8u), static_cast<float>(i % 13u));
+				if ((i % 2u) == 0u)
+				{
+					auto& rb = entity->AddComponent<MyEngine::RigidbodyComponent>();
+					rb.velocity = glm::vec3(1.0f, 0.0f, 0.5f);
+				}
+			}
+
+			MyEngine::Net::InMemoryTransport soakTransport;
+			MyEngine::Net::NetworkSimulationSettings soakSettings;
+			soakSettings.enabled = true;
+			soakSettings.packetLossChance = 0.0f;
+			soakSettings.jitterMinTicks = 0u;
+			soakSettings.jitterMaxTicks = 2u;
+			soakSettings.reorderChance = 0.25f;
+			soakSettings.randomSeed = 9001u;
+			soakTransport.SetSimulationSettings(soakSettings);
+
+			Scene perfClient;
+			MyEngine::Net::WorldSnapshot serverBaseline;
+			bool hasServerBaseline = false;
+			MyEngine::Net::WorldSnapshot clientBaseline;
+			bool hasClientBaseline = false;
+			std::uint64_t deliveredStates = 0;
+
+			auto perfStart = std::chrono::high_resolution_clock::now();
+			for (MyEngine::Net::NetTick tick = 1u; tick <= 300u; ++tick)
+			{
+				auto movingEntity = perfScene.GetEntitySharedByID(3000u + (tick % 16u));
+				if (movingEntity && movingEntity->HasComponent<TransformComponent>())
+					movingEntity->GetComponent<TransformComponent>().position.x += 0.01f * static_cast<float>(tick % 5u);
+
+				auto fullSnapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(perfScene, tick);
+				if (fullSnapshot.entities.empty())
+				{
+					std::cerr << "NetworkingReplicationSmokeTest: perf baseline snapshot unexpectedly empty" << std::endl;
+					return false;
+				}
+
+				MyEngine::Net::WorldSnapshot outbound = fullSnapshot;
+				if (hasServerBaseline)
+					outbound = MyEngine::Net::NetReplicationSystem::BuildDeltaSnapshot(serverBaseline, fullSnapshot);
+				soakTransport.SendSnapshotToClientDelayed({ 1u, outbound }, tick + 1u);
+				serverBaseline = fullSnapshot;
+				hasServerBaseline = true;
+
+				soakTransport.AdvanceToTick(tick + 1u);
+				MyEngine::Net::SnapshotMessage delivered;
+				while (soakTransport.PollSnapshotForClient(delivered))
+				{
+					deliveredStates += delivered.snapshot.entities.size();
+					if (!hasClientBaseline)
+					{
+						MyEngine::Net::NetReplicationSystem::ApplySnapshot(perfClient, delivered.snapshot);
+						clientBaseline = delivered.snapshot;
+						hasClientBaseline = true;
+					}
+					else
+					{
+						MyEngine::Net::NetReplicationSystem::ApplyDeltaSnapshot(perfClient, clientBaseline, delivered.snapshot);
+						for (const auto& state : delivered.snapshot.entities)
+						{
+							bool replaced = false;
+							for (auto& baseState : clientBaseline.entities)
+							{
+								if (baseState.entityID == state.entityID)
+								{
+									baseState = state;
+									replaced = true;
+									break;
+								}
+							}
+							if (!replaced)
+								clientBaseline.entities.push_back(state);
+						}
+						clientBaseline.tick = delivered.snapshot.tick;
+					}
+				}
+			}
+			auto perfEnd = std::chrono::high_resolution_clock::now();
+			const auto perfMs = std::chrono::duration_cast<std::chrono::milliseconds>(perfEnd - perfStart).count();
+			if (perfMs > 2500)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: perf baseline regression (" << perfMs << " ms)" << std::endl;
+				return false;
+			}
+
+			std::ofstream metrics("networking_soak_metrics.csv", std::ios::trunc);
+			if (!metrics)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: failed to write networking soak metrics" << std::endl;
+				return false;
+			}
+			metrics << "ticks,deliveredStates,elapsedMs,mode,reliability,fragmentation,heartbeat\n";
+			metrics << 300 << ',' << deliveredStates << ',' << perfMs << ",inmemory,basic,disabled,disabled\n";
+		}
+
+		{
+			MyEngine::Net::SocketNetTransport socketTransport;
+			if (!socketTransport.Initialize(28111, 28112))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket reliability init failed" << std::endl;
+				return false;
+			}
+			socketTransport.BeginServerSession();
+			socketTransport.SendConnectRequest(0u);
+			for (MyEngine::Net::NetTick tick = 1u; tick <= 8u; ++tick)
+				socketTransport.AdvanceToTick(tick);
+			MyEngine::Net::SessionControlMessage request;
+			if (!socketTransport.PollConnectRequestForServer(request))
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket reliability connect request failed" << std::endl;
+				socketTransport.Shutdown();
+				return false;
+			}
+			socketTransport.AcceptConnectRequest(request);
+			for (MyEngine::Net::NetTick tick = 9u; tick <= 16u; ++tick)
+				socketTransport.AdvanceToTick(tick);
+			MyEngine::Net::SessionControlMessage accept;
+			if (!socketTransport.PollSessionControlForClient(accept) || accept.type != MyEngine::Net::SessionControlType::ConnectAccept)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket reliability connect accept failed" << std::endl;
+				socketTransport.Shutdown();
+				return false;
+			}
+
+			Scene largeScene;
+			for (std::uint32_t i = 0; i < 700u; ++i)
+			{
+				auto entity = largeScene.CreateEntityWithID(7000u + i, "LargeSnapshotEntity");
+				if (!entity)
+				{
+					socketTransport.Shutdown();
+					return false;
+				}
+				auto& transform = entity->AddComponent<TransformComponent>();
+				transform.position = glm::vec3(static_cast<float>(i), static_cast<float>(i % 19u), static_cast<float>(i % 7u));
+				auto& rb = entity->AddComponent<MyEngine::RigidbodyComponent>();
+				rb.velocity = glm::vec3(0.1f * static_cast<float>(i % 13u), 0.0f, -0.05f * static_cast<float>(i % 17u));
+				auto& audio = entity->AddComponent<AudioSourceComponent>();
+				audio.eventName = "LargePayloadEventName_" + std::to_string(i % 37u);
+				audio.isPlaying = ((i % 3u) == 0u);
+			}
+
+			auto largeSnapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(largeScene, 512u);
+			MyEngine::Net::SnapshotMessage largeMessage;
+			largeMessage.clientID = accept.assignedClientID;
+			largeMessage.snapshot = largeSnapshot;
+			socketTransport.SendSnapshotToClient(largeMessage);
+
+			bool receivedLargeSnapshot = false;
+			MyEngine::Net::SnapshotMessage socketReceived;
+			for (MyEngine::Net::NetTick tick = 17u; tick <= 120u; ++tick)
+			{
+				socketTransport.AdvanceToTick(tick);
+				while (socketTransport.PollSnapshotForClient(socketReceived))
+				{
+					if (socketReceived.snapshot.tick == 512u)
+					{
+						receivedLargeSnapshot = true;
+						break;
+					}
+				}
+				if (receivedLargeSnapshot)
+					break;
+			}
+
+			if (!receivedLargeSnapshot || socketReceived.snapshot.entities.size() != largeSnapshot.entities.size())
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket fragmentation/reassembly failed" << std::endl;
+				socketTransport.Shutdown();
+				return false;
+			}
+
+			MyEngine::Net::InputMessage socketInput;
+			socketInput.clientID = accept.assignedClientID;
+			socketInput.command.tick = 600u;
+			socketInput.command.moveAxis = glm::vec2(0.25f, -0.5f);
+			socketInput.command.jumpPressed = true;
+			socketTransport.SendInputToServer(socketInput);
+
+			bool receivedInput = false;
+			MyEngine::Net::InputMessage receivedInputMessage;
+			for (MyEngine::Net::NetTick tick = 121u; tick <= 180u; ++tick)
+			{
+				socketTransport.AdvanceToTick(tick);
+				if (socketTransport.PollInputForServer(receivedInputMessage))
+				{
+					receivedInput = true;
+					break;
+				}
+			}
+
+			if (!receivedInput || receivedInputMessage.command.tick != 600u || !receivedInputMessage.command.jumpPressed)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket input delivery failed" << std::endl;
+				socketTransport.Shutdown();
+				return false;
+			}
+
+			for (MyEngine::Net::NetTick tick = 181u; tick <= 260u; ++tick)
+				socketTransport.AdvanceToTick(tick);
+			if (socketTransport.IsSessionTimedOut())
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: socket heartbeat timeout under traffic failed" << std::endl;
+				socketTransport.Shutdown();
+				return false;
+			}
+			socketTransport.Shutdown();
+		}
+
+		return true;
+	}
+
 	bool RenderCommandPlumbingSmokeTest()
 	{
 		MyEngine::RenderCommandList commands;
@@ -1026,13 +1910,15 @@ int main()
 	const bool assetDepsOk = AssetDependencySmokeTest();
 	const bool replaySimOk = ReplaySimulationConfigSmokeTest();
 	const bool prefabVariantMetaOk = PrefabVariantMetadataSmokeTest();
+	const bool prefabVariantComputeOk = PrefabVariantOverrideComputationSmokeTest();
 	const bool animationEventsOk = AnimationEventSerializationSmokeTest();
 	const bool animationEventBusOk = AnimationEventBusDispatchSmokeTest();
 	const bool renderBackendSelectionOk = RenderBackendSelectionSmokeTest();
+	const bool networkingReplicationOk = NetworkingReplicationSmokeTest();
 	const bool renderCommandPlumbingOk = RenderCommandPlumbingSmokeTest();
 	const bool materialInheritanceOk = MaterialInheritanceSmokeTest();
 
-	if (!serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !renderCommandPlumbingOk || !materialInheritanceOk)
+	if (!serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !prefabVariantComputeOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !networkingReplicationOk || !renderCommandPlumbingOk || !materialInheritanceOk)
 		return 1;
 
 	std::cout << "Smoke tests passed" << std::endl;

@@ -570,6 +570,19 @@ namespace MyEngine
 					writer.Key("overrideRigidbody"); writer.Bool(prefab.overrideRigidbody);
 					writer.Key("overrideScript"); writer.Bool(prefab.overrideScript);
 					writer.Key("overrideAnimation"); writer.Bool(prefab.overrideAnimation);
+					writer.Key("overrideAudioSource"); writer.Bool(prefab.overrideAudioSource);
+					writer.Key("overrideAudioListener"); writer.Bool(prefab.overrideAudioListener);
+					writer.Key("overrideBoxCollider"); writer.Bool(prefab.overrideBoxCollider);
+					writer.Key("overrideCapsuleCollider"); writer.Bool(prefab.overrideCapsuleCollider);
+					writer.Key("overridePlaneCollider"); writer.Bool(prefab.overridePlaneCollider);
+					writer.Key("overrideBoundingSphere"); writer.Bool(prefab.overrideBoundingSphere);
+					writer.Key("overrideMeshCollider"); writer.Bool(prefab.overrideMeshCollider);
+					writer.Key("overrideCharacterController"); writer.Bool(prefab.overrideCharacterController);
+					writer.Key("overrideNavigationAgent"); writer.Bool(prefab.overrideNavigationAgent);
+					writer.Key("overrideTerrain"); writer.Bool(prefab.overrideTerrain);
+					writer.Key("overrideParticleEmitter"); writer.Bool(prefab.overrideParticleEmitter);
+					writer.Key("overrideLOD"); writer.Bool(prefab.overrideLOD);
+					writer.Key("overrideCollisionEvents"); writer.Bool(prefab.overrideCollisionEvents);
 					writer.EndObject();
 				}
 
@@ -862,83 +875,9 @@ namespace MyEngine
 			std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>* outGlobalScripts
 		)
 		{
-			if (json.empty()) return false;
-
-			Document doc;
-			if (doc.Parse(json.c_str()).HasParseError())
-			{
-				std::cerr << "Failed to parse scene JSON from string." << std::endl;
+			if (json.empty())
 				return false;
-			}
-
-			if (!doc.HasMember("entities") || !doc["entities"].IsArray())
-				return false;
-
-			// Restore layer name registry if present
-			if (doc.HasMember("layerNames") && doc["layerNames"].IsArray())
-			{
-				const auto& ln = doc["layerNames"].GetArray();
-					for (int i = 0; i < MyEngine::MAX_LAYERS && i < static_cast<int>(ln.Size()); ++i)
-						if (ln[i].IsString())
-							MyEngine::LayerMask::SetName(i, ln[i].GetString());
-				}
-
-				// Restore collision layer matrix if present
-				if (doc.HasMember("collisionMatrix") && doc["collisionMatrix"].IsArray())
-				{
-					const auto& cm = doc["collisionMatrix"].GetArray();
-					for (int i = 0; i < MyEngine::CollisionMatrix::NUM_LAYERS && i < static_cast<int>(cm.Size()); ++i)
-						if (cm[i].IsUint())
-							MyEngine::CollisionMatrix::SetRow(i, cm[i].GetUint());
-				}
-
-				// Re-use LoadScene by writing to a temp in-memory path trick
-			// actually delegate by passing json as if from a stream.
-			// We do this by writing to a temp file path and delegating, but
-			// to avoid disk I/O we directly duplicate the parse+load body.
-			// For now call the file-based loader via a stringstream temp file.
-			// (Full inline implementation below mirrors LoadScene exactly.)
-
-			if (outGlobalScripts)
-			{
-				outGlobalScripts->clear();
-				if (doc.HasMember("globalScripts") && doc["globalScripts"].IsArray())
-				{
-					std::vector<std::pair<unsigned int, MyEngine::ScriptSystem::GlobalScriptConfig>> orderedScripts;
-					for (const auto& gsValue : doc["globalScripts"].GetArray())
-					{
-						if (!gsValue.IsObject()) continue;
-						MyEngine::ScriptSystem::GlobalScriptConfig config;
-						if (gsValue.HasMember("scriptPath") && gsValue["scriptPath"].IsString())
-							config.scriptPath = gsValue["scriptPath"].GetString();
-						if (gsValue.HasMember("enabled") && gsValue["enabled"].IsBool())
-							config.enabled = gsValue["enabled"].GetBool();
-						if (gsValue.HasMember("autoStart") && gsValue["autoStart"].IsBool())
-							config.autoStart = gsValue["autoStart"].GetBool();
-						config.requestReload = false;
-						unsigned int orderIndex = static_cast<unsigned int>(orderedScripts.size());
-						if (gsValue.HasMember("order") && gsValue["order"].IsUint())
-							orderIndex = gsValue["order"].GetUint();
-						orderedScripts.emplace_back(orderIndex, config);
-					}
-					std::sort(orderedScripts.begin(), orderedScripts.end(),
-						[](const auto& a, const auto& b){ return a.first < b.first; });
-					for (auto& [idx, cfg] : orderedScripts)
-						outGlobalScripts->push_back(cfg);
-				}
-			}
-
-			// Write json to a temp file then delegate to LoadScene
-			// (avoids duplicating the entire entity-load body)
-			const std::string tmpPath =
-				(std::filesystem::temp_directory_path() / "MyEngine_inmem_load.scene").generic_string();
-			{
-				std::ofstream tmp(tmpPath, std::ios::binary);
-				if (!tmp) return false;
-				tmp << json;
-			}
-			// Clear global scripts from the temp load (already handled above)
-			return LoadScene(scene, tmpPath, defaultShader, nullptr);
+			return LoadScene(scene, json, defaultShader, outGlobalScripts);
 		}
 
 		bool LoadScene(
@@ -948,20 +887,37 @@ namespace MyEngine
 			std::vector<MyEngine::ScriptSystem::GlobalScriptConfig>* outGlobalScripts
 		)
 		{
-			std::ifstream ifs(path);
-			if (!ifs)
-			{
-				std::cerr << "Failed to open " << path << " for reading." << std::endl;
-				return false;
-			}
+			std::string content;
+			bool loadedFromRawJson = false;
 
-			std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-			ifs.close();
+			std::ifstream ifs(path);
+			if (ifs)
+			{
+				content.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+				ifs.close();
+			}
+			else
+			{
+				size_t firstNonWhitespace = path.find_first_not_of(" \t\n\r");
+				const bool looksLikeJson =
+					(firstNonWhitespace != std::string::npos) &&
+					(path[firstNonWhitespace] == '{' || path[firstNonWhitespace] == '[');
+				if (!looksLikeJson)
+				{
+					std::cerr << "Failed to open " << path << " for reading." << std::endl;
+					return false;
+				}
+				content = path;
+				loadedFromRawJson = true;
+			}
 
 			Document doc;
 			if (doc.Parse(content.c_str()).HasParseError())
 			{
-				std::cerr << "Failed to parse scene JSON: " << path << std::endl;
+				if (loadedFromRawJson)
+					std::cerr << "Failed to parse scene JSON from string." << std::endl;
+				else
+					std::cerr << "Failed to parse scene JSON: " << path << std::endl;
 				return false;
 			}
 
@@ -1469,6 +1425,32 @@ namespace MyEngine
 						prefab.overrideScript = po["overrideScript"].GetBool();
 					if (po.HasMember("overrideAnimation") && po["overrideAnimation"].IsBool())
 						prefab.overrideAnimation = po["overrideAnimation"].GetBool();
+					if (po.HasMember("overrideAudioSource") && po["overrideAudioSource"].IsBool())
+						prefab.overrideAudioSource = po["overrideAudioSource"].GetBool();
+					if (po.HasMember("overrideAudioListener") && po["overrideAudioListener"].IsBool())
+						prefab.overrideAudioListener = po["overrideAudioListener"].GetBool();
+					if (po.HasMember("overrideBoxCollider") && po["overrideBoxCollider"].IsBool())
+						prefab.overrideBoxCollider = po["overrideBoxCollider"].GetBool();
+					if (po.HasMember("overrideCapsuleCollider") && po["overrideCapsuleCollider"].IsBool())
+						prefab.overrideCapsuleCollider = po["overrideCapsuleCollider"].GetBool();
+					if (po.HasMember("overridePlaneCollider") && po["overridePlaneCollider"].IsBool())
+						prefab.overridePlaneCollider = po["overridePlaneCollider"].GetBool();
+					if (po.HasMember("overrideBoundingSphere") && po["overrideBoundingSphere"].IsBool())
+						prefab.overrideBoundingSphere = po["overrideBoundingSphere"].GetBool();
+					if (po.HasMember("overrideMeshCollider") && po["overrideMeshCollider"].IsBool())
+						prefab.overrideMeshCollider = po["overrideMeshCollider"].GetBool();
+					if (po.HasMember("overrideCharacterController") && po["overrideCharacterController"].IsBool())
+						prefab.overrideCharacterController = po["overrideCharacterController"].GetBool();
+					if (po.HasMember("overrideNavigationAgent") && po["overrideNavigationAgent"].IsBool())
+						prefab.overrideNavigationAgent = po["overrideNavigationAgent"].GetBool();
+					if (po.HasMember("overrideTerrain") && po["overrideTerrain"].IsBool())
+						prefab.overrideTerrain = po["overrideTerrain"].GetBool();
+					if (po.HasMember("overrideParticleEmitter") && po["overrideParticleEmitter"].IsBool())
+						prefab.overrideParticleEmitter = po["overrideParticleEmitter"].GetBool();
+					if (po.HasMember("overrideLOD") && po["overrideLOD"].IsBool())
+						prefab.overrideLOD = po["overrideLOD"].GetBool();
+					if (po.HasMember("overrideCollisionEvents") && po["overrideCollisionEvents"].IsBool())
+						prefab.overrideCollisionEvents = po["overrideCollisionEvents"].GetBool();
 				}
 
 				// NavigationAgentComponent
@@ -1859,6 +1841,19 @@ namespace MyEngine
 									prefabMeta.overrideRigidbody = false;
 									prefabMeta.overrideScript = false;
 									prefabMeta.overrideAnimation = false;
+									prefabMeta.overrideAudioSource = false;
+									prefabMeta.overrideAudioListener = false;
+									prefabMeta.overrideBoxCollider = false;
+									prefabMeta.overrideCapsuleCollider = false;
+									prefabMeta.overridePlaneCollider = false;
+									prefabMeta.overrideBoundingSphere = false;
+									prefabMeta.overrideMeshCollider = false;
+									prefabMeta.overrideCharacterController = false;
+									prefabMeta.overrideNavigationAgent = false;
+									prefabMeta.overrideTerrain = false;
+									prefabMeta.overrideParticleEmitter = false;
+									prefabMeta.overrideLOD = false;
+									prefabMeta.overrideCollisionEvents = false;
 
 									::Scene baseScene;
 									if (LoadScene(baseScene, basePrefabPath, nullptr))
@@ -1929,6 +1924,205 @@ namespace MyEngine
 												const auto& b = baseRoot->GetComponent<AnimationComponent>();
 												prefabMeta.overrideAnimation = (a.activeClipIndex != b.activeClipIndex) || !nearlyEqual(a.time, b.time) || !nearlyEqual(a.playbackSpeed, b.playbackSpeed) || (a.playing != b.playing) || (a.looping != b.looping);
 											}
+
+											if (root->HasComponent<AudioSourceComponent>() != baseRoot->HasComponent<AudioSourceComponent>())
+												prefabMeta.overrideAudioSource = true;
+											else if (root->HasComponent<AudioSourceComponent>())
+											{
+												const auto& a = root->GetComponent<AudioSourceComponent>();
+												const auto& b = baseRoot->GetComponent<AudioSourceComponent>();
+												prefabMeta.overrideAudioSource =
+													(a.clipPath != b.clipPath) ||
+													!nearlyEqual(a.volume, b.volume) ||
+													!nearlyEqual(a.pitch, b.pitch) ||
+													(a.loop != b.loop) ||
+													(a.autoPlay != b.autoPlay) ||
+													(a.spatial != b.spatial) ||
+													!nearlyEqual(a.minDistance, b.minDistance) ||
+													!nearlyEqual(a.maxDistance, b.maxDistance) ||
+													(a.busName != b.busName) ||
+													(a.eventName != b.eventName);
+											}
+
+											if (root->HasComponent<AudioListenerComponent>() != baseRoot->HasComponent<AudioListenerComponent>())
+												prefabMeta.overrideAudioListener = true;
+											else if (root->HasComponent<AudioListenerComponent>())
+											{
+												const auto& a = root->GetComponent<AudioListenerComponent>();
+												const auto& b = baseRoot->GetComponent<AudioListenerComponent>();
+												prefabMeta.overrideAudioListener = (a.isPrimary != b.isPrimary) || !nearlyEqual(a.gain, b.gain);
+											}
+
+											auto meshTrianglesEqual = [&](const std::vector<std::array<glm::vec3, 3>>& lhs, const std::vector<std::array<glm::vec3, 3>>& rhs)
+											{
+												if (lhs.size() != rhs.size())
+													return false;
+												for (size_t tri = 0; tri < lhs.size(); ++tri)
+												{
+													for (int v = 0; v < 3; ++v)
+													{
+														if (!vec3Equal(lhs[tri][v], rhs[tri][v]))
+															return false;
+													}
+												}
+												return true;
+											};
+
+											if (root->HasComponent<BoxColliderComponent>() != baseRoot->HasComponent<BoxColliderComponent>())
+												prefabMeta.overrideBoxCollider = true;
+											else if (root->HasComponent<BoxColliderComponent>())
+											{
+												const auto& a = root->GetComponent<BoxColliderComponent>();
+												const auto& b = baseRoot->GetComponent<BoxColliderComponent>();
+												prefabMeta.overrideBoxCollider = !vec3Equal(a.center, b.center) || !vec3Equal(a.halfExtents, b.halfExtents) || (a.isTrigger != b.isTrigger);
+											}
+
+											if (root->HasComponent<CapsuleColliderComponent>() != baseRoot->HasComponent<CapsuleColliderComponent>())
+												prefabMeta.overrideCapsuleCollider = true;
+											else if (root->HasComponent<CapsuleColliderComponent>())
+											{
+												const auto& a = root->GetComponent<CapsuleColliderComponent>();
+												const auto& b = baseRoot->GetComponent<CapsuleColliderComponent>();
+												prefabMeta.overrideCapsuleCollider = !vec3Equal(a.pointA, b.pointA) || !vec3Equal(a.pointB, b.pointB) || !nearlyEqual(a.radius, b.radius) || (a.isTrigger != b.isTrigger);
+											}
+
+											if (root->HasComponent<PlaneColliderComponent>() != baseRoot->HasComponent<PlaneColliderComponent>())
+												prefabMeta.overridePlaneCollider = true;
+											else if (root->HasComponent<PlaneColliderComponent>())
+											{
+												const auto& a = root->GetComponent<PlaneColliderComponent>();
+												const auto& b = baseRoot->GetComponent<PlaneColliderComponent>();
+												prefabMeta.overridePlaneCollider = !vec3Equal(a.normal, b.normal) || !nearlyEqual(a.distance, b.distance) || (a.isTrigger != b.isTrigger);
+											}
+
+											if (root->HasComponent<BoundingSphereComponent>() != baseRoot->HasComponent<BoundingSphereComponent>())
+												prefabMeta.overrideBoundingSphere = true;
+											else if (root->HasComponent<BoundingSphereComponent>())
+											{
+												const auto& a = root->GetComponent<BoundingSphereComponent>();
+												const auto& b = baseRoot->GetComponent<BoundingSphereComponent>();
+												prefabMeta.overrideBoundingSphere = !vec3Equal(a.center, b.center) || !nearlyEqual(a.radius, b.radius) || (a.isTrigger != b.isTrigger);
+											}
+
+											if (root->HasComponent<MeshColliderComponent>() != baseRoot->HasComponent<MeshColliderComponent>())
+												prefabMeta.overrideMeshCollider = true;
+											else if (root->HasComponent<MeshColliderComponent>())
+											{
+												const auto& a = root->GetComponent<MeshColliderComponent>();
+												const auto& b = baseRoot->GetComponent<MeshColliderComponent>();
+												prefabMeta.overrideMeshCollider =
+													(a.modelPath != b.modelPath) ||
+													(a.isTrigger != b.isTrigger) ||
+													!meshTrianglesEqual(a.triangles, b.triangles);
+											}
+
+											if (root->HasComponent<CharacterControllerComponent>() != baseRoot->HasComponent<CharacterControllerComponent>())
+												prefabMeta.overrideCharacterController = true;
+											else if (root->HasComponent<CharacterControllerComponent>())
+											{
+												const auto& a = root->GetComponent<CharacterControllerComponent>();
+												const auto& b = baseRoot->GetComponent<CharacterControllerComponent>();
+												prefabMeta.overrideCharacterController =
+													!nearlyEqual(a.moveSpeed, b.moveSpeed) ||
+													!nearlyEqual(a.airControl, b.airControl) ||
+													!nearlyEqual(a.jumpSpeed, b.jumpSpeed) ||
+													!nearlyEqual(a.gravityScale, b.gravityScale) ||
+													!nearlyEqual(a.maxSlopeAngleDegrees, b.maxSlopeAngleDegrees) ||
+													!nearlyEqual(a.groundSnapDistance, b.groundSnapDistance) ||
+													!nearlyEqual(a.skinWidth, b.skinWidth) ||
+													!nearlyEqual(a.maxStepHeight, b.maxStepHeight) ||
+													!nearlyEqual(a.acceleration, b.acceleration) ||
+													!nearlyEqual(a.airAcceleration, b.airAcceleration) ||
+													!nearlyEqual(a.braking, b.braking) ||
+													!nearlyEqual(a.slideGravityScale, b.slideGravityScale) ||
+													(a.enableGroundSnap != b.enableGroundSnap) ||
+													(a.orientToMovement != b.orientToMovement) ||
+													(a.animationSpeedParameter != b.animationSpeedParameter) ||
+													(a.animationGroundedParameter != b.animationGroundedParameter) ||
+													(a.animationJumpTriggerParameter != b.animationJumpTriggerParameter);
+											}
+
+											auto vec4Equal = [&](const glm::vec4& lhs, const glm::vec4& rhs)
+											{
+												return nearlyEqual(lhs.x, rhs.x) && nearlyEqual(lhs.y, rhs.y) && nearlyEqual(lhs.z, rhs.z) && nearlyEqual(lhs.w, rhs.w);
+											};
+
+											if (root->HasComponent<NavigationAgentComponent>() != baseRoot->HasComponent<NavigationAgentComponent>())
+												prefabMeta.overrideNavigationAgent = true;
+											else if (root->HasComponent<NavigationAgentComponent>())
+											{
+												const auto& a = root->GetComponent<NavigationAgentComponent>();
+												const auto& b = baseRoot->GetComponent<NavigationAgentComponent>();
+												prefabMeta.overrideNavigationAgent = !nearlyEqual(a.speed, b.speed) || !nearlyEqual(a.stoppingDistance, b.stoppingDistance);
+											}
+
+											if (root->HasComponent<TerrainComponent>() != baseRoot->HasComponent<TerrainComponent>())
+												prefabMeta.overrideTerrain = true;
+											else if (root->HasComponent<TerrainComponent>())
+											{
+												const auto& a = root->GetComponent<TerrainComponent>();
+												const auto& b = baseRoot->GetComponent<TerrainComponent>();
+												prefabMeta.overrideTerrain =
+													(a.heightmapPath != b.heightmapPath) ||
+													!nearlyEqual(a.width, b.width) ||
+													!nearlyEqual(a.depth, b.depth) ||
+													!nearlyEqual(a.heightScale, b.heightScale) ||
+													(a.resolution != b.resolution) ||
+													(a.surfaceTexturePath != b.surfaceTexturePath) ||
+													(a.shaderVertPath != b.shaderVertPath) ||
+													(a.shaderFragPath != b.shaderFragPath);
+											}
+
+											auto lodLevelsEqual = [&](const std::vector<LODComponent::Level>& lhs, const std::vector<LODComponent::Level>& rhs)
+											{
+												if (lhs.size() != rhs.size())
+													return false;
+												for (size_t i = 0; i < lhs.size(); ++i)
+												{
+													if (!nearlyEqual(lhs[i].distanceThreshold, rhs[i].distanceThreshold) || lhs[i].assetPath != rhs[i].assetPath)
+														return false;
+												}
+												return true;
+											};
+
+											if (root->HasComponent<LODComponent>() != baseRoot->HasComponent<LODComponent>())
+												prefabMeta.overrideLOD = true;
+											else if (root->HasComponent<LODComponent>())
+											{
+												const auto& a = root->GetComponent<LODComponent>();
+												const auto& b = baseRoot->GetComponent<LODComponent>();
+												prefabMeta.overrideLOD = (a.enabled != b.enabled) || !lodLevelsEqual(a.levels, b.levels);
+											}
+
+											if (root->HasComponent<ParticleEmitterComponent>() != baseRoot->HasComponent<ParticleEmitterComponent>())
+												prefabMeta.overrideParticleEmitter = true;
+											else if (root->HasComponent<ParticleEmitterComponent>())
+											{
+												const auto& a = root->GetComponent<ParticleEmitterComponent>();
+												const auto& b = baseRoot->GetComponent<ParticleEmitterComponent>();
+												prefabMeta.overrideParticleEmitter =
+													(a.maxParticles != b.maxParticles) ||
+													!nearlyEqual(a.spawnRate, b.spawnRate) ||
+													(a.emitting != b.emitting) ||
+													(a.shape != b.shape) ||
+													!nearlyEqual(a.shapeRadius, b.shapeRadius) ||
+													!vec3Equal(a.shapeExtents, b.shapeExtents) ||
+													!nearlyEqual(a.shapeHeight, b.shapeHeight) ||
+													!vec4Equal(a.colorStart, b.colorStart) ||
+													!vec4Equal(a.colorEnd, b.colorEnd) ||
+													!nearlyEqual(a.sizeStart, b.sizeStart) ||
+													!nearlyEqual(a.sizeEnd, b.sizeEnd) ||
+													!nearlyEqual(a.lifetime, b.lifetime) ||
+													!nearlyEqual(a.lifetimeVariance, b.lifetimeVariance) ||
+													!vec3Equal(a.emitDirection, b.emitDirection) ||
+													!nearlyEqual(a.emitSpeed, b.emitSpeed) ||
+													!nearlyEqual(a.emitSpeedVariance, b.emitSpeedVariance) ||
+													!nearlyEqual(a.spreadAngle, b.spreadAngle) ||
+													!vec3Equal(a.gravity, b.gravity) ||
+													(a.texturePath != b.texturePath);
+											}
+
+											prefabMeta.overrideCollisionEvents = (root->HasComponent<CollisionEventsComponent>() != baseRoot->HasComponent<CollisionEventsComponent>());
 										}
 									}
 
@@ -2011,6 +2205,19 @@ namespace MyEngine
 															prefabInstance.overrideRigidbody = sourcePrefabMeta.overrideRigidbody;
 															prefabInstance.overrideScript = sourcePrefabMeta.overrideScript;
 															prefabInstance.overrideAnimation = sourcePrefabMeta.overrideAnimation;
+															prefabInstance.overrideAudioSource = sourcePrefabMeta.overrideAudioSource;
+															prefabInstance.overrideAudioListener = sourcePrefabMeta.overrideAudioListener;
+															prefabInstance.overrideBoxCollider = sourcePrefabMeta.overrideBoxCollider;
+															prefabInstance.overrideCapsuleCollider = sourcePrefabMeta.overrideCapsuleCollider;
+															prefabInstance.overridePlaneCollider = sourcePrefabMeta.overridePlaneCollider;
+															prefabInstance.overrideBoundingSphere = sourcePrefabMeta.overrideBoundingSphere;
+															prefabInstance.overrideMeshCollider = sourcePrefabMeta.overrideMeshCollider;
+															prefabInstance.overrideCharacterController = sourcePrefabMeta.overrideCharacterController;
+															prefabInstance.overrideNavigationAgent = sourcePrefabMeta.overrideNavigationAgent;
+															prefabInstance.overrideTerrain = sourcePrefabMeta.overrideTerrain;
+															prefabInstance.overrideParticleEmitter = sourcePrefabMeta.overrideParticleEmitter;
+															prefabInstance.overrideLOD = sourcePrefabMeta.overrideLOD;
+															prefabInstance.overrideCollisionEvents = sourcePrefabMeta.overrideCollisionEvents;
 														}
 														else
 														{

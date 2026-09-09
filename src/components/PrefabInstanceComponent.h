@@ -24,4 +24,17 @@ struct PrefabInstanceComponent
 	bool overrideRigidbody = false;
 	bool overrideScript = false;
 	bool overrideAnimation = false;
+	bool overrideAudioSource = false;
+	bool overrideAudioListener = false;
+	bool overrideBoxCollider = false;
+	bool overrideCapsuleCollider = false;
+	bool overridePlaneCollider = false;
+	bool overrideBoundingSphere = false;
+	bool overrideMeshCollider = false;
+	bool overrideCharacterController = false;
+	bool overrideNavigationAgent = false;
+	bool overrideTerrain = false;
+	bool overrideParticleEmitter = false;
+	bool overrideLOD = false;
+	bool overrideCollisionEvents = false;
 };

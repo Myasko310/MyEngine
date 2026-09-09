@@ -18,6 +18,11 @@
 #include "components/LODComponent.h"
 #include "audio/AudioEngine.h"
 #include "rendering/Material.h"
+#include "systems/TerrainSystem.h"
+#include "systems/NavMeshSystem.h"
+#include "systems/PhysicsSystem.h"
+#include "components/CapsuleColliderComponent.h"
+#include "components/BoxColliderComponent.h"
 #include "core/Input.h"
 #include "core/InputActions.h"
 #include "core/AssetPipeline.h"
@@ -1792,6 +1797,374 @@ namespace
 		return true;
 	}
 
+	bool TerrainSculptingSmokeTest()
+	{
+		TerrainComponent terrain;
+		terrain.width = 40.0f;
+		terrain.depth = 40.0f;
+		terrain.heightScale = 10.0f;
+		terrain.resolution = 64;
+		terrain.heightData.assign(static_cast<size_t>(terrain.resolution) * static_cast<size_t>(terrain.resolution), 0.0f);
+
+		const glm::vec3 terrainOrigin(0.0f, 2.0f, 0.0f);
+		int minRow = 0;
+		int maxRow = 0;
+		int minCol = 0;
+		int maxCol = 0;
+		if (!TerrainSystem::ApplySculptBrush(
+			terrain,
+			terrainOrigin,
+			0.0f,
+			0.0f,
+			4.0f,
+			2.5f,
+			1.5f,
+			0.016f,
+			true,
+			TerrainBrushMode::RaiseLower,
+			0.0f,
+			&minRow,
+			&maxRow,
+			&minCol,
+			&maxCol))
+		{
+			std::cerr << "TerrainSculptingSmokeTest: raise/lower brush failed to modify terrain" << std::endl;
+			return false;
+		}
+
+		if (maxRow < minRow || maxCol < minCol)
+		{
+			std::cerr << "TerrainSculptingSmokeTest: invalid sculpt patch bounds" << std::endl;
+			return false;
+		}
+
+		const float raisedHeight = TerrainSystem::SampleHeight(terrain, 0.0f, 0.0f, terrainOrigin);
+		if (raisedHeight <= terrainOrigin.y)
+		{
+			std::cerr << "TerrainSculptingSmokeTest: sampled height did not increase after raise brush" << std::endl;
+			return false;
+		}
+
+		if (!TerrainSystem::ApplySculptBrush(
+			terrain,
+			terrainOrigin,
+			0.0f,
+			0.0f,
+			4.5f,
+			4.0f,
+			1.0f,
+			0.5f,
+			true,
+			TerrainBrushMode::Flatten,
+			terrainOrigin.y + 1.25f,
+			&minRow,
+			&maxRow,
+			&minCol,
+			&maxCol))
+		{
+			std::cerr << "TerrainSculptingSmokeTest: flatten brush failed to modify terrain" << std::endl;
+			return false;
+		}
+
+		const float flattenedHeight = TerrainSystem::SampleHeight(terrain, 0.0f, 0.0f, terrainOrigin);
+		if (!NearlyEqual(flattenedHeight, terrainOrigin.y + 1.25f, 0.2f))
+		{
+			std::cerr << "TerrainSculptingSmokeTest: flatten height target mismatch" << std::endl;
+			return false;
+		}
+
+		if (!TerrainSystem::ApplySculptBrush(
+			terrain,
+			terrainOrigin,
+			0.0f,
+			0.0f,
+			4.5f,
+			6.0f,
+			1.0f,
+			0.5f,
+			true,
+			TerrainBrushMode::Smooth,
+			0.0f,
+			&minRow,
+			&maxRow,
+			&minCol,
+			&maxCol))
+		{
+			std::cerr << "TerrainSculptingSmokeTest: smooth brush failed to modify terrain" << std::endl;
+			return false;
+		}
+
+		glm::vec3 hitPoint(0.0f);
+		if (!TerrainSystem::RaycastTerrain(terrain, terrainOrigin, glm::vec3(0.0f, 40.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), hitPoint, 100.0f))
+		{
+			std::cerr << "TerrainSculptingSmokeTest: raycast hit expected on terrain" << std::endl;
+			return false;
+		}
+		if (std::abs(hitPoint.y - TerrainSystem::SampleHeight(terrain, hitPoint.x, hitPoint.z, terrainOrigin)) > 0.08f)
+		{
+			std::cerr << "TerrainSculptingSmokeTest: raycast/sample mismatch" << std::endl;
+			return false;
+		}
+
+		return true;
+	}
+
+	bool TerrainSculptPerformanceBaselineSmokeTest()
+	{
+		TerrainComponent terrain;
+		terrain.width = 120.0f;
+		terrain.depth = 120.0f;
+		terrain.heightScale = 24.0f;
+		terrain.resolution = 128;
+		terrain.heightData.assign(static_cast<size_t>(terrain.resolution) * static_cast<size_t>(terrain.resolution), 0.0f);
+		const glm::vec3 terrainOrigin(0.0f, 0.0f, 0.0f);
+
+		int minRow = 0;
+		int maxRow = 0;
+		int minCol = 0;
+		int maxCol = 0;
+		auto start = std::chrono::high_resolution_clock::now();
+		for (int i = 0; i < 450; ++i)
+		{
+			const float x = std::sin(static_cast<float>(i) * 0.07f) * 25.0f;
+			const float z = std::cos(static_cast<float>(i) * 0.09f) * 25.0f;
+			if (!TerrainSystem::ApplySculptBrush(
+				terrain,
+				terrainOrigin,
+				x,
+				z,
+				3.5f,
+				1.75f,
+				1.5f,
+				0.016f,
+				true,
+				TerrainBrushMode::RaiseLower,
+				0.0f,
+				&minRow,
+				&maxRow,
+				&minCol,
+				&maxCol))
+			{
+				continue;
+			}
+		}
+		auto end = std::chrono::high_resolution_clock::now();
+		const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+		if (elapsedMs > 900)
+		{
+			std::cerr << "TerrainSculptPerformanceBaselineSmokeTest: terrain brush perf regression (" << elapsedMs << " ms)" << std::endl;
+			return false;
+		}
+		return true;
+	}
+
+	bool TerrainNavPhysicsIntegrationSmokeTest()
+	{
+		Scene scene;
+		const auto obstacle = scene.CreateEntity("NavObstacle");
+		obstacle->AddComponent<TransformComponent>().position = glm::vec3(0.0f, 0.0f, 0.0f);
+		auto& obstacleBox = obstacle->AddComponent<BoxColliderComponent>();
+		obstacleBox.halfExtents = glm::vec3(2.0f, 1.0f, 2.0f);
+
+		NavMeshSystem nav;
+		nav.Bake(scene, glm::vec2(-10.0f, -10.0f), glm::vec2(20.0f, 20.0f), 1.0f, 1.8f);
+		if (!nav.IsReady())
+		{
+			std::cerr << "TerrainNavPhysicsIntegrationSmokeTest: navmesh not ready after bake" << std::endl;
+			return false;
+		}
+
+		const auto pathBlocked = nav.FindPath(glm::vec3(-8.0f, 0.0f, 0.0f), glm::vec3(8.0f, 0.0f, 0.0f));
+		if (pathBlocked.empty())
+		{
+			std::cerr << "TerrainNavPhysicsIntegrationSmokeTest: blocked-scene path unexpectedly empty" << std::endl;
+			return false;
+		}
+
+		if (obstacle->HasComponent<BoxColliderComponent>())
+			obstacle->RemoveComponent<BoxColliderComponent>();
+		if (!nav.RebuildRegion(scene, glm::vec2(-3.0f, -3.0f), glm::vec2(3.0f, 3.0f)))
+		{
+			std::cerr << "TerrainNavPhysicsIntegrationSmokeTest: local navmesh rebuild failed" << std::endl;
+			return false;
+		}
+
+		const auto pathOpen = nav.FindPath(glm::vec3(-8.0f, 0.0f, 0.0f), glm::vec3(8.0f, 0.0f, 0.0f));
+		if (pathOpen.empty())
+		{
+			std::cerr << "TerrainNavPhysicsIntegrationSmokeTest: open-scene path missing after local rebuild" << std::endl;
+			return false;
+		}
+
+		const auto terrainEntity = scene.CreateEntity("TerrainProbe");
+		auto& terrainTransform = terrainEntity->AddComponent<TransformComponent>();
+		terrainTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
+		auto& terrain = terrainEntity->AddComponent<TerrainComponent>();
+		terrain.width = 20.0f;
+		terrain.depth = 20.0f;
+		terrain.heightScale = 8.0f;
+		terrain.resolution = 64;
+		terrain.heightData.assign(static_cast<size_t>(terrain.resolution) * static_cast<size_t>(terrain.resolution), 0.0f);
+		int minRow = 0;
+		int maxRow = 0;
+		int minCol = 0;
+		int maxCol = 0;
+		if (!TerrainSystem::ApplySculptBrush(terrain, terrainTransform.position, 1.5f, 0.0f, 3.0f, 2.0f, 1.0f, 0.25f, true, TerrainBrushMode::RaiseLower, 0.0f, &minRow, &maxRow, &minCol, &maxCol))
+		{
+			std::cerr << "TerrainNavPhysicsIntegrationSmokeTest: terrain sculpt failed" << std::endl;
+			return false;
+		}
+
+		const auto actor = scene.CreateEntity("ControllerActor");
+		auto& actorTransform = actor->AddComponent<TransformComponent>();
+		actorTransform.position = glm::vec3(0.0f, 1.6f, 0.0f);
+		auto& actorCapsule = actor->AddComponent<CapsuleColliderComponent>();
+		actorCapsule.pointA = glm::vec3(0.0f, 0.4f, 0.0f);
+		actorCapsule.pointB = glm::vec3(0.0f, 1.8f, 0.0f);
+		actorCapsule.radius = 0.35f;
+		auto& actorBody = actor->AddComponent<MyEngine::RigidbodyComponent>();
+		actorBody.isKinematic = true;
+		auto& controller = actor->AddComponent<MyEngine::CharacterControllerComponent>();
+		controller.moveSpeed = 3.0f;
+		controller.maxSlopeAngleDegrees = 55.0f;
+		controller.enableGroundSnap = true;
+
+		MyEngine::InputActions::RegisterDefaults();
+		MyEngine::InputActions::ActionBinding forwardBinding;
+		forwardBinding.keys = { GLFW_KEY_I };
+		MyEngine::InputActions::BindAction("MoveForward", forwardBinding);
+		MyEngine::InputActions::Update();
+
+		MyEngine::PhysicsSystem physics;
+		for (int i = 0; i < 10; ++i)
+			physics.OnUpdate(scene, 0.02f, nullptr, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+
+		if (!controller.isGrounded)
+		{
+			std::cerr << "TerrainNavPhysicsIntegrationSmokeTest: controller failed to ground on terrain" << std::endl;
+			return false;
+		}
+		if (std::abs(actorTransform.position.y - 1.6f) < 0.01f)
+		{
+			std::cerr << "TerrainNavPhysicsIntegrationSmokeTest: controller did not resolve vertical terrain support" << std::endl;
+			return false;
+		}
+
+		return true;
+	}
+
+	bool TerrainNavStabilitySoakSmokeTest()
+	{
+		Scene scene;
+
+		auto terrainEntity = scene.CreateEntity("SoakTerrain");
+		auto& terrainTransform = terrainEntity->AddComponent<TransformComponent>();
+		terrainTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
+		auto& terrain = terrainEntity->AddComponent<TerrainComponent>();
+		terrain.width = 80.0f;
+		terrain.depth = 80.0f;
+		terrain.heightScale = 12.0f;
+		terrain.resolution = 128;
+		terrain.heightData.assign(static_cast<size_t>(terrain.resolution) * static_cast<size_t>(terrain.resolution), 0.0f);
+
+		NavMeshSystem nav;
+		nav.Bake(scene, glm::vec2(-40.0f, -40.0f), glm::vec2(80.0f, 80.0f), 1.0f, 1.8f);
+		if (!nav.IsReady())
+		{
+			std::cerr << "TerrainNavStabilitySoakSmokeTest: initial navmesh bake failed" << std::endl;
+			return false;
+		}
+
+		const auto agentEntity = scene.CreateEntity("SoakAgent");
+		auto& agentTransform = agentEntity->AddComponent<TransformComponent>();
+		agentTransform.position = glm::vec3(-25.0f, 0.0f, -25.0f);
+		auto& agent = agentEntity->AddComponent<NavigationAgentComponent>();
+		agent.active = true;
+		agent.arrived = false;
+		agent.targetPosition = glm::vec3(25.0f, 0.0f, 25.0f);
+		agent.path = nav.FindPath(agentTransform.position, agent.targetPosition);
+		agent.waypointIndex = 0;
+
+		const int iterations = 220;
+		auto start = std::chrono::high_resolution_clock::now();
+		for (int i = 0; i < iterations; ++i)
+		{
+			int minRow = 0;
+			int maxRow = 0;
+			int minCol = 0;
+			int maxCol = 0;
+			const float x = std::sin(static_cast<float>(i) * 0.051f) * 18.0f;
+			const float z = std::cos(static_cast<float>(i) * 0.047f) * 18.0f;
+			const bool raise = (i % 2) == 0;
+			if (TerrainSystem::ApplySculptBrush(
+				terrain,
+				terrainTransform.position,
+				x,
+				z,
+				2.5f,
+				1.6f,
+				1.5f,
+				0.016f,
+				raise,
+				TerrainBrushMode::RaiseLower,
+				0.0f,
+				&minRow,
+				&maxRow,
+				&minCol,
+				&maxCol))
+			{
+				const float u0 = static_cast<float>(std::clamp(minCol - 1, 0, terrain.resolution - 1)) / static_cast<float>(terrain.resolution - 1);
+				const float u1 = static_cast<float>(std::clamp(maxCol + 1, 0, terrain.resolution - 1)) / static_cast<float>(terrain.resolution - 1);
+				const float v0 = static_cast<float>(std::clamp(minRow - 1, 0, terrain.resolution - 1)) / static_cast<float>(terrain.resolution - 1);
+				const float v1 = static_cast<float>(std::clamp(maxRow + 1, 0, terrain.resolution - 1)) / static_cast<float>(terrain.resolution - 1);
+				glm::vec2 regionMin(
+					terrainTransform.position.x + (u0 - 0.5f) * terrain.width,
+					terrainTransform.position.z + (v0 - 0.5f) * terrain.depth);
+				glm::vec2 regionMax(
+					terrainTransform.position.x + (u1 - 0.5f) * terrain.width,
+					terrainTransform.position.z + (v1 - 0.5f) * terrain.depth);
+				nav.RebuildRegion(scene, regionMin, regionMax);
+			}
+
+			nav.Update(scene, 0.016f);
+			if ((i % 22) == 0)
+			{
+				agent.path = nav.FindPath(agentTransform.position, agent.targetPosition);
+				agent.waypointIndex = 0;
+				agent.arrived = agent.path.empty();
+				agent.active = !agent.arrived;
+			}
+		}
+		auto end = std::chrono::high_resolution_clock::now();
+		const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+		if (elapsedMs > 2600)
+		{
+			std::cerr << "TerrainNavStabilitySoakSmokeTest: stability/perf regression (" << elapsedMs << " ms)" << std::endl;
+			return false;
+		}
+
+		if (agent.path.empty())
+		{
+			std::cerr << "TerrainNavStabilitySoakSmokeTest: path became permanently empty under terrain edits" << std::endl;
+			return false;
+		}
+
+		if (agentTransform.position.x <= -25.0f && agentTransform.position.z <= -25.0f)
+		{
+			std::cerr << "TerrainNavStabilitySoakSmokeTest: agent failed to advance during soak" << std::endl;
+			return false;
+		}
+
+		std::ofstream metrics("terrain_nav_soak_metrics.csv", std::ios::trunc);
+		if (metrics)
+		{
+			metrics << "iterations,elapsedMs,finalAgentX,finalAgentZ,pathSize\n";
+			metrics << iterations << ',' << elapsedMs << ',' << agentTransform.position.x << ',' << agentTransform.position.z << ',' << agent.path.size() << '\n';
+		}
+
+		return true;
+	}
+
 	bool RenderCommandPlumbingSmokeTest()
 	{
 		MyEngine::RenderCommandList commands;
@@ -1915,10 +2288,14 @@ int main()
 	const bool animationEventBusOk = AnimationEventBusDispatchSmokeTest();
 	const bool renderBackendSelectionOk = RenderBackendSelectionSmokeTest();
 	const bool networkingReplicationOk = NetworkingReplicationSmokeTest();
+	const bool terrainSculptingOk = TerrainSculptingSmokeTest();
+	const bool terrainPerfBaselineOk = TerrainSculptPerformanceBaselineSmokeTest();
+	const bool terrainNavPhysicsIntegrationOk = TerrainNavPhysicsIntegrationSmokeTest();
+	const bool terrainNavSoakOk = TerrainNavStabilitySoakSmokeTest();
 	const bool renderCommandPlumbingOk = RenderCommandPlumbingSmokeTest();
 	const bool materialInheritanceOk = MaterialInheritanceSmokeTest();
 
-	if (!serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !prefabVariantComputeOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !networkingReplicationOk || !renderCommandPlumbingOk || !materialInheritanceOk)
+	if (!serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !prefabVariantComputeOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !networkingReplicationOk || !terrainSculptingOk || !terrainPerfBaselineOk || !terrainNavPhysicsIntegrationOk || !terrainNavSoakOk || !renderCommandPlumbingOk || !materialInheritanceOk)
 		return 1;
 
 	std::cout << "Smoke tests passed" << std::endl;

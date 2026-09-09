@@ -32,6 +32,10 @@ public:
 	// Call once per frame with the elapsed time.
 	void Update(Scene& scene, float deltaTime);
 
+	// Rebuild only a world-space sub-region of the baked grid.
+	// Returns false if the requested region is outside the baked bounds.
+	bool RebuildRegion(Scene& scene, glm::vec2 minXZ, glm::vec2 maxXZ);
+
 	// Returns true if the grid has been baked at least once.
 	bool IsReady() const { return m_Ready; }
 

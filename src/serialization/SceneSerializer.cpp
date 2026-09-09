@@ -25,6 +25,7 @@
 #include "components/ScriptComponent.h"
 #include "components/LODComponent.h"
 #include "components/TerrainComponent.h"
+#include "components/MovingPlatformComponent.h"
 #include "components/NavigationAgentComponent.h"
 #include "components/ParticleEmitterComponent.h"
 #include "components/PrefabInstanceComponent.h"
@@ -471,6 +472,29 @@ namespace MyEngine
 					writer.Key("surfaceTexturePath"); writer.String(tc.surfaceTexturePath.c_str());
 					writer.Key("shaderVertPath");     writer.String(tc.shaderVertPath.c_str());
 					writer.Key("shaderFragPath");     writer.String(tc.shaderFragPath.c_str());
+					writer.Key("sculptEnabled");      writer.Bool(tc.sculptEnabled);
+					writer.Key("sculptBrushRadius");  writer.Double(tc.sculptBrushRadius);
+					writer.Key("sculptBrushStrength");writer.Double(tc.sculptBrushStrength);
+					writer.Key("sculptBrushFalloff"); writer.Double(tc.sculptBrushFalloff);
+					writer.Key("sculptRaise");        writer.Bool(tc.sculptRaise);
+					writer.Key("sculptBrushMode");    writer.Int(static_cast<int>(tc.sculptBrushMode));
+					writer.Key("sculptFlattenHeight");writer.Double(tc.sculptFlattenHeight);
+					writer.EndObject();
+				}
+
+				if (e->HasComponent<MovingPlatformComponent>())
+				{
+					auto& mp = e->GetComponent<MovingPlatformComponent>();
+					writer.Key("MovingPlatformComponent");
+					writer.StartObject();
+					writer.Key("type"); writer.Int(static_cast<int>(mp.type));
+					writer.Key("active"); writer.Bool(mp.active);
+					writer.Key("pingPong"); writer.Bool(mp.pingPong);
+					writer.Key("autoReturn"); writer.Bool(mp.autoReturn);
+					writer.Key("startPosition"); SerializeVec3(writer, mp.startPosition);
+					writer.Key("endPosition"); SerializeVec3(writer, mp.endPosition);
+					writer.Key("speed"); writer.Double(mp.speed);
+					writer.Key("waitTime"); writer.Double(mp.waitTime);
 					writer.EndObject();
 				}
 
@@ -1156,11 +1180,36 @@ namespace MyEngine
 					if (to.HasMember("surfaceTexturePath")) tc.surfaceTexturePath = to["surfaceTexturePath"].GetString();
 					if (to.HasMember("shaderVertPath"))     tc.shaderVertPath     = to["shaderVertPath"].GetString();
 					if (to.HasMember("shaderFragPath"))     tc.shaderFragPath     = to["shaderFragPath"].GetString();
+					if (to.HasMember("sculptEnabled"))      tc.sculptEnabled      = to["sculptEnabled"].GetBool();
+					if (to.HasMember("sculptBrushRadius"))  tc.sculptBrushRadius  = static_cast<float>(to["sculptBrushRadius"].GetDouble());
+					if (to.HasMember("sculptBrushStrength"))tc.sculptBrushStrength= static_cast<float>(to["sculptBrushStrength"].GetDouble());
+					if (to.HasMember("sculptBrushFalloff")) tc.sculptBrushFalloff = static_cast<float>(to["sculptBrushFalloff"].GetDouble());
+					if (to.HasMember("sculptRaise"))        tc.sculptRaise        = to["sculptRaise"].GetBool();
+					if (to.HasMember("sculptBrushMode") && to["sculptBrushMode"].IsInt())
+					{
+						const int brushMode = std::clamp(to["sculptBrushMode"].GetInt(), 0, 2);
+						tc.sculptBrushMode = static_cast<TerrainBrushMode>(brushMode);
+					}
+					if (to.HasMember("sculptFlattenHeight")) tc.sculptFlattenHeight = static_cast<float>(to["sculptFlattenHeight"].GetDouble());
 					if (!tc.surfaceTexturePath.empty())
 						tc.surfaceTexture = MyEngine::AssetManager::LoadTexture(tc.surfaceTexturePath);
 					if (!tc.shaderVertPath.empty() && !tc.shaderFragPath.empty())
 						tc.shader = MyEngine::AssetManager::LoadShader(tc.shaderVertPath, tc.shaderFragPath);
 					tc.dirty = true;
+				}
+
+				if (v.HasMember("MovingPlatformComponent") && v["MovingPlatformComponent"].IsObject())
+				{
+					const auto& mo = v["MovingPlatformComponent"];
+					auto& mp = ent->AddComponent<MovingPlatformComponent>();
+					if (mo.HasMember("type")) mp.type = static_cast<MyEngine::MovingPartType>(mo["type"].GetInt());
+					if (mo.HasMember("active")) mp.active = mo["active"].GetBool();
+					if (mo.HasMember("pingPong")) mp.pingPong = mo["pingPong"].GetBool();
+					if (mo.HasMember("autoReturn")) mp.autoReturn = mo["autoReturn"].GetBool();
+					if (mo.HasMember("startPosition")) mp.startPosition = DeserializeVec3(mo["startPosition"]);
+					if (mo.HasMember("endPosition")) mp.endPosition = DeserializeVec3(mo["endPosition"]);
+					if (mo.HasMember("speed")) mp.speed = static_cast<float>(mo["speed"].GetDouble());
+					if (mo.HasMember("waitTime")) mp.waitTime = static_cast<float>(mo["waitTime"].GetDouble());
 				}
 
 				if (v.HasMember("MeshRenderer") && v["MeshRenderer"].IsObject())
@@ -1772,6 +1821,7 @@ namespace MyEngine
 									COPY_COMPONENT(ScriptComponent);
 									COPY_COMPONENT(LODComponent);
 									COPY_COMPONENT(TerrainComponent);
+									COPY_COMPONENT(MovingPlatformComponent);
 									COPY_COMPONENT(NavigationAgentComponent);
 									COPY_COMPONENT(ParticleEmitterComponent);
 									COPY_COMPONENT(CollisionEventsComponent);
@@ -2070,10 +2120,15 @@ namespace MyEngine
 													(a.resolution != b.resolution) ||
 													(a.surfaceTexturePath != b.surfaceTexturePath) ||
 													(a.shaderVertPath != b.shaderVertPath) ||
-													(a.shaderFragPath != b.shaderFragPath);
-											}
+													(a.shaderFragPath != b.shaderFragPath) ||
+													(a.sculptEnabled != b.sculptEnabled) ||
+													!nearlyEqual(a.sculptBrushRadius, b.sculptBrushRadius) ||
+													!nearlyEqual(a.sculptBrushStrength, b.sculptBrushStrength) ||
+													!nearlyEqual(a.sculptBrushFalloff, b.sculptBrushFalloff) ||
+													(a.sculptRaise != b.sculptRaise);
+									}
 
-											auto lodLevelsEqual = [&](const std::vector<LODComponent::Level>& lhs, const std::vector<LODComponent::Level>& rhs)
+									auto lodLevelsEqual = [&](const std::vector<LODComponent::Level>& lhs, const std::vector<LODComponent::Level>& rhs)
 											{
 												if (lhs.size() != rhs.size())
 													return false;
@@ -2249,6 +2304,7 @@ namespace MyEngine
 									COPY_COMPONENT(ScriptComponent);
 									COPY_COMPONENT(LODComponent);
 									COPY_COMPONENT(TerrainComponent);
+									COPY_COMPONENT(MovingPlatformComponent);
 									COPY_COMPONENT(NavigationAgentComponent);
 									COPY_COMPONENT(ParticleEmitterComponent);
 									COPY_COMPONENT(CollisionEventsComponent);

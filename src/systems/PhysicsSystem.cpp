@@ -13,9 +13,11 @@
 #include "components/CollisionEventsComponent.h"
 #include "components/JointComponent.h"
 #include "components/AnimationStateMachineComponent.h"
+#include "components/TerrainComponent.h"
 #include "core/CollisionMatrix.h"
 #include "core/Input.h"
 #include "core/InputActions.h"
+#include "systems/TerrainSystem.h"
 
 #include <iostream>
 #include <algorithm>
@@ -359,15 +361,13 @@ namespace MyEngine
 		return foundHit;
 	}
 
-	bool PhysicsSystem::SweepCharacterPairs(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const
+	bool PhysicsSystem::SweepCharacterPairs(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration, glm::vec3* outSupportVelocity) const
 	{
 		if (!entity || !entity->HasComponent<TransformComponent>() || !entity->HasComponent<CapsuleColliderComponent>())
 			return false;
 
 		auto& transform = entity->GetComponent<TransformComponent>();
 		auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
-		// Character-controller capsule is authored in world units.
-		// Do not scale by visual transform scale.
 		const float radius = std::max(capsule.radius, 0.001f);
 		glm::vec3 pointA = capsule.pointA;
 		glm::vec3 pointB = capsule.pointB;
@@ -380,6 +380,7 @@ namespace MyEngine
 
 		bool foundHit = false;
 		outPenetration = 0.0f;
+		glm::vec3 bestSupportVelocity(0.0f);
 		for (const auto& other : scene.GetEntities())
 		{
 			if (!other || other.get() == entity.get() || !other->HasComponent<TransformComponent>())
@@ -435,13 +436,18 @@ namespace MyEngine
 				foundHit = true;
 				outNormal = normal;
 				outPenetration = penetration;
+				bestSupportVelocity = glm::vec3(0.0f);
+				if (other->HasComponent<RigidbodyComponent>())
+					bestSupportVelocity = other->GetComponent<RigidbodyComponent>().velocity;
 			}
 		}
 
+		if (outSupportVelocity)
+			*outSupportVelocity = bestSupportVelocity;
 		return foundHit;
 	}
 
-	bool PhysicsSystem::QueryCharacterSupport(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const
+	bool PhysicsSystem::QueryCharacterSupport(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration, glm::vec3* outSupportVelocity) const
 	{
 		glm::vec3 planeNormal(0.0f, 1.0f, 0.0f);
 		float planePenetration = 0.0f;
@@ -449,20 +455,102 @@ namespace MyEngine
 
 		glm::vec3 pairNormal(0.0f, 1.0f, 0.0f);
 		float pairPenetration = 0.0f;
-		bool hitPair = SweepCharacterPairs(scene, entity, pairNormal, pairPenetration);
+		glm::vec3 pairSupportVelocity(0.0f);
+		bool hitPair = SweepCharacterPairs(scene, entity, pairNormal, pairPenetration, &pairSupportVelocity);
 
-		if (!hitPlane && !hitPair)
-			return false;
-
-		outNormal = planeNormal;
-		outPenetration = planePenetration;
-		if (hitPair && (!hitPlane || pairPenetration > planePenetration ||
-			(std::abs(pairPenetration - planePenetration) < 0.0001f && glm::dot(pairNormal, glm::vec3(0.0f, 1.0f, 0.0f)) > glm::dot(planeNormal, glm::vec3(0.0f, 1.0f, 0.0f)))))
+		glm::vec3 terrainNormal(0.0f, 1.0f, 0.0f);
+		float terrainPenetration = 0.0f;
+		bool hitTerrain = false;
+		if (entity && entity->HasComponent<TransformComponent>() && entity->HasComponent<CapsuleColliderComponent>())
 		{
-			outNormal = pairNormal;
-			outPenetration = pairPenetration;
+			const auto& transform = entity->GetComponent<TransformComponent>();
+			const auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
+			const float radius = std::max(capsule.radius, 0.001f);
+			const float supportWorldX = transform.position.x;
+			const float supportWorldZ = transform.position.z;
+			const float supportFootY = transform.position.y + std::min(capsule.pointA.y, capsule.pointB.y) - radius;
+
+			for (const auto& other : scene.GetEntities())
+			{
+				if (!other || !other->HasComponent<TerrainComponent>())
+					continue;
+
+				const auto& terrain = other->GetComponent<TerrainComponent>();
+				if (terrain.heightData.empty() || terrain.resolution < 2)
+					continue;
+
+				glm::vec3 terrainWorldPos(0.0f);
+				if (other->HasComponent<TransformComponent>())
+					terrainWorldPos = other->GetComponent<TransformComponent>().position;
+
+				const float sampledHeight = TerrainSystem::SampleHeight(terrain, supportWorldX, supportWorldZ, terrainWorldPos);
+				const float penetration = sampledHeight - supportFootY;
+				if (penetration < -0.05f)
+					continue;
+
+				glm::vec3 sampledNormal = TerrainSystem::SampleNormal(terrain, supportWorldX, supportWorldZ, terrainWorldPos);
+				if (!hitTerrain || penetration > terrainPenetration ||
+					(std::abs(penetration - terrainPenetration) < 0.0001f && glm::dot(sampledNormal, glm::vec3(0.0f, 1.0f, 0.0f)) > glm::dot(terrainNormal, glm::vec3(0.0f, 1.0f, 0.0f))))
+				{
+					hitTerrain = true;
+					terrainNormal = sampledNormal;
+					terrainPenetration = penetration;
+				}
+			}
 		}
 
+		if (!hitPlane && !hitPair && !hitTerrain)
+			return false;
+
+		glm::vec3 chosenSupportVelocity(0.0f);
+		outNormal = planeNormal;
+		outPenetration = planePenetration;
+
+		auto preferCandidate = [&](const glm::vec3& normal, float penetration)
+		{
+			return (penetration > outPenetration) ||
+				(std::abs(penetration - outPenetration) < 0.0001f &&
+					glm::dot(normal, glm::vec3(0.0f, 1.0f, 0.0f)) > glm::dot(outNormal, glm::vec3(0.0f, 1.0f, 0.0f)));
+		};
+
+		if (!hitPlane)
+		{
+			if (hitPair)
+			{
+				outNormal = pairNormal;
+				outPenetration = pairPenetration;
+				chosenSupportVelocity = pairSupportVelocity;
+			}
+			else
+			{
+				outNormal = terrainNormal;
+				outPenetration = terrainPenetration;
+			}
+		}
+		else
+		{
+			if (hitPair && preferCandidate(pairNormal, pairPenetration))
+			{
+				outNormal = pairNormal;
+				outPenetration = pairPenetration;
+				chosenSupportVelocity = pairSupportVelocity;
+			}
+			if (hitTerrain && preferCandidate(terrainNormal, terrainPenetration))
+			{
+				outNormal = terrainNormal;
+				outPenetration = terrainPenetration;
+				chosenSupportVelocity = glm::vec3(0.0f);
+			}
+		}
+
+		if (!hitPair && hitTerrain && !hitPlane)
+		{
+			outNormal = terrainNormal;
+			outPenetration = terrainPenetration;
+		}
+
+		if (outSupportVelocity)
+			*outSupportVelocity = chosenSupportVelocity;
 		return true;
 	}
 
@@ -656,6 +744,8 @@ namespace MyEngine
 			rb.isKinematic = true;
 
 			controller.wasGrounded = controller.isGrounded;
+			const bool wasGroundedLastFrame = controller.wasGrounded;
+			const glm::vec3 previousGroundVelocity = controller.groundVelocity;
 			controller.isGrounded = false;
 			controller.isOnSteepSlope = false;
 			controller.groundNormal = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -667,18 +757,27 @@ namespace MyEngine
 
 			glm::vec3 probeNormal(0.0f, 1.0f, 0.0f);
 			float probePenetration = 0.0f;
-			bool hasSupport = QueryCharacterSupport(scene, entity, probeNormal, probePenetration);
+			glm::vec3 supportVelocity(0.0f);
+			bool hasSupport = QueryCharacterSupport(scene, entity, probeNormal, probePenetration, &supportVelocity);
 			if (!ignoreGrounding && rb.velocity.y <= 0.0f && hasSupport && IsWalkableSlope(probeNormal, controller.maxSlopeAngleDegrees))
 			{
 				controller.isGrounded = true;
 				controller.wasGrounded = true;
 				controller.groundNormal = glm::normalize(probeNormal);
+				glm::vec3 targetSupportVelocity(supportVelocity.x, 0.0f, supportVelocity.z);
+				const float supportBlend = std::clamp(dt * (wasGroundedLastFrame ? 12.0f : 18.0f), 0.0f, 1.0f);
+				controller.groundVelocity = glm::mix(previousGroundVelocity, targetSupportVelocity, supportBlend);
 				if (rb.velocity.y < 0.0f)
 					rb.velocity.y = 0.0f;
 			}
 			else if (!ignoreGrounding && rb.velocity.y <= 0.0f && hasSupport)
 			{
 				controller.isOnSteepSlope = true;
+			}
+
+			if (controller.isGrounded)
+			{
+				transform.position += controller.groundVelocity * dt;
 			}
 
 			glm::vec3 moveInput = controller.moveInput;
@@ -766,7 +865,21 @@ namespace MyEngine
 			transform.position += glm::vec3(0.0f, rb.velocity.y * dt, 0.0f);
 			ResolveCharacterOverlaps(scene, entity, controller, rb);
 
-			controller.groundVelocity = glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z);
+			if (controller.isGrounded)
+				controller.groundVelocity = glm::vec3(controller.groundVelocity.x, 0.0f, controller.groundVelocity.z);
+			else
+			{
+				glm::vec3 airVelocity = glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z);
+				if (wasGroundedLastFrame)
+				{
+					const float stepOffBlend = std::clamp(dt * 8.0f, 0.0f, 1.0f);
+					controller.groundVelocity = glm::mix(previousGroundVelocity, airVelocity, stepOffBlend);
+				}
+				else
+				{
+					controller.groundVelocity = airVelocity;
+				}
+			}
 
 			if (controller.enableGroundSnap && !controller.jumpRequested && controller.jumpUngroundedTimer <= 0.0f && rb.velocity.y <= 0.0f)
 			{
@@ -774,11 +887,15 @@ namespace MyEngine
 				transform.position -= glm::vec3(0.0f, controller.groundSnapDistance, 0.0f);
 				glm::vec3 snapNormal(0.0f, 1.0f, 0.0f);
 				float snapPenetration = 0.0f;
-				if (QueryCharacterSupport(scene, entity, snapNormal, snapPenetration) && IsWalkableSlope(snapNormal, controller.maxSlopeAngleDegrees))
+				glm::vec3 snapSupportVelocity(0.0f);
+				if (QueryCharacterSupport(scene, entity, snapNormal, snapPenetration, &snapSupportVelocity) && IsWalkableSlope(snapNormal, controller.maxSlopeAngleDegrees))
 				{
 					transform.position += snapNormal * (snapPenetration + controller.skinWidth);
 					controller.isGrounded = true;
 					controller.groundNormal = glm::normalize(snapNormal);
+					glm::vec3 snapSupportHorizontal(snapSupportVelocity.x, 0.0f, snapSupportVelocity.z);
+					const float snapBlend = std::clamp(dt * 16.0f, 0.0f, 1.0f);
+					controller.groundVelocity = glm::mix(controller.groundVelocity, snapSupportHorizontal, snapBlend);
 					controller.isOnSteepSlope = false;
 					rb.velocity.y = 0.0f;
 				}

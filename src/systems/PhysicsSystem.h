@@ -181,8 +181,8 @@ namespace MyEngine
 					);
 
 					bool SweepCharacterPlanes(const Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const;
-					bool SweepCharacterPairs(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const;
-					bool QueryCharacterSupport(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration) const;
+					bool SweepCharacterPairs(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration, glm::vec3* outSupportVelocity = nullptr) const;
+					bool QueryCharacterSupport(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration, glm::vec3* outSupportVelocity = nullptr) const;
 					bool ResolveCharacterOverlaps(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb) const;
 					bool TryStepUp(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb, const glm::vec3& horizontalDisplacement) const;
 					void UpdateControllerAnimationState(const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller) const;

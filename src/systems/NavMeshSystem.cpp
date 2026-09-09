@@ -94,6 +94,92 @@ void NavMeshSystem::Bake(Scene& scene,
 	m_Ready = true;
 }
 
+bool NavMeshSystem::RebuildRegion(Scene& scene, glm::vec2 minXZ, glm::vec2 maxXZ)
+{
+	if (!m_Ready || m_Cols <= 0 || m_Rows <= 0 || m_Grid.empty())
+		return false;
+
+	if (minXZ.x > maxXZ.x)
+		std::swap(minXZ.x, maxXZ.x);
+	if (minXZ.y > maxXZ.y)
+		std::swap(minXZ.y, maxXZ.y);
+
+	int c0 = static_cast<int>(std::floor((minXZ.x - m_Origin.x) / m_CellSize));
+	int c1 = static_cast<int>(std::floor((maxXZ.x - m_Origin.x) / m_CellSize));
+	int r0 = static_cast<int>(std::floor((minXZ.y - m_Origin.y) / m_CellSize));
+	int r1 = static_cast<int>(std::floor((maxXZ.y - m_Origin.y) / m_CellSize));
+
+	if (c1 < 0 || r1 < 0 || c0 >= m_Cols || r0 >= m_Rows)
+		return false;
+
+	c0 = std::clamp(c0, 0, m_Cols - 1);
+	c1 = std::clamp(c1, 0, m_Cols - 1);
+	r0 = std::clamp(r0, 0, m_Rows - 1);
+	r1 = std::clamp(r1, 0, m_Rows - 1);
+
+	for (int r = r0; r <= r1; ++r)
+		for (int c = c0; c <= c1; ++c)
+			m_Grid[r * m_Cols + c] = true;
+
+	for (auto& entity : scene.GetEntities())
+	{
+		if (!entity || !entity->HasComponent<TransformComponent>())
+			continue;
+
+		if (entity->HasComponent<BoxColliderComponent>())
+		{
+			auto& tc = entity->GetComponent<TransformComponent>();
+			auto& box = entity->GetComponent<BoxColliderComponent>();
+			glm::vec3 worldCenter = tc.position + box.center;
+			glm::vec3 half = box.halfExtents;
+			float minX = worldCenter.x - half.x;
+			float maxX = worldCenter.x + half.x;
+			float minZ = worldCenter.z - half.z;
+			float maxZ = worldCenter.z + half.z;
+
+			if (maxX < minXZ.x || minX > maxXZ.x || maxZ < minXZ.y || minZ > maxXZ.y)
+				continue;
+
+			int oc0 = std::clamp(static_cast<int>(std::floor((minX - m_Origin.x) / m_CellSize)), 0, m_Cols - 1);
+			int oc1 = std::clamp(static_cast<int>(std::floor((maxX - m_Origin.x) / m_CellSize)), 0, m_Cols - 1);
+			int or0 = std::clamp(static_cast<int>(std::floor((minZ - m_Origin.y) / m_CellSize)), 0, m_Rows - 1);
+			int or1 = std::clamp(static_cast<int>(std::floor((maxZ - m_Origin.y) / m_CellSize)), 0, m_Rows - 1);
+			for (int r = std::max(or0, r0); r <= std::min(or1, r1); ++r)
+				for (int c = std::max(oc0, c0); c <= std::min(oc1, c1); ++c)
+					m_Grid[r * m_Cols + c] = false;
+		}
+		else if (entity->HasComponent<BoundingSphereComponent>())
+		{
+			auto& tc = entity->GetComponent<TransformComponent>();
+			auto& bs = entity->GetComponent<BoundingSphereComponent>();
+			float cx = tc.position.x + bs.center.x;
+			float cz = tc.position.z + bs.center.z;
+			float rr = bs.radius;
+			if (cx + rr < minXZ.x || cx - rr > maxXZ.x || cz + rr < minXZ.y || cz - rr > maxXZ.y)
+				continue;
+
+			int oc0 = std::clamp(static_cast<int>(std::floor((cx - rr - m_Origin.x) / m_CellSize)), 0, m_Cols - 1);
+			int oc1 = std::clamp(static_cast<int>(std::floor((cx + rr - m_Origin.x) / m_CellSize)), 0, m_Cols - 1);
+			int or0 = std::clamp(static_cast<int>(std::floor((cz - rr - m_Origin.y) / m_CellSize)), 0, m_Rows - 1);
+			int or1 = std::clamp(static_cast<int>(std::floor((cz + rr - m_Origin.y) / m_CellSize)), 0, m_Rows - 1);
+			for (int row = std::max(or0, r0); row <= std::min(or1, r1); ++row)
+			{
+				for (int col = std::max(oc0, c0); col <= std::min(oc1, c1); ++col)
+				{
+					float wx = m_Origin.x + (col + 0.5f) * m_CellSize;
+					float wz = m_Origin.y + (row + 0.5f) * m_CellSize;
+					float dx = wx - cx;
+					float dz = wz - cz;
+					if (dx * dx + dz * dz <= rr * rr)
+						m_Grid[row * m_Cols + col] = false;
+				}
+			}
+		}
+	}
+
+	return true;
+}
+
 // ---------------------------------------------------------------------------
 // World / Cell conversion
 // ---------------------------------------------------------------------------

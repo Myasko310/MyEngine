@@ -186,6 +186,39 @@ namespace MyEngine
         glBindVertexArray(0);
     }
 
+    bool Mesh::UpdateVertexRange(size_t firstVertex, size_t vertexCount, const Vertex* vertices)
+    {
+        if (!vertices || vertexCount == 0 || firstVertex >= m_Vertices.size())
+            return false;
+
+        const size_t clampedCount = std::min(vertexCount, m_Vertices.size() - firstVertex);
+        std::copy(vertices, vertices + clampedCount, m_Vertices.begin() + static_cast<std::ptrdiff_t>(firstVertex));
+
+        glBindBuffer(GL_ARRAY_BUFFER, m_VBO);
+        glBufferSubData(
+            GL_ARRAY_BUFFER,
+            static_cast<GLintptr>(firstVertex * sizeof(Vertex)),
+            static_cast<GLsizeiptr>(clampedCount * sizeof(Vertex)),
+            vertices);
+
+        // Conservative bounds refresh after local edits.
+        if (!m_Vertices.empty())
+        {
+            glm::vec3 minV = m_Vertices[0].Position;
+            glm::vec3 maxV = m_Vertices[0].Position;
+            for (size_t i = 1; i < m_Vertices.size(); ++i)
+            {
+                const glm::vec3& p = m_Vertices[i].Position;
+                minV = glm::min(minV, p);
+                maxV = glm::max(maxV, p);
+            }
+            m_BoundingCenter = (minV + maxV) * 0.5f;
+            m_BoundingRadius = glm::length(maxV - m_BoundingCenter);
+        }
+
+        return true;
+    }
+
     void Mesh::Draw() const
     {
         glBindVertexArray(m_VAO);

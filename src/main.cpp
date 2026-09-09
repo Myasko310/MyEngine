@@ -16,6 +16,8 @@
 #include <functional>
 #include <fstream>
 #include <cmath>
+#include <deque>
+#include <future>
 #include <unordered_set>
 #include <unordered_map>
 #include <memory>
@@ -87,6 +89,8 @@
 #include "systems/TerrainSystem.h"
 #include "systems/NavMeshSystem.h"
 #include "components/TerrainComponent.h"
+#include "components/MovingPlatformComponent.h"
+#include "components/RigidbodyComponent.h"
 #include "components/NavigationAgentComponent.h"
 #include "rendering/PostProcessPipeline.h"
 #include "rendering/Skybox.h"
@@ -1371,6 +1375,209 @@ int main(int argc, char** argv)
         ));
     };
 
+    bool terrainSculptStrokeActive = false;
+    uint32_t terrainSculptStrokeEntityID = 0;
+    std::vector<float> terrainSculptBeforeHeights;
+    int terrainStrokeMinRow = std::numeric_limits<int>::max();
+    int terrainStrokeMaxRow = std::numeric_limits<int>::min();
+    int terrainStrokeMinCol = std::numeric_limits<int>::max();
+    int terrainStrokeMaxCol = std::numeric_limits<int>::min();
+    bool navMeshRebuildRequested = false;
+    bool navMeshRegionUpdatePending = false;
+    glm::vec2 navMeshRegionMinXZ(std::numeric_limits<float>::max());
+    glm::vec2 navMeshRegionMaxXZ(std::numeric_limits<float>::lowest());
+    float navMeshRebuildTimer = 0.0f;
+    static constexpr float kNavMeshRebuildDelay = 0.15f;
+    bool terrainBrushPreviewEnabled = true;
+    bool hasTerrainBrushPreviewHit = false;
+    glm::vec3 terrainBrushPreviewHitPoint(0.0f);
+    uint32_t terrainBrushPreviewEntityID = 0;
+
+    struct TerrainPatchAsyncJob
+    {
+        uint32_t entityID = 0;
+        int requestMinRow = 0;
+        int requestMaxRow = 0;
+        int requestMinCol = 0;
+        int requestMaxCol = 0;
+        std::future<TerrainSystem::TerrainMeshPatchData> future;
+    };
+
+    std::deque<TerrainPatchAsyncJob> pendingTerrainPatchJobs;
+    auto beginTerrainStroke = [&](Entity* entity, TerrainComponent& terrain)
+    {
+        if (!entity)
+            return;
+        terrainSculptStrokeActive = true;
+        terrainSculptStrokeEntityID = entity->GetID();
+        terrainSculptBeforeHeights = terrain.heightData;
+        terrainStrokeMinRow = std::numeric_limits<int>::max();
+        terrainStrokeMaxRow = std::numeric_limits<int>::min();
+        terrainStrokeMinCol = std::numeric_limits<int>::max();
+        terrainStrokeMaxCol = std::numeric_limits<int>::min();
+    };
+    auto queueTerrainPatchBounds = [&](TerrainComponent& terrain, int minRow, int maxRow, int minCol, int maxCol)
+    {
+        if (terrain.sculptPatchDirty)
+        {
+            terrain.sculptPatchMinRow = std::min(terrain.sculptPatchMinRow, minRow);
+            terrain.sculptPatchMaxRow = std::max(terrain.sculptPatchMaxRow, maxRow);
+            terrain.sculptPatchMinCol = std::min(terrain.sculptPatchMinCol, minCol);
+            terrain.sculptPatchMaxCol = std::max(terrain.sculptPatchMaxCol, maxCol);
+        }
+        else
+        {
+            terrain.sculptPatchDirty = true;
+            terrain.sculptPatchMinRow = minRow;
+            terrain.sculptPatchMaxRow = maxRow;
+            terrain.sculptPatchMinCol = minCol;
+            terrain.sculptPatchMaxCol = maxCol;
+            terrain.sculptPatchAccumulatedTime = 0.0f;
+        }
+
+        terrainStrokeMinRow = std::min(terrainStrokeMinRow, minRow);
+        terrainStrokeMaxRow = std::max(terrainStrokeMaxRow, maxRow);
+        terrainStrokeMinCol = std::min(terrainStrokeMinCol, minCol);
+        terrainStrokeMaxCol = std::max(terrainStrokeMaxCol, maxCol);
+    };
+
+    auto flushTerrainPatch = [&](Entity* entity, TerrainComponent& terrain)
+    {
+        if (!terrain.sculptPatchDirty || !entity)
+            return;
+
+        const int requestMinRow = terrain.sculptPatchMinRow;
+        const int requestMaxRow = terrain.sculptPatchMaxRow;
+        const int requestMinCol = terrain.sculptPatchMinCol;
+        const int requestMaxCol = terrain.sculptPatchMaxCol;
+        const uint32_t entityID = entity->GetID();
+        TerrainComponent terrainSnapshot = terrain;
+
+        if (entity->HasComponent<TransformComponent>())
+        {
+            const int res = std::clamp(terrain.resolution, 2, 512);
+            const auto& terrainTransform = entity->GetComponent<TransformComponent>();
+
+            auto rowToLocalZ = [&](int row)
+            {
+                return (static_cast<float>(row) / static_cast<float>(res - 1) - 0.5f) * terrain.depth;
+            };
+            auto colToLocalX = [&](int col)
+            {
+                return (static_cast<float>(col) / static_cast<float>(res - 1) - 0.5f) * terrain.width;
+            };
+
+            const int expandedMinRow = std::clamp(requestMinRow - 1, 0, res - 1);
+            const int expandedMaxRow = std::clamp(requestMaxRow + 1, 0, res - 1);
+            const int expandedMinCol = std::clamp(requestMinCol - 1, 0, res - 1);
+            const int expandedMaxCol = std::clamp(requestMaxCol + 1, 0, res - 1);
+
+            const float worldMinX = terrainTransform.position.x + colToLocalX(expandedMinCol);
+            const float worldMaxX = terrainTransform.position.x + colToLocalX(expandedMaxCol);
+            const float worldMinZ = terrainTransform.position.z + rowToLocalZ(expandedMinRow);
+            const float worldMaxZ = terrainTransform.position.z + rowToLocalZ(expandedMaxRow);
+
+            const glm::vec2 regionMin(std::min(worldMinX, worldMaxX), std::min(worldMinZ, worldMaxZ));
+            const glm::vec2 regionMax(std::max(worldMinX, worldMaxX), std::max(worldMinZ, worldMaxZ));
+            if (!navMeshRegionUpdatePending)
+            {
+                navMeshRegionUpdatePending = true;
+                navMeshRegionMinXZ = regionMin;
+                navMeshRegionMaxXZ = regionMax;
+            }
+            else
+            {
+                navMeshRegionMinXZ.x = std::min(navMeshRegionMinXZ.x, regionMin.x);
+                navMeshRegionMinXZ.y = std::min(navMeshRegionMinXZ.y, regionMin.y);
+                navMeshRegionMaxXZ.x = std::max(navMeshRegionMaxXZ.x, regionMax.x);
+                navMeshRegionMaxXZ.y = std::max(navMeshRegionMaxXZ.y, regionMax.y);
+            }
+        }
+
+        TerrainPatchAsyncJob job;
+        job.entityID = entityID;
+        job.requestMinRow = requestMinRow;
+        job.requestMaxRow = requestMaxRow;
+        job.requestMinCol = requestMinCol;
+        job.requestMaxCol = requestMaxCol;
+        job.future = std::async(std::launch::async, [terrainSnapshot, requestMinRow, requestMaxRow, requestMinCol, requestMaxCol]() mutable
+        {
+            TerrainSystem::TerrainMeshPatchData patch;
+            if (!TerrainSystem::PrepareMeshPatchData(terrainSnapshot, requestMinRow, requestMaxRow, requestMinCol, requestMaxCol, patch))
+                patch.vertices.clear();
+            return patch;
+        });
+        pendingTerrainPatchJobs.push_back(std::move(job));
+
+        terrain.sculptPatchDirty = false;
+        terrain.sculptPatchAccumulatedTime = 0.0f;
+        navMeshRebuildRequested = true;
+        navMeshRebuildTimer = kNavMeshRebuildDelay;
+    };
+
+    auto endTerrainStroke = [&](Entity* entity, TerrainComponent& terrain)
+    {
+        if (!terrainSculptStrokeActive || !entity || terrainSculptStrokeEntityID != entity->GetID())
+            return;
+        terrainSculptStrokeActive = false;
+        terrainSculptStrokeEntityID = 0;
+        flushTerrainPatch(entity, terrain);
+        navMeshRebuildRequested = true;
+        navMeshRebuildTimer = kNavMeshRebuildDelay;
+        if (terrainSculptBeforeHeights.empty() || terrain.heightData.empty() || terrainSculptBeforeHeights.size() != terrain.heightData.size())
+        {
+            terrainSculptBeforeHeights.clear();
+            terrainStrokeMinRow = std::numeric_limits<int>::max();
+            terrainStrokeMaxRow = std::numeric_limits<int>::min();
+            terrainStrokeMinCol = std::numeric_limits<int>::max();
+            terrainStrokeMaxCol = std::numeric_limits<int>::min();
+            return;
+        }
+
+        std::vector<EditorUndo::TerrainHeightDelta> deltas;
+        const int res = std::clamp(terrain.resolution, 2, 512);
+        const int minRow = std::clamp(terrainStrokeMinRow, 0, res - 1);
+        const int maxRow = std::clamp(terrainStrokeMaxRow, 0, res - 1);
+        const int minCol = std::clamp(terrainStrokeMinCol, 0, res - 1);
+        const int maxCol = std::clamp(terrainStrokeMaxCol, 0, res - 1);
+
+        if (terrainStrokeMinRow <= terrainStrokeMaxRow && terrainStrokeMinCol <= terrainStrokeMaxCol)
+        {
+            for (int row = minRow; row <= maxRow; ++row)
+            {
+                for (int col = minCol; col <= maxCol; ++col)
+                {
+                    const size_t idx = static_cast<size_t>(row) * static_cast<size_t>(res) + static_cast<size_t>(col);
+                    if (idx >= terrain.heightData.size() || idx >= terrainSculptBeforeHeights.size())
+                        continue;
+
+                    const float before = terrainSculptBeforeHeights[idx];
+                    const float after = terrain.heightData[idx];
+                    if (std::abs(before - after) < 1e-6f)
+                        continue;
+
+                    EditorUndo::TerrainHeightDelta delta;
+                    delta.row = row;
+                    delta.col = col;
+                    delta.before = before;
+                    delta.after = after;
+                    deltas.push_back(delta);
+                }
+            }
+        }
+
+        if (!deltas.empty())
+        {
+            undoStack.Push(std::make_unique<EditorUndo::TerrainPatchDeltaCommand>(entity->GetID(), res, deltas));
+        }
+
+        terrainSculptBeforeHeights.clear();
+        terrainStrokeMinRow = std::numeric_limits<int>::max();
+        terrainStrokeMaxRow = std::numeric_limits<int>::min();
+        terrainStrokeMinCol = std::numeric_limits<int>::max();
+        terrainStrokeMaxCol = std::numeric_limits<int>::min();
+    };
+
     // Compares a prefab instance against its source prefab and reports changed fields.
     auto describePrefabOverrides = [&](Entity* entity) -> std::vector<std::string>
     {
@@ -1715,6 +1922,13 @@ int main(int argc, char** argv)
             if (current.surfaceTexturePath != original.surfaceTexturePath) { addOverride("Terrain: Surface Texture"); hasTerrainOverride = true; }
             if (current.shaderVertPath != original.shaderVertPath) { addOverride("Terrain: Shader Vert"); hasTerrainOverride = true; }
             if (current.shaderFragPath != original.shaderFragPath) { addOverride("Terrain: Shader Frag"); hasTerrainOverride = true; }
+            if (current.sculptEnabled != original.sculptEnabled) { addOverride("Terrain: Sculpt Enabled"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.sculptBrushRadius, original.sculptBrushRadius)) { addOverride("Terrain: Sculpt Radius"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.sculptBrushStrength, original.sculptBrushStrength)) { addOverride("Terrain: Sculpt Strength"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.sculptBrushFalloff, original.sculptBrushFalloff)) { addOverride("Terrain: Sculpt Falloff"); hasTerrainOverride = true; }
+            if (current.sculptRaise != original.sculptRaise) { addOverride("Terrain: Sculpt Raise"); hasTerrainOverride = true; }
+            if (current.sculptBrushMode != original.sculptBrushMode) { addOverride("Terrain: Sculpt Brush Mode"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.sculptFlattenHeight, original.sculptFlattenHeight)) { addOverride("Terrain: Sculpt Flatten Height"); hasTerrainOverride = true; }
         }
         prefab.overrideTerrain = hasTerrainOverride;
 
@@ -2825,7 +3039,16 @@ int main(int argc, char** argv)
             bool allowUndoShortcuts = true;
 #endif
             bool ctrlDown = Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL) || Input::IsKeyDown(GLFW_KEY_RIGHT_CONTROL);
+            bool shiftDown = Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT) || Input::IsKeyDown(GLFW_KEY_RIGHT_SHIFT);
             if (allowUndoShortcuts && ctrlDown)
+            {
+                if (Input::IsKeyPressed(GLFW_KEY_Z))
+                    undoStack.Undo(scene);
+                if (Input::IsKeyPressed(GLFW_KEY_Y))
+                    undoStack.Redo(scene);
+            }
+
+            if (allowUndoShortcuts && shiftDown)
             {
                 if (Input::IsKeyPressed(GLFW_KEY_Z))
                     undoStack.Undo(scene);
@@ -2953,6 +3176,71 @@ int main(int argc, char** argv)
                     break;
                 }
             }
+
+        if (isPlaying)
+        {
+            for (auto& e : scene.GetEntities())
+            {
+                if (!e || !e->HasComponent<MovingPlatformComponent>() || !e->HasComponent<TransformComponent>())
+                    continue;
+
+                auto& mover = e->GetComponent<MovingPlatformComponent>();
+                auto& transform = e->GetComponent<TransformComponent>();
+                if (!mover.active)
+                {
+                    mover.velocity = glm::vec3(0.0f);
+                    continue;
+                }
+
+                if (!mover.initialized)
+                {
+                    if (mover.startPosition == glm::vec3(0.0f))
+                        mover.startPosition = transform.position;
+                    mover.lastPosition = transform.position;
+                    mover.initialized = true;
+                }
+
+                const glm::vec3 from = mover.direction >= 0 ? mover.startPosition : mover.endPosition;
+                const glm::vec3 to = mover.direction >= 0 ? mover.endPosition : mover.startPosition;
+                const float pathLength = std::max(glm::length(to - from), 0.001f);
+                const float step = (mover.speed / pathLength) * deltaTime;
+
+                if (mover.waitTimer > 0.0f)
+                {
+                    mover.waitTimer = std::max(0.0f, mover.waitTimer - deltaTime);
+                }
+                else
+                {
+                    mover.currentLerp += step;
+                    if (mover.currentLerp >= 1.0f)
+                    {
+                        mover.currentLerp = 1.0f;
+                        transform.position = to;
+                        if (mover.pingPong)
+                            mover.direction *= -1;
+                        else if (mover.autoReturn)
+                            mover.direction = -1;
+                        mover.currentLerp = 0.0f;
+                        mover.waitTimer = std::max(0.0f, mover.waitTime);
+                    }
+                    else
+                    {
+                        transform.position = glm::mix(from, to, mover.currentLerp);
+                    }
+                }
+
+                mover.velocity = (transform.position - mover.lastPosition) / std::max(deltaTime, 0.0001f);
+                mover.lastPosition = transform.position;
+
+                if (e->HasComponent<RigidbodyComponent>())
+                {
+                    auto& rb = e->GetComponent<RigidbodyComponent>();
+                    rb.isKinematic = true;
+                    rb.useGravity = false;
+                    rb.velocity = mover.velocity;
+                }
+            }
+        }
 
         // Keep point/spot light world position in sync with their entity's
         // transform so moving the light via the gizmo or parenting hierarchy
@@ -3239,6 +3527,50 @@ int main(int argc, char** argv)
         audioSystem.Update(scene, deltaTime);
         scriptSystem.SetGlobalScripts(globalScripts);
         scriptSystem.OnUpdate(scene, deltaTime);
+
+        if (!pendingTerrainPatchJobs.empty())
+        {
+            auto& job = pendingTerrainPatchJobs.front();
+            if (job.future.valid() && job.future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
+            {
+                TerrainSystem::TerrainMeshPatchData patch = job.future.get();
+                auto targetEntity = scene.GetEntityByID(job.entityID);
+                if (targetEntity && targetEntity->HasComponent<TerrainComponent>())
+                {
+                    auto& terrain = targetEntity->GetComponent<TerrainComponent>();
+                    bool uploaded = false;
+                    if (!patch.vertices.empty())
+                        uploaded = TerrainSystem::ApplyMeshPatchData(terrain, patch);
+                    if (!uploaded)
+                        TerrainSystem::RebuildMesh(terrain);
+                }
+                pendingTerrainPatchJobs.pop_front();
+            }
+        }
+
+        if (navMeshRebuildRequested)
+        {
+            navMeshRebuildTimer -= deltaTime;
+            if (navMeshRebuildTimer <= 0.0f)
+            {
+                bool rebuiltRegion = false;
+                if (navMeshRegionUpdatePending && navMeshSystem.IsReady())
+                {
+                    rebuiltRegion = navMeshSystem.RebuildRegion(scene, navMeshRegionMinXZ, navMeshRegionMaxXZ);
+                }
+                if (!rebuiltRegion)
+                {
+                    navMeshSystem.Bake(scene);
+                }
+
+                navMeshRebuildRequested = false;
+                navMeshRegionUpdatePending = false;
+                navMeshRegionMinXZ = glm::vec2(std::numeric_limits<float>::max());
+                navMeshRegionMaxXZ = glm::vec2(std::numeric_limits<float>::lowest());
+                navMeshRebuildTimer = 0.0f;
+            }
+        }
+
         navMeshSystem.Update(scene, deltaTime);
 
         glm::mat4 view = cameraSystem.GetViewMatrix();
@@ -4324,7 +4656,11 @@ int main(int argc, char** argv)
                             if (ImGui::DragInt("Resolution##terrain", &terrain.resolution, 1.0f, 2, 512))
                                 dimsChanged = true;
                             if (dimsChanged)
+                            {
                                 terrain.dirty = true;
+                                navMeshRebuildRequested = true;
+                                navMeshRebuildTimer = kNavMeshRebuildDelay;
+                            }
 
                             // Surface texture picker
                             ImGui::Separator();
@@ -4345,10 +4681,45 @@ int main(int argc, char** argv)
                                 }
                             }
 
+                            // Sculpt controls
+                            ImGui::Separator();
+                            ImGui::Checkbox("Enable Sculpt##terrain", &terrain.sculptEnabled);
+                            ImGui::DragFloat("Brush Radius##terrain", &terrain.sculptBrushRadius, 0.1f, 0.25f, 100.0f);
+                            ImGui::DragFloat("Brush Strength##terrain", &terrain.sculptBrushStrength, 0.01f, 0.01f, 10.0f);
+                            ImGui::DragFloat("Brush Falloff##terrain", &terrain.sculptBrushFalloff, 0.01f, 0.1f, 8.0f);
+                            const char* terrainBrushModes[] = { "Raise/Lower", "Smooth", "Flatten" };
+                            int terrainBrushMode = static_cast<int>(terrain.sculptBrushMode);
+                            if (ImGui::Combo("Brush Mode##terrain", &terrainBrushMode, terrainBrushModes, IM_ARRAYSIZE(terrainBrushModes)))
+                                terrain.sculptBrushMode = static_cast<TerrainBrushMode>(std::clamp(terrainBrushMode, 0, 2));
+                            if (terrain.sculptBrushMode == TerrainBrushMode::RaiseLower)
+                            {
+                                ImGui::Checkbox("Raise (uncheck = lower)##terrain", &terrain.sculptRaise);
+                            }
+                            else if (terrain.sculptBrushMode == TerrainBrushMode::Flatten)
+                            {
+                                ImGui::DragFloat("Flatten Height##terrain", &terrain.sculptFlattenHeight, 0.1f, -2000.0f, 2000.0f);
+                                if (selectedEntity->HasComponent<TransformComponent>() && ImGui::Button("Set Flatten Height From Cursor##terrain"))
+                                {
+                                    terrain.sculptFlattenHeight = terrainBrushPreviewHitPoint.y;
+                                }
+                            }
+                            ImGui::Checkbox("Brush Preview##terrain", &terrainBrushPreviewEnabled);
+                            if (terrain.sculptEnabled)
+                            {
+                                ImGui::TextDisabled("Hold left mouse on terrain to sculpt at cursor ray hit.");
+                                ImGui::TextDisabled("Shift+Z Undo Sculpt | Shift+Y Redo Sculpt");
+                                if (!selectedEntity->HasComponent<TransformComponent>())
+                                    ImGui::TextDisabled("Terrain needs TransformComponent for sculpting.");
+                            }
+
                             // Rebuild button
                             ImGui::Separator();
                             if (ImGui::Button("Rebuild Terrain Mesh"))
+                            {
                                 TerrainSystem::RebuildMesh(terrain);
+                                navMeshRebuildRequested = true;
+                                navMeshRebuildTimer = kNavMeshRebuildDelay;
+                            }
 
                             ImGui::SameLine();
                             if (ImGui::Button("Remove Terrain Component"))
@@ -4361,6 +4732,56 @@ int main(int argc, char** argv)
                         {
                             auto& t = selectedEntity->AddComponent<TerrainComponent>();
                             t.dirty = true;
+                        }
+                    }
+
+                    // ---------------------------------------------------
+                    // Moving Platform Component
+                    // ---------------------------------------------------
+                    if (selectedEntity->HasComponent<MovingPlatformComponent>())
+                    {
+                        auto& moving = selectedEntity->GetComponent<MovingPlatformComponent>();
+                        if (ImGui::CollapsingHeader("Moving Platform", ImGuiTreeNodeFlags_DefaultOpen))
+                        {
+                            const char* movingTypes[] = { "Platform", "Door", "Elevator" };
+                            int movingType = static_cast<int>(moving.type);
+                            if (ImGui::Combo("Type##moving", &movingType, movingTypes, IM_ARRAYSIZE(movingTypes)))
+                                moving.type = static_cast<MyEngine::MovingPartType>(movingType);
+                            ImGui::Checkbox("Active##moving", &moving.active);
+                            ImGui::Checkbox("Ping Pong##moving", &moving.pingPong);
+                            ImGui::Checkbox("Auto Return##moving", &moving.autoReturn);
+                            ImGui::DragFloat3("Start##moving", &moving.startPosition.x, 0.05f);
+                            ImGui::DragFloat3("End##moving", &moving.endPosition.x, 0.05f);
+                            ImGui::DragFloat("Speed##moving", &moving.speed, 0.05f, 0.0f, 50.0f);
+                            ImGui::DragFloat("Wait Time##moving", &moving.waitTime, 0.01f, 0.0f, 10.0f);
+                            ImGui::Text("Velocity: %.2f %.2f %.2f", moving.velocity.x, moving.velocity.y, moving.velocity.z);
+
+                            if (selectedEntity->HasComponent<TransformComponent>())
+                            {
+                                auto& tr = selectedEntity->GetComponent<TransformComponent>();
+                                if (ImGui::Button("Use Current As Start##moving"))
+                                    moving.startPosition = tr.position;
+                                ImGui::SameLine();
+                                if (ImGui::Button("Use Current As End##moving"))
+                                    moving.endPosition = tr.position;
+                            }
+
+                            if (ImGui::Button("Remove Moving Platform Component"))
+                                selectedEntity->RemoveComponent<MovingPlatformComponent>();
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui::Button("Add Moving Platform Component"))
+                        {
+                            auto& moving = selectedEntity->AddComponent<MovingPlatformComponent>();
+                            if (selectedEntity->HasComponent<TransformComponent>())
+                            {
+                                const auto& tr = selectedEntity->GetComponent<TransformComponent>();
+                                moving.startPosition = tr.position;
+                                moving.endPosition = tr.position + glm::vec3(0.0f, 3.0f, 0.0f);
+                                moving.lastPosition = tr.position;
+                            }
                         }
                     }
 
@@ -7388,53 +7809,131 @@ int main(int argc, char** argv)
             bool overGizmo = false;
 #endif
 
-            // Only pick with left click when the mouse is free (not driving the fly camera)
+            // Only interact with left click when the mouse is free (not driving the fly camera)
             // and ImGui/the gizmo isn't already handling the click.
-            if (!imguiWantsMouse && !overGizmo && !Input::IsMouseCaptured() &&
-                Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT))
+            if (!imguiWantsMouse && !overGizmo && !Input::IsMouseCaptured())
             {
                 double mouseX = 0.0, mouseY = 0.0;
                 glfwGetCursorPos(window, &mouseX, &mouseY);
-
                 Ray ray = ScreenPointToRay(mouseX, mouseY, g_WindowWidth, g_WindowHeight, view, projection);
 
-                Entity* closestEntity = nullptr;
-                float closestDistance = std::numeric_limits<float>::max();
+                hasTerrainBrushPreviewHit = false;
+                terrainBrushPreviewEntityID = 0;
 
-                for (auto& entity : scene.GetEntities())
+                bool sculptedThisFrame = false;
+                bool attemptedSculptStroke = false;
+                if (selectedEntity && selectedEntity->HasComponent<TerrainComponent>() && selectedEntity->HasComponent<TransformComponent>())
                 {
-                    if (!entity || !entity->HasComponent<TransformComponent>())
-                        continue;
+                    auto& terrain = selectedEntity->GetComponent<TerrainComponent>();
+                    const auto& terrainTransform = selectedEntity->GetComponent<TransformComponent>();
 
-                    auto& transform = entity->GetComponent<TransformComponent>();
-                    glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
-                    float hitDistance = 0.0f;
-                    bool hit = false;
-
-                    if (entity->HasComponent<BoxColliderComponent>())
+                    if (terrain.sculptEnabled)
                     {
-                        auto& box = entity->GetComponent<BoxColliderComponent>();
-                        glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(box.center, 1.0f));
-                        glm::vec3 worldHalfExtents = box.halfExtents * transform.scale;
-                        hit = RayIntersectsAABB(ray, worldCenter, worldHalfExtents, hitDistance);
+                        glm::vec3 hitPoint(0.0f);
+                        if (TerrainSystem::RaycastTerrain(
+                            terrain,
+                            terrainTransform.position,
+                            ray.origin,
+                            ray.direction,
+                            hitPoint,
+                            2000.0f))
+                        {
+                            hasTerrainBrushPreviewHit = true;
+                            terrainBrushPreviewHitPoint = hitPoint;
+                            terrainBrushPreviewEntityID = selectedEntity->GetID();
+
+                            if (Input::IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT))
+                            {
+                                attemptedSculptStroke = true;
+                                if (!terrainSculptStrokeActive)
+                                    beginTerrainStroke(selectedEntity, terrain);
+
+                                int minRow = 0, maxRow = 0, minCol = 0, maxCol = 0;
+                                if (TerrainSystem::ApplySculptBrush(
+                                    terrain,
+                                    terrainTransform.position,
+                                    hitPoint.x,
+                                    hitPoint.z,
+                                    terrain.sculptBrushRadius,
+                                    terrain.sculptBrushStrength,
+                                    terrain.sculptBrushFalloff,
+                                    std::max(deltaTime, 0.016f),
+                                    terrain.sculptRaise,
+                                    terrain.sculptBrushMode,
+                                    terrain.sculptFlattenHeight,
+                                    &minRow,
+                                    &maxRow,
+                                    &minCol,
+                                    &maxCol))
+                                {
+                                    queueTerrainPatchBounds(terrain, minRow, maxRow, minCol, maxCol);
+                                    terrain.sculptPatchAccumulatedTime += deltaTime;
+                                    if (terrain.sculptPatchAccumulatedTime >= std::max(terrain.sculptPatchCommitInterval, 0.005f))
+                                        flushTerrainPatch(selectedEntity, terrain);
+                                    sculptedThisFrame = true;
+                                }
+                            }
+                        }
                     }
-                    else if (entity->HasComponent<BoundingSphereComponent>())
-                    {
-                        auto& sphere = entity->GetComponent<BoundingSphereComponent>();
-                        glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(sphere.center, 1.0f));
-                        float maxScale = std::max({ transform.scale.x, transform.scale.y, transform.scale.z });
-                        float worldRadius = sphere.radius * maxScale;
-                        hit = RayIntersectsSphere(ray, worldCenter, worldRadius, hitDistance);
-                    }
 
-                    if (hit && hitDistance < closestDistance)
+                    if (terrainSculptStrokeActive && Input::IsMouseButtonReleased(GLFW_MOUSE_BUTTON_LEFT))
                     {
-                        closestDistance = hitDistance;
-                        closestEntity = entity.get();
+                        endTerrainStroke(selectedEntity, terrain);
                     }
                 }
+                else if (terrainSculptStrokeActive && Input::IsMouseButtonReleased(GLFW_MOUSE_BUTTON_LEFT))
+                {
+                    if (selectedEntity && selectedEntity->HasComponent<TerrainComponent>())
+                    {
+                        auto& terrain = selectedEntity->GetComponent<TerrainComponent>();
+                        if (terrain.sculptPatchDirty)
+                            flushTerrainPatch(selectedEntity, terrain);
+                    }
+                    terrainSculptStrokeActive = false;
+                    terrainSculptStrokeEntityID = 0;
+                    terrainSculptBeforeHeights.clear();
+                }
 
-                selectedEntity = closestEntity;
+                if (!sculptedThisFrame && !attemptedSculptStroke && Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT))
+                {
+                    Entity* closestEntity = nullptr;
+                    float closestDistance = std::numeric_limits<float>::max();
+
+                    for (auto& entity : scene.GetEntities())
+                    {
+                        if (!entity || !entity->HasComponent<TransformComponent>())
+                            continue;
+
+                        auto& transform = entity->GetComponent<TransformComponent>();
+                        glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
+                        float hitDistance = 0.0f;
+                        bool hit = false;
+
+                        if (entity->HasComponent<BoxColliderComponent>())
+                        {
+                            auto& box = entity->GetComponent<BoxColliderComponent>();
+                            glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(box.center, 1.0f));
+                            glm::vec3 worldHalfExtents = box.halfExtents * transform.scale;
+                            hit = RayIntersectsAABB(ray, worldCenter, worldHalfExtents, hitDistance);
+                        }
+                        else if (entity->HasComponent<BoundingSphereComponent>())
+                        {
+                            auto& sphere = entity->GetComponent<BoundingSphereComponent>();
+                            glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(sphere.center, 1.0f));
+                            float maxScale = std::max({ transform.scale.x, transform.scale.y, transform.scale.z });
+                            float worldRadius = sphere.radius * maxScale;
+                            hit = RayIntersectsSphere(ray, worldCenter, worldRadius, hitDistance);
+                        }
+
+                        if (hit && hitDistance < closestDistance)
+                        {
+                            closestDistance = hitDistance;
+                            closestEntity = entity.get();
+                        }
+                    }
+
+                    selectedEntity = closestEntity;
+                }
             }
         }
 
@@ -7557,6 +8056,24 @@ int main(int argc, char** argv)
                 auto skeleton = selectedEntity->GetComponent<SkeletonComponent>().skeleton;
                 if (MyEngine::AssetManager::ComputeCharacterCapsuleFromSkeleton(skeleton, fitA, fitB, fitRadius))
                     drawCapsuleOverlay(fitA, fitB, fitRadius, IM_COL32(80, 255, 120, 255), "Auto-Fit Capsule");
+            }
+
+            if (terrainBrushPreviewEnabled && hasTerrainBrushPreviewHit && selectedEntity->HasComponent<TerrainComponent>() && selectedEntity->GetID() == terrainBrushPreviewEntityID)
+            {
+                const auto& terrain = selectedEntity->GetComponent<TerrainComponent>();
+                const float radiusWorld = std::max(terrain.sculptBrushRadius, 0.1f);
+                glm::vec3 radiusOffset = overlayRight * radiusWorld;
+                ImVec2 centerScreen;
+                ImVec2 radiusScreen;
+                if (ProjectWorldPointToScreen(terrainBrushPreviewHitPoint, view, projection, windowW, windowH, centerScreen) &&
+                    ProjectWorldPointToScreen(terrainBrushPreviewHitPoint + radiusOffset, view, projection, windowW, windowH, radiusScreen))
+                {
+                    float radiusPixels = std::sqrt((radiusScreen.x - centerScreen.x) * (radiusScreen.x - centerScreen.x) + (radiusScreen.y - centerScreen.y) * (radiusScreen.y - centerScreen.y));
+                    radiusPixels = std::max(radiusPixels, 5.0f);
+                    ImU32 previewColor = IM_COL32(255, 196, 64, 220);
+                    overlayDrawList->AddCircle(centerScreen, radiusPixels, previewColor, 48, 2.0f);
+                    overlayDrawList->AddCircleFilled(centerScreen, 3.0f, previewColor);
+                }
             }
 
             if (selectedEntity->HasComponent<AnimationStateMachineComponent>())

@@ -9,12 +9,14 @@
 #include "ecs/Entity.h"
 #include "ecs/TransformHierarchy.h"
 #include "components/TransformComponent.h"
+#include "components/TerrainComponent.h"
 #include "core/AssetManager.h"
 #include "rendering/Material.h"
 #include "rendering/Shader.h"
 #include "rendering/Texture.h"
 #include "serialization/SceneSerializer.h"
 #include "systems/ScriptSystem.h"
+#include "systems/TerrainSystem.h"
 
 // Minimal editor undo/redo stack.
 // Currently supports transform edits (gizmo/inspector drags); the command
@@ -53,6 +55,78 @@ namespace EditorUndo
 		uint32_t m_EntityID;
 		TransformComponent m_Before;
 		TransformComponent m_After;
+	};
+
+	struct TerrainHeightDelta
+	{
+		int row = 0;
+		int col = 0;
+		float before = 0.0f;
+		float after = 0.0f;
+	};
+
+	class TerrainPatchDeltaCommand : public Command
+	{
+	public:
+		TerrainPatchDeltaCommand(uint32_t entityID, int resolution, const std::vector<TerrainHeightDelta>& deltas)
+			: m_EntityID(entityID), m_Resolution(resolution), m_Deltas(deltas)
+		{
+		}
+
+		void Undo(Scene& scene) override { Apply(scene, true); }
+		void Redo(Scene& scene) override { Apply(scene, false); }
+
+	private:
+		void Apply(Scene& scene, bool useBefore)
+		{
+			auto entity = TransformHierarchy::FindEntityByID(scene, m_EntityID);
+			if (!entity || !entity->HasComponent<TerrainComponent>())
+				return;
+
+			auto& terrain = entity->GetComponent<TerrainComponent>();
+			const int res = std::clamp(terrain.resolution, 2, 512);
+			if (res != m_Resolution || terrain.heightData.size() != static_cast<size_t>(res) * static_cast<size_t>(res))
+			{
+				TerrainSystem::RebuildMesh(terrain);
+				return;
+			}
+
+			if (m_Deltas.empty())
+				return;
+
+			int minRow = res - 1;
+			int maxRow = 0;
+			int minCol = res - 1;
+			int maxCol = 0;
+			bool changed = false;
+			for (const auto& delta : m_Deltas)
+			{
+				if (delta.row < 0 || delta.row >= res || delta.col < 0 || delta.col >= res)
+					continue;
+
+				const size_t index = static_cast<size_t>(delta.row) * static_cast<size_t>(res) + static_cast<size_t>(delta.col);
+				const float target = useBefore ? delta.before : delta.after;
+				if (std::abs(terrain.heightData[index] - target) < 1e-6f)
+					continue;
+				terrain.heightData[index] = target;
+				minRow = std::min(minRow, delta.row);
+				maxRow = std::max(maxRow, delta.row);
+				minCol = std::min(minCol, delta.col);
+				maxCol = std::max(maxCol, delta.col);
+				changed = true;
+			}
+
+			if (!changed)
+				return;
+
+			terrain.dirty = true;
+			if (!TerrainSystem::RebuildMeshPatch(terrain, minRow, maxRow, minCol, maxCol))
+				TerrainSystem::RebuildMesh(terrain);
+		}
+
+		uint32_t m_EntityID = 0;
+		int m_Resolution = 0;
+		std::vector<TerrainHeightDelta> m_Deltas;
 	};
 
 	class SceneStateCommand : public Command
@@ -109,7 +183,6 @@ namespace EditorUndo
 		Entity** m_SelectedEntity = nullptr;
 		std::shared_ptr<Entity>* m_PlayerEntity = nullptr;
 	};
-
 	class GlobalScriptsCommand : public Command
 	{
 	public:

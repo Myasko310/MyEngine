@@ -55,6 +55,9 @@ namespace MyEngine
 
         void Draw() const;
 
+        // Updates a contiguous vertex range in CPU + GPU buffers.
+        bool UpdateVertexRange(size_t firstVertex, size_t vertexCount, const Vertex* vertices);
+
         unsigned int GetVAO() const { return m_VAO; }
         unsigned int GetIndexCount() const { return m_IndexCount; }
 

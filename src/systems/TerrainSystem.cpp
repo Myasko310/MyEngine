@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -126,17 +127,19 @@ void TerrainSystem::RebuildMesh(TerrainComponent& terrain)
 }
 
 float TerrainSystem::SampleHeight(const TerrainComponent& terrain,
-								   float worldX, float worldZ)
+								   float worldX, float worldZ,
+								   const glm::vec3& terrainWorldPosition)
 {
 	if (terrain.heightData.empty() || terrain.resolution < 2)
 		return 0.0f;
 
 	int res = terrain.resolution;
-	// Convert world-space to [0,1] UV
-	float u = (worldX / terrain.width)  + 0.5f;
-	float v = (worldZ / terrain.depth)  + 0.5f;
+	const float localX = worldX - terrainWorldPosition.x;
+	const float localZ = worldZ - terrainWorldPosition.z;
+	float u = (localX / terrain.width) + 0.5f;
+	float v = (localZ / terrain.depth) + 0.5f;
 	if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f)
-		return 0.0f;
+		return terrainWorldPosition.y;
 
 	float col = u * (res - 1);
 	float row = v * (res - 1);
@@ -154,7 +157,359 @@ float TerrainSystem::SampleHeight(const TerrainComponent& terrain,
 			+ h10 * fc       * (1 - fr)
 			+ h01 * (1 - fc) * fr
 			+ h11 * fc       * fr;
-	return h * terrain.heightScale;
+	return terrainWorldPosition.y + h * terrain.heightScale;
+}
+
+glm::vec3 TerrainSystem::SampleNormal(const TerrainComponent& terrain,
+								   float worldX, float worldZ,
+								   const glm::vec3& terrainWorldPosition)
+{
+	if (terrain.heightData.empty() || terrain.resolution < 2)
+		return glm::vec3(0.0f, 1.0f, 0.0f);
+
+	const float stepX = std::max(terrain.width / static_cast<float>(terrain.resolution - 1), 0.001f);
+	const float stepZ = std::max(terrain.depth / static_cast<float>(terrain.resolution - 1), 0.001f);
+	const float hL = SampleHeight(terrain, worldX - stepX, worldZ, terrainWorldPosition);
+	const float hR = SampleHeight(terrain, worldX + stepX, worldZ, terrainWorldPosition);
+	const float hD = SampleHeight(terrain, worldX, worldZ - stepZ, terrainWorldPosition);
+	const float hU = SampleHeight(terrain, worldX, worldZ + stepZ, terrainWorldPosition);
+	glm::vec3 n = glm::normalize(glm::vec3(hL - hR, 2.0f * std::max(stepX, stepZ), hD - hU));
+	if (glm::length(n) < 0.0001f)
+		return glm::vec3(0.0f, 1.0f, 0.0f);
+	return n;
+}
+
+bool TerrainSystem::RaycastTerrain(const TerrainComponent& terrain,
+								 const glm::vec3& terrainWorldPosition,
+								 const glm::vec3& rayOrigin,
+								 const glm::vec3& rayDirection,
+								 glm::vec3& outHitPoint,
+								 float maxDistance)
+{
+	if (terrain.resolution < 2 || terrain.heightData.empty())
+		return false;
+	if (glm::length(rayDirection) < 0.0001f)
+		return false;
+
+	const glm::vec3 dir = glm::normalize(rayDirection);
+	const float halfW = terrain.width * 0.5f;
+	const float halfD = terrain.depth * 0.5f;
+	const float minY = terrainWorldPosition.y - 1.0f;
+	const float maxY = terrainWorldPosition.y + terrain.heightScale + 1.0f;
+
+	float tMin = 0.0f;
+	float tMax = maxDistance;
+	auto axisSlab = [&](float origin, float direction, float minB, float maxB) -> bool
+	{
+		if (std::abs(direction) < 1e-6f)
+			return origin >= minB && origin <= maxB;
+		float invDir = 1.0f / direction;
+		float t1 = (minB - origin) * invDir;
+		float t2 = (maxB - origin) * invDir;
+		if (t1 > t2)
+			std::swap(t1, t2);
+		tMin = std::max(tMin, t1);
+		tMax = std::min(tMax, t2);
+		return tMin <= tMax;
+	};
+
+	if (!axisSlab(rayOrigin.x, dir.x, terrainWorldPosition.x - halfW, terrainWorldPosition.x + halfW) ||
+		!axisSlab(rayOrigin.y, dir.y, minY, maxY) ||
+		!axisSlab(rayOrigin.z, dir.z, terrainWorldPosition.z - halfD, terrainWorldPosition.z + halfD))
+	{
+		return false;
+	}
+
+	const float terrainStep = std::min(
+		std::max(terrain.width / static_cast<float>(std::max(terrain.resolution - 1, 1)), 0.05f),
+		std::max(terrain.depth / static_cast<float>(std::max(terrain.resolution - 1, 1)), 0.05f));
+	const float step = std::clamp(terrainStep * 0.5f, 0.02f, 1.0f);
+
+	float t = std::max(tMin, 0.0f);
+	float prevT = t;
+	float prevDiff = std::numeric_limits<float>::max();
+	bool hadPrev = false;
+	while (t <= tMax)
+	{
+		const glm::vec3 p = rayOrigin + dir * t;
+		const float terrainY = SampleHeight(terrain, p.x, p.z, terrainWorldPosition);
+		const float diff = p.y - terrainY;
+
+		if (std::abs(diff) <= 0.03f)
+		{
+			outHitPoint = glm::vec3(p.x, terrainY, p.z);
+			return true;
+		}
+
+		if (hadPrev && ((prevDiff > 0.0f && diff < 0.0f) || (prevDiff < 0.0f && diff > 0.0f)))
+		{
+			float a = prevT;
+			float b = t;
+			for (int i = 0; i < 8; ++i)
+			{
+				const float mid = 0.5f * (a + b);
+				const glm::vec3 mp = rayOrigin + dir * mid;
+				const float my = SampleHeight(terrain, mp.x, mp.z, terrainWorldPosition);
+				const float mdiff = mp.y - my;
+				if ((prevDiff > 0.0f && mdiff > 0.0f) || (prevDiff < 0.0f && mdiff < 0.0f))
+					a = mid;
+				else
+					b = mid;
+			}
+			const float hitT = 0.5f * (a + b);
+			const glm::vec3 hp = rayOrigin + dir * hitT;
+			outHitPoint = glm::vec3(hp.x, SampleHeight(terrain, hp.x, hp.z, terrainWorldPosition), hp.z);
+			return true;
+		}
+
+		hadPrev = true;
+		prevT = t;
+		prevDiff = diff;
+		t += step;
+	}
+
+	return false;
+}
+
+bool TerrainSystem::ApplySculptBrush(TerrainComponent& terrain,
+								  const glm::vec3& terrainWorldPosition,
+								  float worldX, float worldZ,
+								  float radius,
+								  float strength,
+								  float falloff,
+								  float deltaTime,
+								  bool raise,
+								  TerrainBrushMode brushMode,
+								  float flattenHeight,
+								  int* outMinRow,
+								  int* outMaxRow,
+								  int* outMinCol,
+								  int* outMaxCol)
+{
+	if (terrain.resolution < 2)
+		return false;
+
+	const int res = std::clamp(terrain.resolution, 2, 512);
+	if (terrain.heightData.size() != static_cast<size_t>(res) * static_cast<size_t>(res))
+		terrain.heightData.assign(static_cast<size_t>(res) * static_cast<size_t>(res), 0.0f);
+
+	const float brushRadius = std::max(radius, 0.01f);
+	const float brushStrength = std::max(strength, 0.0f);
+	const float brushFalloff = std::max(falloff, 0.01f);
+	const float sign = raise ? 1.0f : -1.0f;
+
+	const float localX = worldX - terrainWorldPosition.x;
+	const float localZ = worldZ - terrainWorldPosition.z;
+	const float halfW = terrain.width * 0.5f;
+	const float halfD = terrain.depth * 0.5f;
+	if (localX < -halfW || localX > halfW || localZ < -halfD || localZ > halfD)
+		return false;
+
+	std::vector<float> original = terrain.heightData;
+	bool changed = false;
+	int minRow = res - 1;
+	int maxRow = 0;
+	int minCol = res - 1;
+	int maxCol = 0;
+
+	auto sampleOriginal = [&](int r, int c) -> float
+	{
+		r = std::clamp(r, 0, res - 1);
+		c = std::clamp(c, 0, res - 1);
+		return original[static_cast<size_t>(r) * static_cast<size_t>(res) + static_cast<size_t>(c)];
+	};
+
+	const float targetFlattenSample = terrain.heightScale > 0.0001f
+		? std::clamp((flattenHeight - terrainWorldPosition.y) / terrain.heightScale, 0.0f, 1.0f)
+		: 0.0f;
+
+	for (int row = 0; row < res; ++row)
+	{
+		const float pz = (static_cast<float>(row) / static_cast<float>(res - 1) - 0.5f) * terrain.depth;
+		for (int col = 0; col < res; ++col)
+		{
+			const float px = (static_cast<float>(col) / static_cast<float>(res - 1) - 0.5f) * terrain.width;
+			const float dx = px - localX;
+			const float dz = pz - localZ;
+			const float dist = std::sqrt(dx * dx + dz * dz);
+			if (dist > brushRadius)
+				continue;
+
+			const float t = 1.0f - (dist / brushRadius);
+			const float influence = std::pow(std::clamp(t, 0.0f, 1.0f), brushFalloff);
+			float& sample = terrain.heightData[static_cast<size_t>(row) * static_cast<size_t>(res) + static_cast<size_t>(col)];
+			const float current = original[static_cast<size_t>(row) * static_cast<size_t>(res) + static_cast<size_t>(col)];
+			float updated = current;
+
+			switch (brushMode)
+			{
+			case TerrainBrushMode::Smooth:
+			{
+				const float avg = (
+					sampleOriginal(row - 1, col - 1) + sampleOriginal(row - 1, col) + sampleOriginal(row - 1, col + 1) +
+					sampleOriginal(row, col - 1) + current + sampleOriginal(row, col + 1) +
+					sampleOriginal(row + 1, col - 1) + sampleOriginal(row + 1, col) + sampleOriginal(row + 1, col + 1)) / 9.0f;
+				const float blend = std::clamp(influence * brushStrength * deltaTime, 0.0f, 1.0f);
+				updated = current + (avg - current) * blend;
+				break;
+			}
+			case TerrainBrushMode::Flatten:
+			{
+				const float blend = std::clamp(influence * brushStrength * deltaTime, 0.0f, 1.0f);
+				updated = current + (targetFlattenSample - current) * blend;
+				break;
+			}
+			case TerrainBrushMode::RaiseLower:
+			default:
+				updated = current + sign * influence * brushStrength * deltaTime;
+				break;
+			}
+
+			updated = std::clamp(updated, 0.0f, 1.0f);
+			if (std::abs(updated - sample) < 1e-6f)
+				continue;
+			sample = updated;
+			changed = true;
+			minRow = std::min(minRow, row);
+			maxRow = std::max(maxRow, row);
+			minCol = std::min(minCol, col);
+			maxCol = std::max(maxCol, col);
+		}
+	}
+
+	if (!changed)
+		return false;
+
+	if (outMinRow) *outMinRow = minRow;
+	if (outMaxRow) *outMaxRow = maxRow;
+	if (outMinCol) *outMinCol = minCol;
+	if (outMaxCol) *outMaxCol = maxCol;
+	terrain.dirty = true;
+	return true;
+}
+
+bool TerrainSystem::PrepareMeshPatchData(const TerrainComponent& terrain,
+								 int minRow,
+								 int maxRow,
+								 int minCol,
+								 int maxCol,
+								 TerrainMeshPatchData& outPatch)
+{
+	if (terrain.resolution < 2 || terrain.heightData.empty())
+		return false;
+
+	const int res = std::clamp(terrain.resolution, 2, 512);
+	if (terrain.heightData.size() != static_cast<size_t>(res) * static_cast<size_t>(res))
+		return false;
+
+	outPatch.resolution = res;
+	outPatch.minRow = std::clamp(minRow - 1, 0, res - 1);
+	outPatch.maxRow = std::clamp(maxRow + 1, 0, res - 1);
+	outPatch.minCol = std::clamp(minCol - 1, 0, res - 1);
+	outPatch.maxCol = std::clamp(maxCol + 1, 0, res - 1);
+
+	const int patchRows = outPatch.maxRow - outPatch.minRow + 1;
+	const int patchCols = outPatch.maxCol - outPatch.minCol + 1;
+	if (patchRows <= 0 || patchCols <= 0)
+		return false;
+
+	outPatch.vertices.clear();
+	outPatch.vertices.reserve(static_cast<size_t>(patchRows) * static_cast<size_t>(patchCols));
+
+	auto sampleH = [&](int r, int c) -> float
+	{
+		r = std::clamp(r, 0, res - 1);
+		c = std::clamp(c, 0, res - 1);
+		return terrain.heightData[static_cast<size_t>(r) * static_cast<size_t>(res) + static_cast<size_t>(c)] * terrain.heightScale;
+	};
+
+	for (int row = outPatch.minRow; row <= outPatch.maxRow; ++row)
+	{
+		for (int col = outPatch.minCol; col <= outPatch.maxCol; ++col)
+		{
+			const float u = col / static_cast<float>(res - 1);
+			const float v = row / static_cast<float>(res - 1);
+			const float px = (u - 0.5f) * terrain.width;
+			const float pz = (v - 0.5f) * terrain.depth;
+			const float py = terrain.heightData[static_cast<size_t>(row) * static_cast<size_t>(res) + static_cast<size_t>(col)] * terrain.heightScale;
+
+			TerrainPatchVertex vert;
+			vert.position = { px, py, pz };
+			vert.texCoords = { u, v };
+			vert.color = { 1.0f, 1.0f, 1.0f };
+
+			const float dx = sampleH(row, col + 1) - sampleH(row, col - 1);
+			const float dz = sampleH(row + 1, col) - sampleH(row - 1, col);
+			const float stepX = terrain.width / static_cast<float>(res - 1);
+			const float stepZ = terrain.depth / static_cast<float>(res - 1);
+			vert.normal = glm::normalize(glm::vec3(-dx / (2.0f * stepX), 1.0f, -dz / (2.0f * stepZ)));
+			outPatch.vertices.push_back(vert);
+		}
+	}
+
+	return true;
+}
+
+bool TerrainSystem::ApplyMeshPatchData(TerrainComponent& terrain,
+							   const TerrainMeshPatchData& patch)
+{
+	if (!terrain.mesh || patch.resolution < 2 || patch.vertices.empty())
+		return false;
+
+	const int res = std::clamp(terrain.resolution, 2, 512);
+	if (res != patch.resolution)
+		return false;
+
+	const int minRow = std::clamp(patch.minRow, 0, res - 1);
+	const int maxRow = std::clamp(patch.maxRow, 0, res - 1);
+	const int minCol = std::clamp(patch.minCol, 0, res - 1);
+	const int maxCol = std::clamp(patch.maxCol, 0, res - 1);
+	if (maxRow < minRow || maxCol < minCol)
+		return false;
+
+	const int patchCols = maxCol - minCol + 1;
+	const size_t expectedVertexCount = static_cast<size_t>(maxRow - minRow + 1) * static_cast<size_t>(patchCols);
+	if (patch.vertices.size() != expectedVertexCount)
+		return false;
+
+	for (int row = minRow; row <= maxRow; ++row)
+	{
+		const size_t rowIndex = static_cast<size_t>(row - minRow) * static_cast<size_t>(patchCols);
+		std::vector<MyEngine::Vertex> rowVertices;
+		rowVertices.reserve(static_cast<size_t>(patchCols));
+		for (int c = 0; c < patchCols; ++c)
+		{
+			const auto& p = patch.vertices[rowIndex + static_cast<size_t>(c)];
+			MyEngine::Vertex v;
+			v.Position = p.position;
+			v.Normal = p.normal;
+			v.TexCoords = p.texCoords;
+			v.Color = p.color;
+			rowVertices.push_back(v);
+		}
+		const size_t firstVertex = static_cast<size_t>(row) * static_cast<size_t>(res) + static_cast<size_t>(minCol);
+		if (!terrain.mesh->UpdateVertexRange(firstVertex, static_cast<size_t>(patchCols), rowVertices.data()))
+			return false;
+	}
+
+	terrain.dirty = false;
+	return true;
+}
+
+bool TerrainSystem::RebuildMeshPatch(TerrainComponent& terrain,
+							  int minRow,
+							  int maxRow,
+							  int minCol,
+							  int maxCol)
+{
+	if (!terrain.mesh)
+		return false;
+
+	TerrainMeshPatchData patch;
+	if (!PrepareMeshPatchData(terrain, minRow, maxRow, minCol, maxCol, patch))
+		return false;
+
+	return ApplyMeshPatchData(terrain, patch);
 }
 
 // ---------------------------------------------------------------------------

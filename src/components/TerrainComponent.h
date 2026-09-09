@@ -6,6 +6,13 @@
 
 namespace MyEngine { class Mesh; class Shader; class Texture; }
 
+enum class TerrainBrushMode
+{
+	RaiseLower = 0,
+	Smooth = 1,
+	Flatten = 2
+};
+
 struct TerrainComponent
 {
 	// Heightmap asset path (greyscale PNG/JPG)
@@ -29,8 +36,26 @@ struct TerrainComponent
 	std::string shaderVertPath;
 	std::string shaderFragPath;
 
+	// Manual sculpt settings
+	bool sculptEnabled = false;
+	float sculptBrushRadius = 3.0f;
+	float sculptBrushStrength = 0.5f;
+	float sculptBrushFalloff = 1.0f;
+	bool sculptRaise = true;
+	TerrainBrushMode sculptBrushMode = TerrainBrushMode::RaiseLower;
+	float sculptFlattenHeight = 0.0f;
+
 	// Internal: raw height samples [resolution x resolution], [0,1]
 	std::vector<float> heightData;
+
+	// Internal deferred patch update state
+	bool sculptPatchDirty = false;
+	int sculptPatchMinRow = 0;
+	int sculptPatchMaxRow = 0;
+	int sculptPatchMinCol = 0;
+	int sculptPatchMaxCol = 0;
+	float sculptPatchAccumulatedTime = 0.0f;
+	float sculptPatchCommitInterval = 0.03f;
 
 	// Dirty flag – set to true to trigger mesh rebuild next frame
 	bool dirty = true;

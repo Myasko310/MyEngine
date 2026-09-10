@@ -258,32 +258,38 @@ namespace MyEngine
 				continue;
 			}
 
+			const AnimationStateMachineState& nextState = stateMachine.states[transition.targetStateIndex];
+			const int nextClipIndex = stateMachine.ResolveClipIndex(*anim.clips, nextState);
+			if (nextClipIndex < 0)
+			{
+				const std::string missingClipReason = "Clip '" + nextState.clipName + "' was not found for state '" + nextState.name + "'";
+				stateMachineComponent.debugTransitionMessages.back() =
+					"[" + std::to_string(static_cast<int>(transitionIndex)) + "] -> " + targetName + ": " + missingClipReason;
+				if (stateMachineComponent.debugLastBlockedTransitionIndex < 0)
+				{
+					stateMachineComponent.debugLastBlockedTransitionIndex = static_cast<int>(transitionIndex);
+					stateMachineComponent.debugLastBlockedReason = missingClipReason;
+				}
+				continue;
+			}
+
 			stateMachineComponent.pendingStateIndex = transition.targetStateIndex;
 			stateMachineComponent.currentStateIndex = transition.targetStateIndex;
 			stateMachineComponent.currentStateTime = transition.resetTimeOnEnter ? 0.0f : anim.time;
-
-			if (stateMachine.IsValidStateIndex(stateMachineComponent.currentStateIndex))
-			{
-				const auto& nextState = stateMachine.states[stateMachineComponent.currentStateIndex];
-				stateMachineComponent.debugPendingStateName = nextState.name;
-				int nextClipIndex = stateMachine.ResolveClipIndex(*anim.clips, nextState);
-				if (nextClipIndex >= 0)
-				{
-					anim.looping = nextState.loop;
-					anim.playbackSpeed = nextState.playbackSpeed;
-					anim.TransitionTo(nextClipIndex, transition.blendDuration);
-					const AnimationClip* nextClip = (nextClipIndex >= 0 && nextClipIndex < static_cast<int>(anim.clips->size()))
-						? &(*anim.clips)[nextClipIndex]
-						: nullptr;
-					float trimStartSeconds = 0.0f;
-					float trimEndSeconds = 0.0f;
-					ComputeTrimmedTimeRangeSeconds(nextState, nextClip, trimStartSeconds, trimEndSeconds);
-					if (!transition.resetTimeOnEnter)
-						anim.time = std::clamp(stateMachineComponent.currentStateTime, trimStartSeconds, trimEndSeconds);
-					else
-						anim.time = trimStartSeconds;
-				}
-			}
+			stateMachineComponent.debugPendingStateName = nextState.name;
+			anim.looping = nextState.loop;
+			anim.playbackSpeed = nextState.playbackSpeed;
+			anim.TransitionTo(nextClipIndex, transition.blendDuration);
+			const AnimationClip* nextClip = (nextClipIndex >= 0 && nextClipIndex < static_cast<int>(anim.clips->size()))
+				? &(*anim.clips)[nextClipIndex]
+				: nullptr;
+			float trimStartSeconds = 0.0f;
+			float trimEndSeconds = 0.0f;
+			ComputeTrimmedTimeRangeSeconds(nextState, nextClip, trimStartSeconds, trimEndSeconds);
+			if (!transition.resetTimeOnEnter)
+				anim.time = std::clamp(stateMachineComponent.currentStateTime, trimStartSeconds, trimEndSeconds);
+			else
+				anim.time = trimStartSeconds;
 
 			stateMachineComponent.debugSelectedTransitionIndex = static_cast<int>(transitionIndex);
 			ConsumeTriggeredParameters(stateMachine, stateMachineComponent, transition);
@@ -548,7 +554,8 @@ namespace MyEngine
 
 			if (stateMachineComponent)
 			{
-				UpdateAnimationStateMachine(anim, *stateMachineComponent);
+				if (!stateMachineComponent->suppressStateMachineEvaluation)
+					UpdateAnimationStateMachine(anim, *stateMachineComponent);
 				stateMachineComponent->currentStateTime = anim.time;
 			}
 
@@ -600,8 +607,8 @@ namespace MyEngine
 			collectAnimationEvents(anim, previousAnimationTime, anim.time, durationSeconds);
 			if (anim.enableRootMotion && rootMotionBoneIndex >= 0 && entity->HasComponent<TransformComponent>())
 			{
-				bool applyRootMotion = true;
-				if (entity->HasComponent<CharacterControllerComponent>())
+				bool applyRootMotion = !(stateMachineComponent && stateMachineComponent->suppressStateMachineEvaluation);
+				if (applyRootMotion && entity->HasComponent<CharacterControllerComponent>())
 				{
 					const auto& controller = entity->GetComponent<CharacterControllerComponent>();
 					if (!controller.isGrounded)

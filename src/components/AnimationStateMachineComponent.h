@@ -23,6 +23,7 @@ struct AnimationStateMachineComponent
 	float currentStateTime = 0.0f;
 	bool autoInitialize = true;
 	bool debugPauseTransitions = false;
+	bool suppressStateMachineEvaluation = false;
 
 	int debugSelectedTransitionIndex = -1;
 	int debugLastBlockedTransitionIndex = -1;
@@ -36,6 +37,7 @@ struct AnimationStateMachineComponent
 		currentStateIndex = -1;
 		pendingStateIndex = -1;
 		currentStateTime = 0.0f;
+		suppressStateMachineEvaluation = false;
 		debugSelectedTransitionIndex = -1;
 		debugLastBlockedTransitionIndex = -1;
 		debugLastBlockedReason.clear();

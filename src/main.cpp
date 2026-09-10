@@ -1159,9 +1159,48 @@ int main(int argc, char** argv)
                         if (!ac.clips)
                             ac.clips = std::make_shared<std::vector<MyEngine::AnimationClip>>();
 
+                        std::filesystem::path sourcePath(fullPath);
+                        const std::string sourceStem = sourcePath.stem().string();
+                        auto isGenericImportedName = [](const std::string& name)
+                        {
+                            if (name.empty())
+                                return true;
+
+                            std::string trimmed = name;
+                            trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
+                            trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
+
+                            std::string lower = trimmed;
+                            std::transform(lower.begin(), lower.end(), lower.begin(),
+                                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+                            return lower.empty() ||
+                                lower == "mixamo.com" ||
+                                lower == "mixamo_com" ||
+                                lower == "mixamo.com|mixamo.com";
+                        };
+
                         for (const auto& clip : *animClips)
                         {
-                            ac.clips->push_back(clip);
+                            MyEngine::AnimationClip importedClip = clip;
+                            const std::string baseName = isGenericImportedName(importedClip.name)
+                                ? sourceStem
+                                : importedClip.name;
+                            importedClip.name = baseName;
+
+                            bool duplicateName = false;
+                            for (const auto& existingClip : *ac.clips)
+                            {
+                                if (existingClip.name == importedClip.name)
+                                {
+                                    duplicateName = true;
+                                    break;
+                                }
+                            }
+                            if (duplicateName)
+                                importedClip.name += " [" + sourceStem + "]";
+
+                            ac.clips->push_back(std::move(importedClip));
                         }
                         std::cout << "[main] Loaded animation '" << state.clipName << "' from " << fullPath << std::endl;
                     }
@@ -1386,12 +1425,22 @@ int main(int argc, char** argv)
     bool navMeshRegionUpdatePending = false;
     glm::vec2 navMeshRegionMinXZ(std::numeric_limits<float>::max());
     glm::vec2 navMeshRegionMaxXZ(std::numeric_limits<float>::lowest());
+    glm::vec2 navMeshLastRebuiltRegionMinXZ(std::numeric_limits<float>::max());
+    glm::vec2 navMeshLastRebuiltRegionMaxXZ(std::numeric_limits<float>::lowest());
+    bool navMeshHasLastRebuiltRegion = false;
     float navMeshRebuildTimer = 0.0f;
     static constexpr float kNavMeshRebuildDelay = 0.15f;
     bool terrainBrushPreviewEnabled = true;
+    bool terrainNavRegionOverlayEnabled = true;
     bool hasTerrainBrushPreviewHit = false;
     glm::vec3 terrainBrushPreviewHitPoint(0.0f);
     uint32_t terrainBrushPreviewEntityID = 0;
+
+    struct TerrainPatchAsyncResult
+    {
+        TerrainSystem::TerrainMeshPatchData patch;
+        float prepMs = 0.0f;
+    };
 
     struct TerrainPatchAsyncJob
     {
@@ -1400,10 +1449,17 @@ int main(int argc, char** argv)
         int requestMaxRow = 0;
         int requestMinCol = 0;
         int requestMaxCol = 0;
-        std::future<TerrainSystem::TerrainMeshPatchData> future;
+        std::future<TerrainPatchAsyncResult> future;
     };
 
     std::deque<TerrainPatchAsyncJob> pendingTerrainPatchJobs;
+    int terrainPatchMaxQueuedJobs = 4;
+    size_t terrainPatchBackpressureDeferrals = 0;
+    size_t terrainPatchQueuePeak = 0;
+    float terrainPatchPrepMs = 0.0f;
+    float terrainPatchUploadMs = 0.0f;
+    float navMeshRebuildMs = 0.0f;
+    bool navMeshLastRebuildWasRegion = false;
     auto beginTerrainStroke = [&](Entity* entity, TerrainComponent& terrain)
     {
         if (!entity)
@@ -1445,6 +1501,12 @@ int main(int argc, char** argv)
     {
         if (!terrain.sculptPatchDirty || !entity)
             return;
+
+        if (pendingTerrainPatchJobs.size() >= static_cast<size_t>(std::max(terrainPatchMaxQueuedJobs, 1)))
+        {
+            ++terrainPatchBackpressureDeferrals;
+            return;
+        }
 
         const int requestMinRow = terrain.sculptPatchMinRow;
         const int requestMaxRow = terrain.sculptPatchMaxRow;
@@ -1502,12 +1564,15 @@ int main(int argc, char** argv)
         job.requestMaxCol = requestMaxCol;
         job.future = std::async(std::launch::async, [terrainSnapshot, requestMinRow, requestMaxRow, requestMinCol, requestMaxCol]() mutable
         {
-            TerrainSystem::TerrainMeshPatchData patch;
-            if (!TerrainSystem::PrepareMeshPatchData(terrainSnapshot, requestMinRow, requestMaxRow, requestMinCol, requestMaxCol, patch))
-                patch.vertices.clear();
-            return patch;
+            TerrainPatchAsyncResult result;
+            auto prepStart = std::chrono::high_resolution_clock::now();
+            if (!TerrainSystem::PrepareMeshPatchData(terrainSnapshot, requestMinRow, requestMaxRow, requestMinCol, requestMaxCol, result.patch))
+                result.patch.vertices.clear();
+            result.prepMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - prepStart).count();
+            return result;
         });
         pendingTerrainPatchJobs.push_back(std::move(job));
+        terrainPatchQueuePeak = std::max(terrainPatchQueuePeak, pendingTerrainPatchJobs.size());
 
         terrain.sculptPatchDirty = false;
         terrain.sculptPatchAccumulatedTime = 0.0f;
@@ -3335,6 +3400,8 @@ int main(int argc, char** argv)
                     ? authoritativeServerScene
                     : scene;
                 physicsSystem.OnUpdate(simulationScene, deltaTime, window, controllerCameraForward, controllerCameraRight);
+                if (isPlaying)
+                    animationSystem.Update(simulationScene, deltaTime);
                 cpuPhysicsMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
             }
 
@@ -3389,24 +3456,186 @@ int main(int argc, char** argv)
                         if (!entity || !entity->HasComponent<TransformComponent>())
                             continue;
 
+                        const bool isLocalPlayer = playerEntity && entity->GetID() == playerEntity->GetID();
+                        std::shared_ptr<Entity> authoritativeEntity;
+                        if (isLocalPlayer && hasAuthoritativeServerScene)
+                            authoritativeEntity = authoritativeServerScene.GetEntitySharedByID(entity->GetID());
+
                         MyEngine::Net::ReplicatedEntityState sampledState;
-                        if (!snapshotInterpolationBuffer.Sample(targetTick, sampledState, entity->GetID()))
+                        if (!authoritativeEntity && !snapshotInterpolationBuffer.Sample(targetTick, sampledState, entity->GetID()))
                             continue;
 
-                        auto& transform = entity->GetComponent<TransformComponent>();
-                        transform.position = sampledState.position;
-                        transform.rotation = sampledState.rotation;
-
-                        const bool reconciled = clientReconciliationState.ReconcileEntity(transform, sampledState, 0.0001f, 0.0001f);
-                        if (reconciled && entity->HasComponent<CharacterControllerComponent>())
+                        if (authoritativeEntity)
                         {
-                            const float replayDelta = std::max(physicsSystem.fixedTimestep, 0.0001f);
-                            const float replaySpeed = entity->GetComponent<CharacterControllerComponent>().moveSpeed;
-                            clientReconciliationState.ReplayPredictedInputs(transform, replaySpeed, replayDelta);
+                            sampledState.entityID = authoritativeEntity->GetID();
+                            if (authoritativeEntity->HasComponent<TransformComponent>())
+                            {
+                                const auto& authoritativeTransform = authoritativeEntity->GetComponent<TransformComponent>();
+                                sampledState.position = authoritativeTransform.position;
+                                sampledState.rotation = authoritativeTransform.rotation;
+                            }
+                            if (authoritativeEntity->HasComponent<RigidbodyComponent>())
+                                sampledState.velocity = authoritativeEntity->GetComponent<RigidbodyComponent>().velocity;
+                            if (authoritativeEntity->HasComponent<CharacterControllerComponent>())
+                                sampledState.isGrounded = authoritativeEntity->GetComponent<CharacterControllerComponent>().isGrounded;
+                            if (authoritativeEntity->HasComponent<AnimationComponent>())
+                            {
+                                const auto& authoritativeAnim = authoritativeEntity->GetComponent<AnimationComponent>();
+                                sampledState.animationPlaying = authoritativeAnim.playing;
+                                sampledState.activeAnimationClipIndex = authoritativeAnim.activeClipIndex;
+                                sampledState.animationTimeSeconds = authoritativeAnim.time;
+                            }
+                        }
+
+                        auto& transform = entity->GetComponent<TransformComponent>();
+                        if (authoritativeEntity && authoritativeEntity->HasComponent<TransformComponent>())
+                        {
+                            const auto& authoritativeTransform = authoritativeEntity->GetComponent<TransformComponent>();
+                            transform.position = authoritativeTransform.position;
+                            transform.rotation = authoritativeTransform.rotation;
+                        }
+                        else
+                        {
+                            transform.position = sampledState.position;
+                            transform.rotation = sampledState.rotation;
+
+                            const bool reconciled = clientReconciliationState.ReconcileEntity(transform, sampledState, 0.0001f, 0.0001f);
+                            if (reconciled && entity->HasComponent<CharacterControllerComponent>())
+                            {
+                                const float replayDelta = std::max(physicsSystem.fixedTimestep, 0.0001f);
+                                const float replaySpeed = entity->GetComponent<CharacterControllerComponent>().moveSpeed;
+                                clientReconciliationState.ReplayPredictedInputs(transform, replaySpeed, replayDelta);
+                            }
                         }
 
                         if (entity->HasComponent<RigidbodyComponent>())
-                            entity->GetComponent<RigidbodyComponent>().velocity = sampledState.velocity;
+                        {
+                            if (authoritativeEntity && authoritativeEntity->HasComponent<RigidbodyComponent>())
+                                entity->GetComponent<RigidbodyComponent>().velocity = authoritativeEntity->GetComponent<RigidbodyComponent>().velocity;
+                            else
+                                entity->GetComponent<RigidbodyComponent>().velocity = sampledState.velocity;
+                        }
+
+                        if (entity->HasComponent<CharacterControllerComponent>())
+                        {
+                            auto& controller = entity->GetComponent<CharacterControllerComponent>();
+                            controller.wasGrounded = controller.isGrounded;
+                            controller.isGrounded = sampledState.isGrounded;
+                            controller.currentSpeed = glm::length(glm::vec2(sampledState.velocity.x, sampledState.velocity.z));
+                            if (controller.isGrounded)
+                                controller.jumpUngroundedTimer = 0.0f;
+
+                            if (entity->HasComponent<AnimationStateMachineComponent>())
+                            {
+                                auto& smComponent = entity->GetComponent<AnimationStateMachineComponent>();
+                                auto setRuntimeParameter = [&](const std::string& parameterName, auto&& applyValue)
+                                {
+                                    if (!smComponent.stateMachine || parameterName.empty())
+                                        return;
+
+                                    const int parameterIndex = smComponent.stateMachine->FindParameterIndex(parameterName);
+                                    if (parameterIndex < 0)
+                                        return;
+
+                                    if (static_cast<size_t>(parameterIndex) >= smComponent.parameterValues.size())
+                                        smComponent.parameterValues.resize(smComponent.stateMachine->parameters.size());
+                                    if (static_cast<size_t>(parameterIndex) >= smComponent.parameterValues.size())
+                                        return;
+
+                                    applyValue(smComponent.stateMachine->parameters[parameterIndex], smComponent.parameterValues[parameterIndex]);
+                                };
+
+                                setRuntimeParameter(controller.animationSpeedParameter.empty() ? "Speed" : controller.animationSpeedParameter,
+                                    [&](const auto& parameter, auto& value)
+                                {
+                                    if (parameter.type == MyEngine::AnimationStateMachineParameterType::Float)
+                                        value.floatValue = controller.currentSpeed;
+                                });
+                                setRuntimeParameter(controller.animationGroundedParameter.empty() ? "IsGrounded" : controller.animationGroundedParameter,
+                                    [&](const auto& parameter, auto& value)
+                                {
+                                    if (parameter.type == MyEngine::AnimationStateMachineParameterType::Bool)
+                                        value.boolValue = controller.isGrounded;
+                                });
+                            }
+                        }
+
+                        if (entity->HasComponent<AnimationComponent>())
+                        {
+                            auto& anim = entity->GetComponent<AnimationComponent>();
+                            anim.playing = sampledState.animationPlaying;
+
+                            AnimationStateMachineComponent* smComponent = entity->HasComponent<AnimationStateMachineComponent>()
+                                ? &entity->GetComponent<AnimationStateMachineComponent>()
+                                : nullptr;
+                            int targetStateIndex = -1;
+                            const bool hasValidReplicatedClip = anim.clips &&
+                                sampledState.activeAnimationClipIndex >= 0 &&
+                                sampledState.activeAnimationClipIndex < static_cast<int>(anim.clips->size());
+                            if (smComponent && smComponent->stateMachine && hasValidReplicatedClip)
+                            {
+                                for (int stateIndex = 0; stateIndex < static_cast<int>(smComponent->stateMachine->states.size()); ++stateIndex)
+                                {
+                                    const auto& state = smComponent->stateMachine->states[stateIndex];
+                                    if (smComponent->stateMachine->ResolveClipIndex(*anim.clips, state) == sampledState.activeAnimationClipIndex)
+                                    {
+                                        targetStateIndex = stateIndex;
+                                        anim.looping = state.loop;
+                                        anim.playbackSpeed = state.playbackSpeed;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (sampledState.activeAnimationClipIndex != anim.activeClipIndex)
+                            {
+                                float blendDuration = 0.15f;
+                                if (smComponent && smComponent->stateMachine &&
+                                    smComponent->stateMachine->IsValidStateIndex(smComponent->currentStateIndex) &&
+                                    smComponent->stateMachine->IsValidStateIndex(targetStateIndex))
+                                {
+                                    const auto& currentState = smComponent->stateMachine->states[smComponent->currentStateIndex];
+                                    for (const auto& transition : currentState.transitions)
+                                    {
+                                        if (transition.targetStateIndex == targetStateIndex)
+                                        {
+                                            blendDuration = transition.blendDuration;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                const bool canBlendFromCurrentClip = anim.clips &&
+                                    anim.activeClipIndex >= 0 &&
+                                    anim.activeClipIndex < static_cast<int>(anim.clips->size()) &&
+                                    hasValidReplicatedClip;
+                                if (canBlendFromCurrentClip)
+                                {
+                                    anim.TransitionTo(sampledState.activeAnimationClipIndex, blendDuration);
+                                    anim.time = sampledState.animationTimeSeconds;
+                                }
+                                else
+                                {
+                                    anim.activeClipIndex = sampledState.activeAnimationClipIndex;
+                                    anim.time = sampledState.animationTimeSeconds;
+                                    anim.blending = false;
+                                    anim.previousClipIndex = -1;
+                                    anim.blendElapsed = 0.0f;
+                                    anim.blendDuration = 0.0f;
+                                }
+                            }
+                            else if (!anim.blending && std::fabs(anim.time - sampledState.animationTimeSeconds) > 0.2f)
+                            {
+                                anim.time = sampledState.animationTimeSeconds;
+                            }
+
+                            if (smComponent && smComponent->stateMachine && smComponent->stateMachine->IsValidStateIndex(targetStateIndex))
+                            {
+                                smComponent->currentStateIndex = targetStateIndex;
+                                smComponent->pendingStateIndex = -1;
+                                smComponent->currentStateTime = anim.time;
+                            }
+                        }
                     }
                 }
             }
@@ -3482,6 +3711,13 @@ int main(int argc, char** argv)
         // origin (invisible) before Play is hit.
         {
             auto cpuStart = std::chrono::high_resolution_clock::now();
+            const bool usingAuthoritativeAnimationScene = isPlaying && networkingEnabled && hasAuthoritativeServerScene;
+            for (const auto& entity : scene.GetEntities())
+            {
+                if (!entity || !entity->HasComponent<AnimationStateMachineComponent>())
+                    continue;
+                entity->GetComponent<AnimationStateMachineComponent>().suppressStateMachineEvaluation = usingAuthoritativeAnimationScene;
+            }
             animationSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
             particleSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
             cpuAnimationMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
@@ -3533,16 +3769,19 @@ int main(int argc, char** argv)
             auto& job = pendingTerrainPatchJobs.front();
             if (job.future.valid() && job.future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
             {
-                TerrainSystem::TerrainMeshPatchData patch = job.future.get();
+                TerrainPatchAsyncResult patchResult = job.future.get();
+                terrainPatchPrepMs = patchResult.prepMs;
                 auto targetEntity = scene.GetEntityByID(job.entityID);
                 if (targetEntity && targetEntity->HasComponent<TerrainComponent>())
                 {
                     auto& terrain = targetEntity->GetComponent<TerrainComponent>();
+                    auto uploadStart = std::chrono::high_resolution_clock::now();
                     bool uploaded = false;
-                    if (!patch.vertices.empty())
-                        uploaded = TerrainSystem::ApplyMeshPatchData(terrain, patch);
+                    if (!patchResult.patch.vertices.empty())
+                        uploaded = TerrainSystem::ApplyMeshPatchData(terrain, patchResult.patch);
                     if (!uploaded)
                         TerrainSystem::RebuildMesh(terrain);
+                    terrainPatchUploadMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - uploadStart).count();
                 }
                 pendingTerrainPatchJobs.pop_front();
             }
@@ -3553,6 +3792,7 @@ int main(int argc, char** argv)
             navMeshRebuildTimer -= deltaTime;
             if (navMeshRebuildTimer <= 0.0f)
             {
+                auto navRebuildStart = std::chrono::high_resolution_clock::now();
                 bool rebuiltRegion = false;
                 if (navMeshRegionUpdatePending && navMeshSystem.IsReady())
                 {
@@ -3561,7 +3801,17 @@ int main(int argc, char** argv)
                 if (!rebuiltRegion)
                 {
                     navMeshSystem.Bake(scene);
+                    navMeshHasLastRebuiltRegion = false;
+                    navMeshLastRebuildWasRegion = false;
                 }
+                else
+                {
+                    navMeshLastRebuiltRegionMinXZ = navMeshRegionMinXZ;
+                    navMeshLastRebuiltRegionMaxXZ = navMeshRegionMaxXZ;
+                    navMeshHasLastRebuiltRegion = true;
+                    navMeshLastRebuildWasRegion = true;
+                }
+                navMeshRebuildMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - navRebuildStart).count();
 
                 navMeshRebuildRequested = false;
                 navMeshRegionUpdatePending = false;
@@ -4704,6 +4954,8 @@ int main(int argc, char** argv)
                                 }
                             }
                             ImGui::Checkbox("Brush Preview##terrain", &terrainBrushPreviewEnabled);
+                            ImGui::Checkbox("NavMesh Dirty Region Overlay##terrain", &terrainNavRegionOverlayEnabled);
+                            ImGui::TextDisabled("Terrain Undo: %zu | Redo: %zu", undoStack.GetUndoCount(), undoStack.GetRedoCount());
                             if (terrain.sculptEnabled)
                             {
                                 ImGui::TextDisabled("Hold left mouse on terrain to sculpt at cursor ray hit.");
@@ -7472,6 +7724,13 @@ int main(int argc, char** argv)
                     replayParticleSeed);
                 ImGui::Text("CPU Animation+Particles: %.3f ms", cpuAnimationMs);
                 ImGui::Text("CPU Render: %.3f ms", cpuRenderMs);
+                ImGui::Separator();
+                ImGui::Text("Terrain/Nav Pipeline");
+                ImGui::Text("Patch Queue: %zu (peak %zu)", pendingTerrainPatchJobs.size(), terrainPatchQueuePeak);
+                ImGui::Text("Patch Prep: %.3f ms  Upload: %.3f ms", terrainPatchPrepMs, terrainPatchUploadMs);
+                ImGui::Text("Backpressure Deferrals: %zu", terrainPatchBackpressureDeferrals);
+                ImGui::SliderInt("Max Pending Terrain Patch Jobs", &terrainPatchMaxQueuedJobs, 1, 32);
+                ImGui::Text("NavMesh Rebuild: %.3f ms (%s)", navMeshRebuildMs, navMeshLastRebuildWasRegion ? "Region" : "Full");
                 bool occlusionApprox = renderSystem.GetOcclusionApproximationEnabled();
                 if (ImGui::Checkbox("CPU Occlusion Approximation", &occlusionApprox))
                     renderSystem.SetOcclusionApproximationEnabled(occlusionApprox);
@@ -8073,6 +8332,49 @@ int main(int argc, char** argv)
                     ImU32 previewColor = IM_COL32(255, 196, 64, 220);
                     overlayDrawList->AddCircle(centerScreen, radiusPixels, previewColor, 48, 2.0f);
                     overlayDrawList->AddCircleFilled(centerScreen, 3.0f, previewColor);
+                }
+            }
+
+            auto drawNavRegionOverlay = [&](const glm::vec2& minXZ, const glm::vec2& maxXZ, ImU32 color, const char* label)
+            {
+                glm::vec3 corners[4] = {
+                    glm::vec3(minXZ.x, TerrainSystem::SampleHeight(selectedEntity->GetComponent<TerrainComponent>(), minXZ.x, minXZ.y, selectedEntity->GetComponent<TransformComponent>().position) + 0.05f, minXZ.y),
+                    glm::vec3(maxXZ.x, TerrainSystem::SampleHeight(selectedEntity->GetComponent<TerrainComponent>(), maxXZ.x, minXZ.y, selectedEntity->GetComponent<TransformComponent>().position) + 0.05f, minXZ.y),
+                    glm::vec3(maxXZ.x, TerrainSystem::SampleHeight(selectedEntity->GetComponent<TerrainComponent>(), maxXZ.x, maxXZ.y, selectedEntity->GetComponent<TransformComponent>().position) + 0.05f, maxXZ.y),
+                    glm::vec3(minXZ.x, TerrainSystem::SampleHeight(selectedEntity->GetComponent<TerrainComponent>(), minXZ.x, maxXZ.y, selectedEntity->GetComponent<TransformComponent>().position) + 0.05f, maxXZ.y)
+                };
+                ImVec2 projected[4];
+                bool allProjected = true;
+                for (int i = 0; i < 4; ++i)
+                {
+                    if (!ProjectWorldPointToScreen(corners[i], view, projection, windowW, windowH, projected[i]))
+                    {
+                        allProjected = false;
+                        break;
+                    }
+                }
+                if (!allProjected)
+                    return;
+
+                for (int i = 0; i < 4; ++i)
+                {
+                    int next = (i + 1) % 4;
+                    overlayDrawList->AddLine(projected[i], projected[next], color, 2.0f);
+                }
+
+                ImVec2 center((projected[0].x + projected[2].x) * 0.5f, (projected[0].y + projected[2].y) * 0.5f);
+                drawLabelBox(ImVec2(center.x + 8.0f, center.y - 8.0f), label, color);
+            };
+
+            if (terrainNavRegionOverlayEnabled && selectedEntity->HasComponent<TerrainComponent>())
+            {
+                if (navMeshRegionUpdatePending)
+                {
+                    drawNavRegionOverlay(navMeshRegionMinXZ, navMeshRegionMaxXZ, IM_COL32(255, 180, 64, 255), "Nav Region Pending");
+                }
+                else if (navMeshHasLastRebuiltRegion)
+                {
+                    drawNavRegionOverlay(navMeshLastRebuiltRegionMinXZ, navMeshLastRebuiltRegionMaxXZ, IM_COL32(96, 220, 255, 255), "Nav Region Last Rebuild");
                 }
             }
 

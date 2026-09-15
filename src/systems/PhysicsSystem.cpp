@@ -11,6 +11,8 @@
 #include "components/MeshColliderComponent.h"
 #include "components/CharacterControllerComponent.h"
 #include "components/CollisionEventsComponent.h"
+#include "components/CombatHitboxComponent.h"
+#include "components/CombatHurtboxComponent.h"
 #include "components/JointComponent.h"
 #include "components/AnimationStateMachineComponent.h"
 #include "components/TerrainComponent.h"
@@ -18,12 +20,15 @@
 #include "core/Input.h"
 #include "core/InputActions.h"
 #include "systems/TerrainSystem.h"
+#include "network/NetTypes.h"
 
 #include <iostream>
 #include <algorithm>
 #include <limits>
 #include <cstdint>
 #include <cmath>
+#include <cctype>
+#include <string>
 #include <unordered_set>
 #include <glm/gtx/component_wise.hpp>
 
@@ -47,12 +52,12 @@ namespace MyEngine
 
 	void PhysicsSystem::OnUpdate(Scene& scene, float deltaTime)
 	{
-		OnUpdate(scene, deltaTime, nullptr, glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		OnUpdate(scene, deltaTime, nullptr, glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(1.0f, 0.0f, 0.0f), nullptr);
 	}
 
-	void PhysicsSystem::OnUpdate(Scene& scene, float deltaTime, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight)
+	void PhysicsSystem::OnUpdate(Scene& scene, float deltaTime, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight, const Net::InputCommand* authoritativeInput)
 	{
-		CollectCharacterControllerInput(scene, window, cameraForward, cameraRight);
+		CollectCharacterControllerInput(scene, window, cameraForward, cameraRight, authoritativeInput);
 
 		// Fixed timestep physics
 		// Clamp deltaTime to prevent spiral of death
@@ -85,6 +90,8 @@ namespace MyEngine
 		{
 			DetectAndResolveCollisions(scene);
 		}
+
+		ProcessCombatHitboxes(scene);
 	}
 
 	void PhysicsSystem::ApplyForces(Scene& scene, float dt)
@@ -242,7 +249,7 @@ namespace MyEngine
 		}
 	}
 
-	void PhysicsSystem::CollectCharacterControllerInput(Scene& scene, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight)
+	void PhysicsSystem::CollectCharacterControllerInput(Scene& scene, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight, const Net::InputCommand* authoritativeInput)
 	{
 		(void)window;
 
@@ -257,19 +264,37 @@ namespace MyEngine
 		else
 			flattenedRight = glm::vec3(1.0f, 0.0f, 0.0f);
 
-		float moveForward = InputActions::GetAxis("MoveForward");
-		float moveRight = InputActions::GetAxis("MoveRight");
+		float moveForward = 0.0f;
+		float moveRight = 0.0f;
+		bool jumpDown = false;
+		bool jumpPressed = false;
+		bool attack1Pressed = false;
+		bool attack2Pressed = false;
+		bool attack3Pressed = false;
+		bool genericAttackPressed = false;
+
+		if (authoritativeInput)
+		{
+			moveForward = authoritativeInput->moveAxis.y;
+			moveRight = authoritativeInput->moveAxis.x;
+			jumpDown = authoritativeInput->jumpPressed;
+			jumpPressed = authoritativeInput->jumpPressed;
+		}
+		else
+		{
+			moveForward = InputActions::GetAxis("MoveForward");
+			moveRight = InputActions::GetAxis("MoveRight");
+			jumpDown = InputActions::IsAction("Jump");
+			jumpPressed = InputActions::IsActionPressed("Jump");
+			attack1Pressed = InputActions::IsActionPressed("Attack1");
+			attack2Pressed = InputActions::IsActionPressed("Attack2");
+			attack3Pressed = InputActions::IsActionPressed("Attack3");
+			genericAttackPressed = InputActions::IsActionPressed("Attack") || InputActions::IsActionPressed("Fight");
+		}
 
 		glm::vec3 moveInput = flattenedForward * moveForward + flattenedRight * moveRight;
 		if (glm::length(moveInput) > 1.0f)
 			moveInput = glm::normalize(moveInput);
-
-		const bool jumpDown = InputActions::IsAction("Jump");
-		const bool jumpPressed = InputActions::IsActionPressed("Jump");
-		const bool attack2Pressed = InputActions::IsActionPressed("Attack2");
-		const bool attack3Pressed = InputActions::IsActionPressed("Attack3");
-		const bool legacyAttackPressed = InputActions::IsActionPressed("Attack") || InputActions::IsActionPressed("Fight");
-		const bool attack1Pressed = InputActions::IsActionPressed("Attack1") || (legacyAttackPressed && !attack2Pressed && !attack3Pressed);
 
 		for (const auto& entity : scene.GetEntities())
 		{
@@ -281,10 +306,57 @@ namespace MyEngine
 			controller.jumpHeld = jumpDown;
 			// Latch jump input until the next fixed-step character update consumes it.
 			controller.jumpRequested = controller.jumpRequested || jumpPressed;
+
+			bool queueAttack1 = attack1Pressed;
+			bool queueAttack2 = attack2Pressed;
+			bool queueAttack3 = attack3Pressed;
+
+			// Support single-button combo chaining: repeatedly pressing the generic
+			// attack input (or Attack1) advances Attack1 -> Attack2 -> Attack3 based
+			// on the current animation state name when explicit Attack2/3 inputs are
+			// not pressed.
+			const bool comboAdvancePressed = genericAttackPressed || attack1Pressed;
+			if (!authoritativeInput && comboAdvancePressed && !attack2Pressed && !attack3Pressed)
+			{
+				std::string currentStateName;
+				if (entity->HasComponent<AnimationStateMachineComponent>())
+				{
+					auto& sm = entity->GetComponent<AnimationStateMachineComponent>();
+					if (sm.stateMachine && sm.stateMachine->IsValidStateIndex(sm.currentStateIndex))
+						currentStateName = sm.stateMachine->states[sm.currentStateIndex].name;
+				}
+
+				std::transform(currentStateName.begin(), currentStateName.end(), currentStateName.begin(),
+					[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+				const bool inAttack3 = currentStateName.find("attack3") != std::string::npos ||
+					currentStateName.find("combo3") != std::string::npos;
+				const bool inAttack2 = currentStateName.find("attack2") != std::string::npos ||
+					currentStateName.find("combo2") != std::string::npos;
+				const bool inAttack1 = currentStateName.find("attack1") != std::string::npos ||
+					currentStateName.find("combo1") != std::string::npos;
+
+				if (inAttack2)
+				{
+					queueAttack1 = false;
+					queueAttack2 = false;
+					queueAttack3 = true;
+				}
+				else if (inAttack1)
+				{
+					queueAttack1 = false;
+					queueAttack2 = true;
+				}
+				else if (!inAttack3)
+				{
+					queueAttack1 = true;
+				}
+			}
+
 			// Latch attack input edges until consumed by animation parameter update.
-			controller.attack1Requested = controller.attack1Requested || attack1Pressed;
-			controller.attack2Requested = controller.attack2Requested || attack2Pressed;
-			controller.attack3Requested = controller.attack3Requested || attack3Pressed;
+			controller.attack1Requested = controller.attack1Requested || queueAttack1;
+			controller.attack2Requested = controller.attack2Requested || queueAttack2;
+			controller.attack3Requested = controller.attack3Requested || queueAttack3;
 		}
 	}
 
@@ -1528,6 +1600,87 @@ namespace MyEngine
 
 		activeCollisionPairs = std::move(newCollisionPairs);
 		activeTriggerPairs = std::move(newTriggerPairs);
+	}
+
+	void PhysicsSystem::ProcessCombatHitboxes(Scene& scene)
+	{
+		std::vector<std::shared_ptr<Entity>> activeHitboxes;
+		std::vector<std::shared_ptr<Entity>> hurtboxes;
+		activeHitboxes.reserve(scene.GetEntities().size());
+		hurtboxes.reserve(scene.GetEntities().size());
+
+		for (const auto& entity : scene.GetEntities())
+		{
+			if (!entity || !entity->HasComponent<TransformComponent>())
+				continue;
+
+			if (entity->HasComponent<CombatHurtboxComponent>())
+			{
+				auto& hurtbox = entity->GetComponent<CombatHurtboxComponent>();
+				hurtbox.wasHitThisStep = false;
+				hurtbox.damageTakenThisStep = 0.0f;
+				hurtbox.lastHitByEntityId = 0;
+				hurtbox.lastHitActivationId = 0;
+				hurtboxes.push_back(entity);
+			}
+
+			if (entity->HasComponent<CombatHitboxComponent>())
+			{
+				const auto& hitbox = entity->GetComponent<CombatHitboxComponent>();
+				if (hitbox.active && hitbox.radius > 0.0f)
+					activeHitboxes.push_back(entity);
+			}
+		}
+
+		for (const auto& attacker : activeHitboxes)
+		{
+			auto& hitbox = attacker->GetComponent<CombatHitboxComponent>();
+			auto& attackerTransform = attacker->GetComponent<TransformComponent>();
+			const glm::vec3 attackerScale = ExtractWorldScale(scene, *attacker);
+			const glm::vec3 hitCenter = attackerTransform.position + hitbox.center * attackerScale;
+			const float hitRadius = hitbox.radius * glm::compMax(attackerScale);
+
+			if (hitRadius <= 0.0f)
+				continue;
+
+			for (const auto& target : hurtboxes)
+			{
+				if (!target || target.get() == attacker.get())
+					continue;
+
+				auto& hurtbox = target->GetComponent<CombatHurtboxComponent>();
+				if (!hurtbox.canBeHit || hurtbox.radius <= 0.0f)
+					continue;
+
+				if (hitbox.team == hurtbox.team)
+					continue;
+
+				auto& targetTransform = target->GetComponent<TransformComponent>();
+				const glm::vec3 targetScale = ExtractWorldScale(scene, *target);
+				const glm::vec3 hurtCenter = targetTransform.position + hurtbox.center * targetScale;
+				const float hurtRadius = hurtbox.radius * glm::compMax(targetScale);
+				const glm::vec3 delta = hurtCenter - hitCenter;
+				const float radiusSum = hitRadius + hurtRadius;
+
+				if (glm::dot(delta, delta) > radiusSum * radiusSum)
+					continue;
+
+				const uint64_t directedPairKey = (static_cast<uint64_t>(attacker->GetID()) << 32) |
+					static_cast<uint64_t>(target->GetID());
+				if (hitbox.singleHitPerActivation)
+				{
+					auto it = lastCombatHitActivationByPair.find(directedPairKey);
+					if (it != lastCombatHitActivationByPair.end() && it->second == hitbox.activationId)
+						continue;
+					lastCombatHitActivationByPair[directedPairKey] = hitbox.activationId;
+				}
+
+				hurtbox.wasHitThisStep = true;
+				hurtbox.damageTakenThisStep += hitbox.damage;
+				hurtbox.lastHitByEntityId = attacker->GetID();
+				hurtbox.lastHitActivationId = hitbox.activationId;
+			}
+		}
 	}
 
 	uint64_t PhysicsSystem::MakePairKey(uint32_t idA, uint32_t idB)

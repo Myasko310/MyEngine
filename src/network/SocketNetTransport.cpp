@@ -201,6 +201,28 @@ namespace MyEngine::Net
 				writer.Write(entity.animationTimeSeconds);
 				writer.WriteString(entity.audioEventName);
 			}
+
+			const std::uint32_t terrainPatchCount = static_cast<std::uint32_t>(message.snapshot.terrainPatches.size());
+			writer.Write(terrainPatchCount);
+			for (const auto& terrainPatch : message.snapshot.terrainPatches)
+			{
+				writer.Write(terrainPatch.terrainEntityID);
+				writer.Write(terrainPatch.resolution);
+				writer.Write(terrainPatch.minRow);
+				writer.Write(terrainPatch.maxRow);
+				writer.Write(terrainPatch.minCol);
+				writer.Write(terrainPatch.maxCol);
+				writer.Write(terrainPatch.authoredTick);
+				const std::uint32_t pointCount = static_cast<std::uint32_t>(terrainPatch.points.size());
+				writer.Write(pointCount);
+				for (const auto& point : terrainPatch.points)
+				{
+					writer.Write(point.row);
+					writer.Write(point.col);
+					writer.Write(point.heightBefore);
+					writer.Write(point.heightAfter);
+				}
+			}
 		}
 
 		bool DeserializeSnapshot(ByteReader& reader, SnapshotMessage& outMessage)
@@ -237,6 +259,45 @@ namespace MyEngine::Net
 					return false;
 				}
 				outMessage.snapshot.entities.push_back(std::move(entity));
+			}
+
+			std::uint32_t terrainPatchCount = 0;
+			if (!reader.Read(terrainPatchCount))
+				return false;
+			outMessage.snapshot.terrainPatches.clear();
+			outMessage.snapshot.terrainPatches.reserve(terrainPatchCount);
+			for (std::uint32_t i = 0; i < terrainPatchCount; ++i)
+			{
+				TerrainPatchDelta terrainPatch;
+				if (!reader.Read(terrainPatch.terrainEntityID)
+					|| !reader.Read(terrainPatch.resolution)
+					|| !reader.Read(terrainPatch.minRow)
+					|| !reader.Read(terrainPatch.maxRow)
+					|| !reader.Read(terrainPatch.minCol)
+					|| !reader.Read(terrainPatch.maxCol)
+					|| !reader.Read(terrainPatch.authoredTick))
+				{
+					return false;
+				}
+
+				std::uint32_t pointCount = 0;
+				if (!reader.Read(pointCount))
+					return false;
+				terrainPatch.points.reserve(pointCount);
+				for (std::uint32_t pointIndex = 0; pointIndex < pointCount; ++pointIndex)
+				{
+					TerrainPatchPointDelta point;
+					if (!reader.Read(point.row)
+						|| !reader.Read(point.col)
+						|| !reader.Read(point.heightBefore)
+						|| !reader.Read(point.heightAfter))
+					{
+						return false;
+					}
+					terrainPatch.points.push_back(point);
+				}
+
+				outMessage.snapshot.terrainPatches.push_back(std::move(terrainPatch));
 			}
 			return true;
 		}

@@ -68,6 +68,25 @@ namespace MyEngine
 			return std::string();
 		}
 
+		std::string SaveImageFile()
+		{
+			char fileName[MAX_PATH] = "terrain_heightmap.png";
+
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "PNG Files (*.png)\0*.png\0All Files (*.*)\0*.*\0";
+			ofn.lpstrFile = fileName;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.lpstrDefExt = "png";
+			ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+			if (GetSaveFileNameA(&ofn))
+				return std::string(fileName);
+
+			return std::string();
+		}
+
 		std::string OpenScriptFile()
 		{
 			char fileName[MAX_PATH] = "";
@@ -254,6 +273,11 @@ namespace MyEngine
 		}
 
 		std::string OpenImageFile()
+		{
+			return std::string();
+		}
+
+		std::string SaveImageFile()
 		{
 			return std::string();
 		}

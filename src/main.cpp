@@ -55,6 +55,11 @@
 #include "components/AudioSourceComponent.h"
 #include "components/AudioListenerComponent.h"
 #include "components/CollisionEventsComponent.h"
+#include "components/CombatAttackComponent.h"
+#include "components/CombatStatsComponent.h"
+#include "components/CombatHitboxComponent.h"
+#include "components/CombatHurtboxComponent.h"
+#include "components/BossAIComponent.h"
 #include "components/JointComponent.h"
 #include "components/AnimationComponent.h"
 #include "components/ParticleEmitterComponent.h"
@@ -95,6 +100,7 @@
 #include "rendering/PostProcessPipeline.h"
 #include "rendering/Skybox.h"
 #include "systems/PhysicsSystem.h"
+#include "systems/CombatSystem.h"
 #include "systems/AudioSystem.h"
 #include "systems/AnimationSystem.h"
 #include "systems/ScriptSystem.h"
@@ -110,6 +116,8 @@
 #include "network/NetTransport.h"
 #include "network/SocketNetTransport.h"
 #include "network/NetReplicationSystem.h"
+#include "network/NetPluginHooks.h"
+#include "plugins/PluginManager.h"
 
 using namespace MyEngine;
 #ifdef USE_IMGUI
@@ -171,6 +179,157 @@ static bool ProjectWorldPointToScreen(
     return true;
 }
 #endif
+
+struct FramePacingDiagnostics
+{
+    static constexpr int kSampleWindow = 240;
+    std::array<float, kSampleWindow> frameMsSamples{};
+    int nextSampleIndex = 0;
+    int sampleCount = 0;
+
+    float averageFrameMs = 0.0f;
+    float minFrameMs = 0.0f;
+    float maxFrameMs = 0.0f;
+    float stdDevFrameMs = 0.0f;
+    float averageJitterMs = 0.0f;
+    int spikeCountOver16Ms = 0;
+    int spikeCountOver33Ms = 0;
+
+    float cameraStepPerSec = 0.0f;
+    float cameraStepJitterPerSec = 0.0f;
+    float worldStepPerSec = 0.0f;
+    float worldStepJitterPerSec = 0.0f;
+    int cameraLargeStepCount = 0;
+    int worldLargeStepCount = 0;
+
+    void AddFrameSample(float frameMs)
+    {
+        frameMsSamples[nextSampleIndex] = frameMs;
+        nextSampleIndex = (nextSampleIndex + 1) % kSampleWindow;
+        if (sampleCount < kSampleWindow)
+            ++sampleCount;
+
+        RecalculateRollingStats();
+    }
+
+    void AddCameraPositionSample(const glm::vec3& worldPosition, float deltaTime)
+    {
+        AddSpatialSample(worldPosition, deltaTime, previousCameraPosition, hasPreviousCameraPosition, previousCameraStepPerSec, hasPreviousCameraStepPerSec,
+            cameraStepPerSec, cameraStepJitterPerSec, cameraLargeStepCount);
+    }
+
+    void AddWorldPositionSample(const glm::vec3& worldPosition, float deltaTime)
+    {
+        AddSpatialSample(worldPosition, deltaTime, previousWorldPosition, hasPreviousWorldPosition, previousWorldStepPerSec, hasPreviousWorldStepPerSec,
+            worldStepPerSec, worldStepJitterPerSec, worldLargeStepCount);
+    }
+
+private:
+    glm::vec3 previousCameraPosition = glm::vec3(0.0f);
+    glm::vec3 previousWorldPosition = glm::vec3(0.0f);
+    float previousCameraStepPerSec = 0.0f;
+    float previousWorldStepPerSec = 0.0f;
+    bool hasPreviousCameraPosition = false;
+    bool hasPreviousWorldPosition = false;
+    bool hasPreviousCameraStepPerSec = false;
+    bool hasPreviousWorldStepPerSec = false;
+
+    static void AddSpatialSample(
+        const glm::vec3& worldPosition,
+        float deltaTime,
+        glm::vec3& previousPosition,
+        bool& hasPreviousPosition,
+        float& previousStepPerSec,
+        bool& hasPreviousStepPerSec,
+        float& outCurrentStepPerSec,
+        float& outCurrentJitterPerSec,
+        int& outLargeStepCount)
+    {
+        if (!hasPreviousPosition || deltaTime <= 0.00001f)
+        {
+            previousPosition = worldPosition;
+            hasPreviousPosition = true;
+            outCurrentStepPerSec = 0.0f;
+            outCurrentJitterPerSec = 0.0f;
+            return;
+        }
+
+        const float distance = glm::length(worldPosition - previousPosition);
+        const float speedEquivalent = distance / deltaTime;
+        outCurrentStepPerSec = speedEquivalent;
+
+        if (hasPreviousStepPerSec)
+            outCurrentJitterPerSec = std::abs(speedEquivalent - previousStepPerSec);
+        else
+            outCurrentJitterPerSec = 0.0f;
+
+        previousStepPerSec = speedEquivalent;
+        hasPreviousStepPerSec = true;
+        previousPosition = worldPosition;
+
+        if (distance > 0.25f)
+            ++outLargeStepCount;
+    }
+
+    float GetChronologicalSample(int orderedIndex) const
+    {
+        if (sampleCount <= 0)
+            return 0.0f;
+
+        const int oldestIndex = (sampleCount < kSampleWindow) ? 0 : nextSampleIndex;
+        const int sampleIndex = (oldestIndex + orderedIndex) % kSampleWindow;
+        return frameMsSamples[sampleIndex];
+    }
+
+    void RecalculateRollingStats()
+    {
+        if (sampleCount <= 0)
+        {
+            averageFrameMs = 0.0f;
+            minFrameMs = 0.0f;
+            maxFrameMs = 0.0f;
+            stdDevFrameMs = 0.0f;
+            averageJitterMs = 0.0f;
+            spikeCountOver16Ms = 0;
+            spikeCountOver33Ms = 0;
+            return;
+        }
+
+        float totalMs = 0.0f;
+        float totalSqMs = 0.0f;
+        float totalJitter = 0.0f;
+        minFrameMs = GetChronologicalSample(0);
+        maxFrameMs = minFrameMs;
+        spikeCountOver16Ms = 0;
+        spikeCountOver33Ms = 0;
+
+        float previous = minFrameMs;
+        for (int i = 0; i < sampleCount; ++i)
+        {
+            const float sample = GetChronologicalSample(i);
+            totalMs += sample;
+            totalSqMs += sample * sample;
+            minFrameMs = std::min(minFrameMs, sample);
+            maxFrameMs = std::max(maxFrameMs, sample);
+
+            if (sample > 16.67f)
+                ++spikeCountOver16Ms;
+            if (sample > 33.33f)
+                ++spikeCountOver33Ms;
+
+            if (i > 0)
+                totalJitter += std::abs(sample - previous);
+            previous = sample;
+        }
+
+        averageFrameMs = totalMs / static_cast<float>(sampleCount);
+        const float variance = std::max(0.0f, (totalSqMs / static_cast<float>(sampleCount)) - (averageFrameMs * averageFrameMs));
+        stdDevFrameMs = std::sqrt(variance);
+        averageJitterMs = (sampleCount > 1)
+            ? (totalJitter / static_cast<float>(sampleCount - 1))
+            : 0.0f;
+    }
+};
 
 // Recent scenes are persisted to a small text file so the file menu can restore them.
 static const char* kRecentScenesFile = "recent_scenes.txt";
@@ -480,6 +639,7 @@ int main(int argc, char** argv)
     MyEngine::ParticleSystem particleSystem;
 
     PhysicsSystem physicsSystem;
+    CombatSystem combatSystem;
 
     AudioSystem audioSystem;
 
@@ -1335,6 +1495,8 @@ int main(int argc, char** argv)
     MyEngine::Net::SnapshotInterpolationBuffer snapshotInterpolationBuffer(64);
     MyEngine::Net::ClientReconciliationState clientReconciliationState;
     std::unordered_map<MyEngine::Net::NetTick, MyEngine::Net::InputCommand> pendingInputByTick;
+    MyEngine::Net::InputCommand latestAuthoritativeInput{};
+    bool hasLatestAuthoritativeInput = false;
     bool networkSessionBootstrapPending = false;
     Scene authoritativeServerScene;
     bool hasAuthoritativeServerScene = false;
@@ -1345,6 +1507,45 @@ int main(int argc, char** argv)
     bool hasServerBaselineSnapshot = false;
     MyEngine::Net::NetTick transportInputDelayTicks = 1u;
     MyEngine::Net::NetTick transportSnapshotDelayTicks = 2u;
+    bool networkClientSmoothingEnabled = true;
+    float networkClientPositionSmoothingRate = 14.0f;
+    float networkClientRotationSmoothingRate = 14.0f;
+    float networkClientPositionSnapDistance = 1.5f;
+    float networkClientRotationSnapDistance = 25.0f;
+
+    MyEngine::Plugins::PluginManager pluginManager;
+    MyEngine::Plugins::HostApi pluginHostApi{};
+    const std::filesystem::path pluginRootPath = "plugins";
+    pluginHostApi.Log = [](MyEngine::Plugins::PluginLogLevel level, const char* message)
+    {
+        const char* prefix = "[Plugin][Info]";
+        if (level == MyEngine::Plugins::PluginLogLevel::Warning)
+            prefix = "[Plugin][Warn]";
+        else if (level == MyEngine::Plugins::PluginLogLevel::Error)
+            prefix = "[Plugin][Error]";
+
+        std::cout << prefix << ' ' << (message ? message : "") << std::endl;
+    };
+    pluginHostApi.RegisterNetReplicationHooks = [](const char* pluginName) -> bool
+    {
+        if (!pluginName || pluginName[0] == '\0')
+            return false;
+
+        const std::string pluginNameText(pluginName);
+        if (pluginNameText != "SamplePlugin")
+            return false;
+
+        MyEngine::Net::NetPluginRegistry::RegisterInterestFilter([](const Entity& entity, const MyEngine::Net::ReplicatedEntityState&)
+        {
+            return entity.GetName() != "FilteredByPlugin";
+        });
+        MyEngine::Net::NetPluginRegistry::RegisterStateMutator([](const Entity&, MyEngine::Net::ReplicatedEntityState& state)
+        {
+            state.velocity = glm::vec3(9.0f, 0.0f, 0.0f);
+        });
+
+        return true;
+    };
 
     // Scene file state
     std::string currentScenePath;
@@ -1363,6 +1564,7 @@ int main(int argc, char** argv)
     auto& showScriptingPanel = editorUI.showScriptingPanel;
     auto& showPerformancePanel = editorUI.showPerformancePanel;
     auto& showPhysicsPanel = editorUI.showPhysicsPanel;
+    auto& showCombatPanel = editorUI.showCombatPanel;
     auto& showAssetBrowser = editorUI.showAssetBrowser;
     auto& assetBrowserPath = editorUI.assetBrowserPath;
     auto& showMaterialBrowser = editorUI.showMaterialBrowser;
@@ -1417,10 +1619,17 @@ int main(int argc, char** argv)
     bool terrainSculptStrokeActive = false;
     uint32_t terrainSculptStrokeEntityID = 0;
     std::vector<float> terrainSculptBeforeHeights;
+    bool terrainPaintStrokeActive = false;
+    uint32_t terrainPaintStrokeEntityID = 0;
+    std::vector<float> terrainPaintBeforeWeights;
     int terrainStrokeMinRow = std::numeric_limits<int>::max();
     int terrainStrokeMaxRow = std::numeric_limits<int>::min();
     int terrainStrokeMinCol = std::numeric_limits<int>::max();
     int terrainStrokeMaxCol = std::numeric_limits<int>::min();
+    int terrainPaintStrokeMinRow = std::numeric_limits<int>::max();
+    int terrainPaintStrokeMaxRow = std::numeric_limits<int>::min();
+    int terrainPaintStrokeMinCol = std::numeric_limits<int>::max();
+    int terrainPaintStrokeMaxCol = std::numeric_limits<int>::min();
     bool navMeshRebuildRequested = false;
     bool navMeshRegionUpdatePending = false;
     glm::vec2 navMeshRegionMinXZ(std::numeric_limits<float>::max());
@@ -1464,13 +1673,29 @@ int main(int argc, char** argv)
     {
         if (!entity)
             return;
-        terrainSculptStrokeActive = true;
-        terrainSculptStrokeEntityID = entity->GetID();
-        terrainSculptBeforeHeights = terrain.heightData;
+
         terrainStrokeMinRow = std::numeric_limits<int>::max();
         terrainStrokeMaxRow = std::numeric_limits<int>::min();
         terrainStrokeMinCol = std::numeric_limits<int>::max();
         terrainStrokeMaxCol = std::numeric_limits<int>::min();
+        terrainPaintStrokeMinRow = std::numeric_limits<int>::max();
+        terrainPaintStrokeMaxRow = std::numeric_limits<int>::min();
+        terrainPaintStrokeMinCol = std::numeric_limits<int>::max();
+        terrainPaintStrokeMaxCol = std::numeric_limits<int>::min();
+
+        if (terrain.sculptEnabled)
+        {
+            terrainSculptStrokeActive = true;
+            terrainSculptStrokeEntityID = entity->GetID();
+            terrainSculptBeforeHeights = terrain.heightData;
+        }
+
+        if (terrain.paintEnabled)
+        {
+            terrainPaintStrokeActive = true;
+            terrainPaintStrokeEntityID = entity->GetID();
+            terrainPaintBeforeWeights = terrain.paintWeightData;
+        }
     };
     auto queueTerrainPatchBounds = [&](TerrainComponent& terrain, int minRow, int maxRow, int minCol, int maxCol)
     {
@@ -1582,65 +1807,123 @@ int main(int argc, char** argv)
 
     auto endTerrainStroke = [&](Entity* entity, TerrainComponent& terrain)
     {
-        if (!terrainSculptStrokeActive || !entity || terrainSculptStrokeEntityID != entity->GetID())
+        if (!entity)
             return;
-        terrainSculptStrokeActive = false;
-        terrainSculptStrokeEntityID = 0;
-        flushTerrainPatch(entity, terrain);
-        navMeshRebuildRequested = true;
-        navMeshRebuildTimer = kNavMeshRebuildDelay;
-        if (terrainSculptBeforeHeights.empty() || terrain.heightData.empty() || terrainSculptBeforeHeights.size() != terrain.heightData.size())
-        {
-            terrainSculptBeforeHeights.clear();
-            terrainStrokeMinRow = std::numeric_limits<int>::max();
-            terrainStrokeMaxRow = std::numeric_limits<int>::min();
-            terrainStrokeMinCol = std::numeric_limits<int>::max();
-            terrainStrokeMaxCol = std::numeric_limits<int>::min();
-            return;
-        }
 
-        std::vector<EditorUndo::TerrainHeightDelta> deltas;
-        const int res = std::clamp(terrain.resolution, 2, 512);
-        const int minRow = std::clamp(terrainStrokeMinRow, 0, res - 1);
-        const int maxRow = std::clamp(terrainStrokeMaxRow, 0, res - 1);
-        const int minCol = std::clamp(terrainStrokeMinCol, 0, res - 1);
-        const int maxCol = std::clamp(terrainStrokeMaxCol, 0, res - 1);
+        std::unique_ptr<EditorUndo::TerrainPatchDeltaCommand> sculptCommand;
+        std::unique_ptr<EditorUndo::TerrainPaintDeltaCommand> paintCommand;
 
-        if (terrainStrokeMinRow <= terrainStrokeMaxRow && terrainStrokeMinCol <= terrainStrokeMaxCol)
+        if (terrainSculptStrokeActive && terrainSculptStrokeEntityID == entity->GetID())
         {
-            for (int row = minRow; row <= maxRow; ++row)
+            terrainSculptStrokeActive = false;
+            terrainSculptStrokeEntityID = 0;
+            flushTerrainPatch(entity, terrain);
+            navMeshRebuildRequested = true;
+            navMeshRebuildTimer = kNavMeshRebuildDelay;
+            if (!terrainSculptBeforeHeights.empty() && !terrain.heightData.empty() && terrainSculptBeforeHeights.size() == terrain.heightData.size())
             {
-                for (int col = minCol; col <= maxCol; ++col)
+                std::vector<EditorUndo::TerrainHeightDelta> deltas;
+                const int res = std::clamp(terrain.resolution, 2, 512);
+                const int minRow = std::clamp(terrainStrokeMinRow, 0, res - 1);
+                const int maxRow = std::clamp(terrainStrokeMaxRow, 0, res - 1);
+                const int minCol = std::clamp(terrainStrokeMinCol, 0, res - 1);
+                const int maxCol = std::clamp(terrainStrokeMaxCol, 0, res - 1);
+
+                if (terrainStrokeMinRow <= terrainStrokeMaxRow && terrainStrokeMinCol <= terrainStrokeMaxCol)
                 {
-                    const size_t idx = static_cast<size_t>(row) * static_cast<size_t>(res) + static_cast<size_t>(col);
-                    if (idx >= terrain.heightData.size() || idx >= terrainSculptBeforeHeights.size())
-                        continue;
+                    for (int row = minRow; row <= maxRow; ++row)
+                    {
+                        for (int col = minCol; col <= maxCol; ++col)
+                        {
+                            const size_t idx = static_cast<size_t>(row) * static_cast<size_t>(res) + static_cast<size_t>(col);
+                            if (idx >= terrain.heightData.size() || idx >= terrainSculptBeforeHeights.size())
+                                continue;
 
-                    const float before = terrainSculptBeforeHeights[idx];
-                    const float after = terrain.heightData[idx];
-                    if (std::abs(before - after) < 1e-6f)
-                        continue;
+                            const float before = terrainSculptBeforeHeights[idx];
+                            const float after = terrain.heightData[idx];
+                            if (std::abs(before - after) < 1e-6f)
+                                continue;
 
-                    EditorUndo::TerrainHeightDelta delta;
-                    delta.row = row;
-                    delta.col = col;
-                    delta.before = before;
-                    delta.after = after;
-                    deltas.push_back(delta);
+                            EditorUndo::TerrainHeightDelta delta;
+                            delta.row = row;
+                            delta.col = col;
+                            delta.before = before;
+                            delta.after = after;
+                            deltas.push_back(delta);
+                        }
+                    }
                 }
+
+                if (!deltas.empty())
+                    sculptCommand = std::make_unique<EditorUndo::TerrainPatchDeltaCommand>(entity->GetID(), res, deltas);
             }
         }
 
-        if (!deltas.empty())
+        if (terrainPaintStrokeActive && terrainPaintStrokeEntityID == entity->GetID())
         {
-            undoStack.Push(std::make_unique<EditorUndo::TerrainPatchDeltaCommand>(entity->GetID(), res, deltas));
+            terrainPaintStrokeActive = false;
+            terrainPaintStrokeEntityID = 0;
+
+            const int paintRes = std::clamp(terrain.paintResolution, 2, 2048);
+            const size_t texelCount = static_cast<size_t>(paintRes) * static_cast<size_t>(paintRes);
+            const size_t expectedCount = texelCount * 4;
+            if (!terrainPaintBeforeWeights.empty() && terrain.paintWeightData.size() == expectedCount && terrainPaintBeforeWeights.size() == expectedCount)
+            {
+                std::vector<EditorUndo::TerrainWeightDelta> deltas;
+                const int minRow = std::clamp(terrainPaintStrokeMinRow, 0, paintRes - 1);
+                const int maxRow = std::clamp(terrainPaintStrokeMaxRow, 0, paintRes - 1);
+                const int minCol = std::clamp(terrainPaintStrokeMinCol, 0, paintRes - 1);
+                const int maxCol = std::clamp(terrainPaintStrokeMaxCol, 0, paintRes - 1);
+
+                if (terrainPaintStrokeMinRow <= terrainPaintStrokeMaxRow && terrainPaintStrokeMinCol <= terrainPaintStrokeMaxCol)
+                {
+                    for (int row = minRow; row <= maxRow; ++row)
+                    {
+                        for (int col = minCol; col <= maxCol; ++col)
+                        {
+                            const size_t base = (static_cast<size_t>(row) * static_cast<size_t>(paintRes) + static_cast<size_t>(col)) * 4;
+                            if (base + 3 >= terrain.paintWeightData.size() || base + 3 >= terrainPaintBeforeWeights.size())
+                                continue;
+
+                            float diff = 0.0f;
+                            for (int i = 0; i < 4; ++i)
+                                diff += std::abs(terrain.paintWeightData[base + static_cast<size_t>(i)] - terrainPaintBeforeWeights[base + static_cast<size_t>(i)]);
+                            if (diff < 1e-6f)
+                                continue;
+
+                            EditorUndo::TerrainWeightDelta delta;
+                            delta.row = row;
+                            delta.col = col;
+                            for (int i = 0; i < 4; ++i)
+                            {
+                                delta.before[i] = terrainPaintBeforeWeights[base + static_cast<size_t>(i)];
+                                delta.after[i] = terrain.paintWeightData[base + static_cast<size_t>(i)];
+                            }
+                            deltas.push_back(delta);
+                        }
+                    }
+                }
+
+                if (!deltas.empty())
+                    paintCommand = std::make_unique<EditorUndo::TerrainPaintDeltaCommand>(entity->GetID(), paintRes, deltas);
+            }
         }
 
+        if (sculptCommand)
+            undoStack.Push(std::move(sculptCommand));
+        if (paintCommand)
+            undoStack.Push(std::move(paintCommand));
+
         terrainSculptBeforeHeights.clear();
+        terrainPaintBeforeWeights.clear();
         terrainStrokeMinRow = std::numeric_limits<int>::max();
         terrainStrokeMaxRow = std::numeric_limits<int>::min();
         terrainStrokeMinCol = std::numeric_limits<int>::max();
         terrainStrokeMaxCol = std::numeric_limits<int>::min();
+        terrainPaintStrokeMinRow = std::numeric_limits<int>::max();
+        terrainPaintStrokeMaxRow = std::numeric_limits<int>::min();
+        terrainPaintStrokeMinCol = std::numeric_limits<int>::max();
+        terrainPaintStrokeMaxCol = std::numeric_limits<int>::min();
     };
 
     // Compares a prefab instance against its source prefab and reports changed fields.
@@ -1985,6 +2268,14 @@ int main(int argc, char** argv)
             if (!nearlyEqual(current.heightScale, original.heightScale)) { addOverride("Terrain: Height Scale"); hasTerrainOverride = true; }
             if (current.resolution != original.resolution) { addOverride("Terrain: Resolution"); hasTerrainOverride = true; }
             if (current.surfaceTexturePath != original.surfaceTexturePath) { addOverride("Terrain: Surface Texture"); hasTerrainOverride = true; }
+            if (current.paintEnabled != original.paintEnabled) { addOverride("Terrain: Paint Enabled"); hasTerrainOverride = true; }
+            if (current.paintResolution != original.paintResolution) { addOverride("Terrain: Paint Resolution"); hasTerrainOverride = true; }
+            if (current.paintActiveLayer != original.paintActiveLayer) { addOverride("Terrain: Paint Active Layer"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.paintBrushRadius, original.paintBrushRadius)) { addOverride("Terrain: Paint Radius"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.paintBrushStrength, original.paintBrushStrength)) { addOverride("Terrain: Paint Strength"); hasTerrainOverride = true; }
+            if (!nearlyEqual(current.paintBrushFalloff, original.paintBrushFalloff)) { addOverride("Terrain: Paint Falloff"); hasTerrainOverride = true; }
+            if (current.paintLayers.size() != original.paintLayers.size()) { addOverride("Terrain: Paint Layers"); hasTerrainOverride = true; }
+            if (current.paintWeightData.size() != original.paintWeightData.size()) { addOverride("Terrain: Paint Weights"); hasTerrainOverride = true; }
             if (current.shaderVertPath != original.shaderVertPath) { addOverride("Terrain: Shader Vert"); hasTerrainOverride = true; }
             if (current.shaderFragPath != original.shaderFragPath) { addOverride("Terrain: Shader Frag"); hasTerrainOverride = true; }
             if (current.sculptEnabled != original.sculptEnabled) { addOverride("Terrain: Sculpt Enabled"); hasTerrainOverride = true; }
@@ -2684,6 +2975,7 @@ int main(int argc, char** argv)
     editorContext.scene = &scene;
     editorContext.litShader = litShader;
     editorContext.litSkinnedShader = litSkinnedShader;
+    editorContext.pbrShader = pbrShader;
     editorContext.selectedEntity = &selectedEntity;
     editorContext.playerEntity = &playerEntity;
     editorContext.ui = &editorUI;
@@ -2827,6 +3119,8 @@ int main(int argc, char** argv)
             snapshotInterpolationBuffer = MyEngine::Net::SnapshotInterpolationBuffer(64);
             clientReconciliationState = MyEngine::Net::ClientReconciliationState{};
             pendingInputByTick.clear();
+            latestAuthoritativeInput = MyEngine::Net::InputCommand{};
+            hasLatestAuthoritativeInput = false;
             serverBaselineSnapshot = MyEngine::Net::WorldSnapshot{};
             hasServerBaselineSnapshot = false;
             authoritativeServerScene = Scene();
@@ -2855,6 +3149,8 @@ int main(int argc, char** argv)
             snapshotInterpolationBuffer = MyEngine::Net::SnapshotInterpolationBuffer(64);
             clientReconciliationState = MyEngine::Net::ClientReconciliationState{};
             pendingInputByTick.clear();
+            latestAuthoritativeInput = MyEngine::Net::InputCommand{};
+            hasLatestAuthoritativeInput = false;
             serverBaselineSnapshot = MyEngine::Net::WorldSnapshot{};
             hasServerBaselineSnapshot = false;
             authoritativeServerScene = Scene();
@@ -2884,6 +3180,11 @@ int main(int argc, char** argv)
     editorContext.setGizmoMode = [&](int value) { gizmoMode = static_cast<ImGuizmo::MODE>(value); };
 #endif
 
+    MyEngine::Net::NetPluginRegistry::Clear();
+    pluginManager.LoadAllFromRoot(pluginRootPath, pluginHostApi);
+    for (const auto& pluginError : pluginManager.GetLastErrors())
+        std::cerr << pluginError << std::endl;
+
     // ------------------------------------------------------------
     // Timing / profiling
     // ------------------------------------------------------------
@@ -2905,6 +3206,7 @@ int main(int argc, char** argv)
     float gpuFrameMs = 0.0f;
     float memoryWorkingSetMB = 0.0f;
     float memoryPrivateMB = 0.0f;
+    FramePacingDiagnostics framePacingDiagnostics{};
 
     GLuint gpuFrameQueries[2] = { 0, 0 };
     glGenQueries(2, gpuFrameQueries);
@@ -2944,6 +3246,8 @@ int main(int argc, char** argv)
 
         if (deltaTime > 0.1f)
             deltaTime = 0.1f;
+
+        framePacingDiagnostics.AddFrameSample(deltaTime * 1000.0f);
 
         // --------------------------------------------------------
         // Input
@@ -3010,6 +3314,13 @@ int main(int argc, char** argv)
         if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F9))
             renderDocCapture.RequestCapture();
 #endif
+        if (allowGlobalHotkeys && Input::IsKeyPressed(GLFW_KEY_F10))
+        {
+            MyEngine::Net::NetPluginRegistry::Clear();
+            pluginManager.ReloadAllFromRoot(pluginRootPath, pluginHostApi);
+            for (const auto& pluginError : pluginManager.GetLastErrors())
+                std::cerr << pluginError << std::endl;
+        }
 
         if (Input::IsInputPlayback())
         {
@@ -3119,6 +3430,38 @@ int main(int argc, char** argv)
                     undoStack.Undo(scene);
                 if (Input::IsKeyPressed(GLFW_KEY_Y))
                     undoStack.Redo(scene);
+            }
+        }
+
+        if (allowGlobalHotkeys && selectedEntity && selectedEntity->HasComponent<TerrainComponent>() && !Input::IsMouseCaptured())
+        {
+            auto& terrainHotkeys = selectedEntity->GetComponent<TerrainComponent>();
+            if (terrainHotkeys.paintEnabled)
+            {
+                if (Input::IsKeyPressed(GLFW_KEY_1)) terrainHotkeys.paintActiveLayer = 0;
+                if (Input::IsKeyPressed(GLFW_KEY_2)) terrainHotkeys.paintActiveLayer = 1;
+                if (Input::IsKeyPressed(GLFW_KEY_3)) terrainHotkeys.paintActiveLayer = 2;
+                if (Input::IsKeyPressed(GLFW_KEY_4)) terrainHotkeys.paintActiveLayer = 3;
+            }
+
+            const bool terrainEditActive = terrainHotkeys.sculptEnabled || terrainHotkeys.paintEnabled;
+            if (terrainEditActive)
+            {
+                float& activeRadius = terrainHotkeys.paintEnabled ? terrainHotkeys.paintBrushRadius : terrainHotkeys.sculptBrushRadius;
+                float& activeStrength = terrainHotkeys.paintEnabled ? terrainHotkeys.paintBrushStrength : terrainHotkeys.sculptBrushStrength;
+
+                if (Input::IsKeyPressed(GLFW_KEY_LEFT_BRACKET))
+                    activeRadius = std::max(0.25f, activeRadius - 0.25f);
+                if (Input::IsKeyPressed(GLFW_KEY_RIGHT_BRACKET))
+                    activeRadius = std::min(100.0f, activeRadius + 0.25f);
+
+                if (Input::IsKeyPressed(GLFW_KEY_MINUS))
+                    activeStrength = std::max(0.01f, activeStrength - 0.05f);
+                if (Input::IsKeyPressed(GLFW_KEY_EQUAL))
+                    activeStrength = std::min(10.0f, activeStrength + 0.05f);
+
+                if (Input::IsKeyPressed(GLFW_KEY_P))
+                    terrainBrushPreviewEnabled = !terrainBrushPreviewEnabled;
             }
         }
 
@@ -3369,6 +3712,19 @@ int main(int argc, char** argv)
                             localClientID = sessionMessage.assignedClientID;
                             networkSessionBootstrapPending = false;
                         }
+                        else if (sessionMessage.type == MyEngine::Net::SessionControlType::Disconnect)
+                        {
+                            localClientID = 0u;
+                            networkSessionBootstrapPending = false;
+                            hasLatestAuthoritativeInput = false;
+                            pendingInputByTick.clear();
+                        }
+                    }
+
+                    if (networkTransport->IsSessionTimedOut())
+                    {
+                        localClientID = 0u;
+                        networkSessionBootstrapPending = false;
                     }
                 }
 
@@ -3390,6 +3746,11 @@ int main(int argc, char** argv)
                     {
                         pendingInputByTick.erase(serverInput.command.tick);
                         clientReconciliationState.Acknowledge(serverInput.command.tick);
+                        if (serverInput.clientID == localClientID)
+                        {
+                            latestAuthoritativeInput = serverInput.command;
+                            hasLatestAuthoritativeInput = true;
+                        }
                     }
                 }
             }
@@ -3399,7 +3760,14 @@ int main(int argc, char** argv)
                 Scene& simulationScene = (networkingEnabled && hasAuthoritativeServerScene)
                     ? authoritativeServerScene
                     : scene;
-                physicsSystem.OnUpdate(simulationScene, deltaTime, window, controllerCameraForward, controllerCameraRight);
+
+                const MyEngine::Net::InputCommand* authoritativeInput = nullptr;
+                if (networkingEnabled && hasAuthoritativeServerScene && hasLatestAuthoritativeInput)
+                    authoritativeInput = &latestAuthoritativeInput;
+
+                if (isPlaying)
+                    combatSystem.OnUpdate(simulationScene, deltaTime);
+                physicsSystem.OnUpdate(simulationScene, deltaTime, window, controllerCameraForward, controllerCameraRight, authoritativeInput);
                 if (isPlaying)
                     animationSystem.Update(simulationScene, deltaTime);
                 cpuPhysicsMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
@@ -3496,15 +3864,50 @@ int main(int argc, char** argv)
                         }
                         else
                         {
-                            transform.position = sampledState.position;
-                            transform.rotation = sampledState.rotation;
-
-                            const bool reconciled = clientReconciliationState.ReconcileEntity(transform, sampledState, 0.0001f, 0.0001f);
-                            if (reconciled && entity->HasComponent<CharacterControllerComponent>())
+                            if (isLocalPlayer)
                             {
-                                const float replayDelta = std::max(physicsSystem.fixedTimestep, 0.0001f);
-                                const float replaySpeed = entity->GetComponent<CharacterControllerComponent>().moveSpeed;
-                                clientReconciliationState.ReplayPredictedInputs(transform, replaySpeed, replayDelta);
+                                const bool reconciled = clientReconciliationState.ReconcileEntity(transform, sampledState, 0.0001f, 0.0001f);
+                                if (reconciled && entity->HasComponent<CharacterControllerComponent>())
+                                {
+                                    const float replayDelta = std::max(physicsSystem.fixedTimestep, 0.0001f);
+                                    const float replaySpeed = entity->GetComponent<CharacterControllerComponent>().moveSpeed;
+                                    clientReconciliationState.ReplayPredictedInputs(transform, replaySpeed, replayDelta);
+                                }
+                            }
+                            else
+                            {
+                                if (networkClientSmoothingEnabled)
+                                {
+                                    const glm::vec3 positionDelta = sampledState.position - transform.position;
+                                    const glm::vec3 rotationDelta = sampledState.rotation - transform.rotation;
+                                    const float positionError = glm::length(positionDelta);
+                                    const float rotationError = glm::length(rotationDelta);
+
+                                    if (positionError > networkClientPositionSnapDistance)
+                                    {
+                                        transform.position = sampledState.position;
+                                    }
+                                    else
+                                    {
+                                        const float alpha = std::clamp(networkClientPositionSmoothingRate * deltaTime, 0.0f, 1.0f);
+                                        transform.position = glm::mix(transform.position, sampledState.position, alpha);
+                                    }
+
+                                    if (rotationError > networkClientRotationSnapDistance)
+                                    {
+                                        transform.rotation = sampledState.rotation;
+                                    }
+                                    else
+                                    {
+                                        const float alpha = std::clamp(networkClientRotationSmoothingRate * deltaTime, 0.0f, 1.0f);
+                                        transform.rotation = glm::mix(transform.rotation, sampledState.rotation, alpha);
+                                    }
+                                }
+                                else
+                                {
+                                    transform.position = sampledState.position;
+                                    transform.rotation = sampledState.rotation;
+                                }
                             }
                         }
 
@@ -3724,6 +4127,22 @@ int main(int argc, char** argv)
         }
 
         cameraSystem.Update(scene, window, deltaTime, aspectRatio);
+
+        for (const auto& entity : scene.GetEntities())
+        {
+            if (!entity || !entity->HasComponent<CameraComponent>() || !entity->HasComponent<TransformComponent>())
+                continue;
+
+            const auto& cam = entity->GetComponent<CameraComponent>();
+            if (!cam.isPrimary)
+                continue;
+
+            framePacingDiagnostics.AddCameraPositionSample(entity->GetComponent<TransformComponent>().position, deltaTime);
+            break;
+        }
+
+        if (playerEntity && playerEntity->HasComponent<TransformComponent>())
+            framePacingDiagnostics.AddWorldPositionSample(playerEntity->GetComponent<TransformComponent>().position, deltaTime);
 
         for (const auto& action : MyEngine::AnimationEventBus::ConsumeQueuedActions())
         {
@@ -4048,6 +4467,7 @@ int main(int argc, char** argv)
                     ImGui::MenuItem("Skybox", nullptr, &showSkyboxPanel);
                     ImGui::MenuItem("Scripting", nullptr, &showScriptingPanel);
                     ImGui::MenuItem("Performance", nullptr, &showPerformancePanel);
+                    ImGui::MenuItem("Combat Debug", nullptr, &showCombatPanel);
                     ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
                     ImGui::MenuItem("Material Browser", nullptr, &showMaterialBrowser);
                     ImGui::Separator();
@@ -4421,6 +4841,26 @@ int main(int argc, char** argv)
                                     }
                                     ImGui::EndCombo();
                                 }
+
+                                ImGui::Separator();
+                                ImGui::Text("Lock-On (1v1)");
+                                ImGui::Checkbox("Enable Lock-On", &cam.lockOnEnabled);
+                                ImGui::DragFloat("Lock-On Max Distance", &cam.lockOnMaxDistance, 0.1f, 1.0f, 100.0f);
+                                ImGui::DragFloat("Lock-On Max Angle", &cam.lockOnMaxAngleDegrees, 1.0f, 1.0f, 179.0f);
+                                ImGui::DragFloat("Lock-On Height Offset", &cam.lockOnHeightOffset, 0.05f, -2.0f, 5.0f);
+                                ImGui::DragFloat("Lock-On Camera Distance", &cam.lockOnCameraDistance, 0.05f, 0.5f, 20.0f);
+                                ImGui::DragFloat("Lock-On Camera Height", &cam.lockOnCameraHeight, 0.05f, -2.0f, 10.0f);
+
+                                std::string lockLabel = "(auto)";
+                                if (cam.lockOnTargetID != 0)
+                                {
+                                    auto lockTarget = TransformHierarchy::FindEntityByID(scene, cam.lockOnTargetID);
+                                    if (lockTarget)
+                                        lockLabel = lockTarget->GetName();
+                                }
+                                ImGui::Text("Current Lock-On Target: %s", lockLabel.c_str());
+                                if (ImGui::Button("Clear Lock-On Target"))
+                                    cam.lockOnTargetID = 0;
                             }
                         }
                     }
@@ -4632,13 +5072,13 @@ int main(int argc, char** argv)
                             if (!texturesScanned)
                             {
                                 texturesScanned = true;
-                                const std::string texturesDir = "assets/textures";
+                                const std::string texturesRoot = "assets";
                                 std::error_code ec;
-                                if (std::filesystem::exists(texturesDir, ec))
+                                if (std::filesystem::exists(texturesRoot, ec))
                                 {
-                                    for (const auto& entry : std::filesystem::directory_iterator(texturesDir, ec))
+                                    for (const auto& entry : std::filesystem::recursive_directory_iterator(texturesRoot, ec))
                                     {
-                                        if (!entry.is_regular_file())
+                                        if (ec || !entry.is_regular_file())
                                             continue;
 
                                         std::string ext = entry.path().extension().string();
@@ -4648,6 +5088,18 @@ int main(int argc, char** argv)
                                             availableTextures.push_back(entry.path().generic_string());
                                         }
                                     }
+                                    std::sort(availableTextures.begin(), availableTextures.end());
+                                    availableTextures.erase(std::unique(availableTextures.begin(), availableTextures.end()), availableTextures.end());
+                                }
+                            }
+
+                            if (editableTexture)
+                            {
+                                const std::string currentPath = editableTexture->GetPath();
+                                if (!currentPath.empty() &&
+                                    std::find(availableTextures.begin(), availableTextures.end(), currentPath) == availableTextures.end())
+                                {
+                                    availableTextures.push_back(currentPath);
                                     std::sort(availableTextures.begin(), availableTextures.end());
                                 }
                             }
@@ -4683,6 +5135,14 @@ int main(int argc, char** argv)
                             }
 
                             static char texturePath[256] = "";
+                            static std::string lastSyncedTexturePath;
+                            const std::string activeTexturePath = editableTexture ? editableTexture->GetPath() : std::string();
+                            if (activeTexturePath != lastSyncedTexturePath)
+                            {
+                                std::strncpy(texturePath, activeTexturePath.c_str(), sizeof(texturePath) - 1);
+                                texturePath[sizeof(texturePath) - 1] = '\0';
+                                lastSyncedTexturePath = activeTexturePath;
+                            }
                             ImGui::InputText("Texture Path", texturePath, sizeof(texturePath));
                             if (ImGui::Button("Load Texture"))
                             {
@@ -4895,6 +5355,20 @@ int main(int argc, char** argv)
                                     terrain.dirty = true;
                                 }
                             }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Import 8-bit PNG##terrainHm"))
+                            {
+                                std::string p = MyEngine::FileDialog::OpenImageFile();
+                                if (!p.empty())
+                                    TerrainSystem::ImportHeightmap(terrain, p, false);
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Import 16-bit PNG##terrainHm"))
+                            {
+                                std::string p = MyEngine::FileDialog::OpenImageFile();
+                                if (!p.empty())
+                                    TerrainSystem::ImportHeightmap(terrain, p, true);
+                            }
 
                             ImGui::Separator();
 
@@ -4934,12 +5408,12 @@ int main(int argc, char** argv)
                             // Sculpt controls
                             ImGui::Separator();
                             ImGui::Checkbox("Enable Sculpt##terrain", &terrain.sculptEnabled);
-                            ImGui::DragFloat("Brush Radius##terrain", &terrain.sculptBrushRadius, 0.1f, 0.25f, 100.0f);
-                            ImGui::DragFloat("Brush Strength##terrain", &terrain.sculptBrushStrength, 0.01f, 0.01f, 10.0f);
-                            ImGui::DragFloat("Brush Falloff##terrain", &terrain.sculptBrushFalloff, 0.01f, 0.1f, 8.0f);
+                            ImGui::DragFloat("Sculpt Radius##terrain", &terrain.sculptBrushRadius, 0.1f, 0.25f, 100.0f);
+                            ImGui::DragFloat("Sculpt Strength##terrain", &terrain.sculptBrushStrength, 0.01f, 0.01f, 10.0f);
+                            ImGui::DragFloat("Sculpt Falloff##terrain", &terrain.sculptBrushFalloff, 0.01f, 0.1f, 8.0f);
                             const char* terrainBrushModes[] = { "Raise/Lower", "Smooth", "Flatten" };
                             int terrainBrushMode = static_cast<int>(terrain.sculptBrushMode);
-                            if (ImGui::Combo("Brush Mode##terrain", &terrainBrushMode, terrainBrushModes, IM_ARRAYSIZE(terrainBrushModes)))
+                            if (ImGui::Combo("Sculpt Mode##terrain", &terrainBrushMode, terrainBrushModes, IM_ARRAYSIZE(terrainBrushModes)))
                                 terrain.sculptBrushMode = static_cast<TerrainBrushMode>(std::clamp(terrainBrushMode, 0, 2));
                             if (terrain.sculptBrushMode == TerrainBrushMode::RaiseLower)
                             {
@@ -4950,18 +5424,87 @@ int main(int argc, char** argv)
                                 ImGui::DragFloat("Flatten Height##terrain", &terrain.sculptFlattenHeight, 0.1f, -2000.0f, 2000.0f);
                                 if (selectedEntity->HasComponent<TransformComponent>() && ImGui::Button("Set Flatten Height From Cursor##terrain"))
                                 {
-                                    terrain.sculptFlattenHeight = terrainBrushPreviewHitPoint.y;
+                                    if (hasTerrainBrushPreviewHit && terrainBrushPreviewEntityID == selectedEntity->GetID())
+                                        terrain.sculptFlattenHeight = terrainBrushPreviewHitPoint.y;
                                 }
                             }
+
+                            // Paint controls
+                            ImGui::Separator();
+                            ImGui::Checkbox("Enable Paint##terrain", &terrain.paintEnabled);
+                            ImGui::DragInt("Paint Resolution##terrain", &terrain.paintResolution, 1.0f, 16, 1024);
+                            ImGui::DragFloat("Paint Radius##terrain", &terrain.paintBrushRadius, 0.1f, 0.25f, 100.0f);
+                            ImGui::DragFloat("Paint Strength##terrain", &terrain.paintBrushStrength, 0.01f, 0.01f, 10.0f);
+                            ImGui::DragFloat("Paint Falloff##terrain", &terrain.paintBrushFalloff, 0.01f, 0.1f, 8.0f);
+                            terrain.paintActiveLayer = std::clamp(terrain.paintActiveLayer, 0, kMaxTerrainPaintLayers - 1);
+                            ImGui::SliderInt("Active Paint Layer##terrain", &terrain.paintActiveLayer, 0, kMaxTerrainPaintLayers - 1);
+                            if (terrain.paintLayers.size() > static_cast<size_t>(kMaxTerrainPaintLayers))
+                                terrain.paintLayers.resize(kMaxTerrainPaintLayers);
+                            while (terrain.paintLayers.size() < static_cast<size_t>(kMaxTerrainPaintLayers))
+                            {
+                                TerrainPaintLayer layer;
+                                layer.name = "Layer " + std::to_string(terrain.paintLayers.size());
+                                terrain.paintLayers.push_back(std::move(layer));
+                            }
+                            for (int layerIndex = 0; layerIndex < kMaxTerrainPaintLayers; ++layerIndex)
+                            {
+                                auto& layer = terrain.paintLayers[static_cast<size_t>(layerIndex)];
+                                if (layer.name.empty())
+                                    layer.name = "Layer " + std::to_string(layerIndex);
+                                const std::string headerLabel = "Layer " + std::to_string(layerIndex) + "##terrainLayerHeader" + std::to_string(layerIndex);
+                                if (ImGui::CollapsingHeader(headerLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+                                {
+                                    const std::string enabledLabel = "Enabled##terrainLayerEnabled" + std::to_string(layerIndex);
+                                    ImGui::Checkbox(enabledLabel.c_str(), &layer.enabled);
+                                    const std::string uvLabel = "UV Scale##terrainLayerUV" + std::to_string(layerIndex);
+                                    ImGui::DragFloat(uvLabel.c_str(), &layer.uvScale, 0.1f, 0.1f, 256.0f);
+
+                                    std::string textureName = layer.texture ? layer.texture->GetPath() : (layer.texturePath.empty() ? "(none)" : layer.texturePath);
+                                    const std::string inputId = "##terrainLayerTex" + std::to_string(layerIndex);
+                                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 100.0f);
+                                    ImGui::InputText(inputId.c_str(), textureName.data(), textureName.size() + 1, ImGuiInputTextFlags_ReadOnly);
+                                    ImGui::SameLine();
+                                    const std::string browseLabel = "Browse##terrainLayerBrowse" + std::to_string(layerIndex);
+                                    if (ImGui::Button(browseLabel.c_str()))
+                                    {
+                                        std::string p = MyEngine::FileDialog::OpenImageFile();
+                                        if (!p.empty())
+                                        {
+                                            layer.texturePath = p;
+                                            layer.texture = MyEngine::AssetManager::LoadTexture(p);
+                                            if (layerIndex == 0)
+                                            {
+                                                terrain.surfaceTexturePath = p;
+                                                terrain.surfaceTexture = layer.texture;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             ImGui::Checkbox("Brush Preview##terrain", &terrainBrushPreviewEnabled);
                             ImGui::Checkbox("NavMesh Dirty Region Overlay##terrain", &terrainNavRegionOverlayEnabled);
+                            const bool terrainPaintMode = terrain.paintEnabled;
+                            const float activeRadius = terrainPaintMode ? terrain.paintBrushRadius : terrain.sculptBrushRadius;
+                            const float activeStrength = terrainPaintMode ? terrain.paintBrushStrength : terrain.sculptBrushStrength;
                             ImGui::TextDisabled("Terrain Undo: %zu | Redo: %zu", undoStack.GetUndoCount(), undoStack.GetRedoCount());
-                            if (terrain.sculptEnabled)
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("Undo Terrain##terrain"))
+                                undoStack.Undo(scene);
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("Redo Terrain##terrain"))
+                                undoStack.Redo(scene);
+                            ImGui::TextDisabled("Active Tool: %s", terrainPaintMode ? "Paint" : (terrain.sculptEnabled ? "Sculpt" : "None"));
+                            ImGui::TextDisabled("Brush Radius: %.2f  Strength: %.2f", activeRadius, activeStrength);
+                            if (terrain.paintEnabled)
+                                ImGui::TextDisabled("Paint Layer: %d", terrain.paintActiveLayer + 1);
+                            if (terrain.sculptEnabled || terrain.paintEnabled)
                             {
-                                ImGui::TextDisabled("Hold left mouse on terrain to sculpt at cursor ray hit.");
-                                ImGui::TextDisabled("Shift+Z Undo Sculpt | Shift+Y Redo Sculpt");
+                                ImGui::TextDisabled("LMB Apply  |  [ / ] Radius  |  - / = Strength  |  P Preview");
+                                ImGui::TextDisabled("Hold Shift to invert raise/lower while sculpting.");
+                                ImGui::TextDisabled("1-4 Select Paint Layer  |  Shift+Z Undo Terrain  |  Shift+Y Redo Terrain");
                                 if (!selectedEntity->HasComponent<TransformComponent>())
-                                    ImGui::TextDisabled("Terrain needs TransformComponent for sculpting.");
+                                    ImGui::TextDisabled("Terrain needs TransformComponent for editing.");
                             }
 
                             // Rebuild button
@@ -4971,6 +5514,20 @@ int main(int argc, char** argv)
                                 TerrainSystem::RebuildMesh(terrain);
                                 navMeshRebuildRequested = true;
                                 navMeshRebuildTimer = kNavMeshRebuildDelay;
+                            }
+
+                            if (ImGui::Button("Export Heightmap PNG 8-bit##terrain"))
+                            {
+                                std::string p = MyEngine::FileDialog::SaveImageFile();
+                                if (!p.empty())
+                                    TerrainSystem::ExportHeightmap(terrain, p, false);
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Export Heightmap PNG 16-bit##terrain"))
+                            {
+                                std::string p = MyEngine::FileDialog::SaveImageFile();
+                                if (!p.empty())
+                                    TerrainSystem::ExportHeightmap(terrain, p, true);
                             }
 
                             ImGui::SameLine();
@@ -5311,6 +5868,167 @@ int main(int argc, char** argv)
                                     << (other ? other->GetName() : "unknown") << std::endl;
                             };
                         }
+                    }
+
+                    // Combat Attack Component (frame-data authoring + JSON fallback)
+                    if (selectedEntity->HasComponent<CombatAttackComponent>())
+                    {
+                        if (BeginInspectorSection("Combat Attack"))
+                        {
+                            auto& combatAttack = selectedEntity->GetComponent<CombatAttackComponent>();
+                            InspectorGroupLabel("Authoring");
+                            char attackPathBuffer[260] = {};
+                            strncpy_s(attackPathBuffer, combatAttack.attackSetPath.c_str(), sizeof(attackPathBuffer) - 1);
+                            if (ImGui::InputText("Attack Set JSON", attackPathBuffer, sizeof(attackPathBuffer)))
+                                combatAttack.attackSetPath = attackPathBuffer;
+                            ImGui::Checkbox("Auto Load From JSON", &combatAttack.autoLoadFromJson);
+                            if (InspectorActionButton("Reload Attack Set"))
+                                combatAttack.requestReloadFromJson = true;
+                            if (!combatAttack.lastLoadError.empty())
+                                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s", combatAttack.lastLoadError.c_str());
+
+                            InspectorGroupLabel("Runtime");
+                            ImGui::Checkbox("Request Attack", &combatAttack.attackRequested);
+                            ImGui::DragInt("Selected Attack Index", &combatAttack.selectedAttackIndex, 1.0f, 0,
+                                std::max(0, static_cast<int>(combatAttack.attacks.size()) - 1));
+                            ImGui::Text("Is Attacking: %s", combatAttack.isAttacking ? "Yes" : "No");
+                            ImGui::Text("Cooldown: %.2f", combatAttack.cooldownTimer);
+
+                            InspectorGroupLabel("Attack Definitions");
+                            for (int ai = 0; ai < static_cast<int>(combatAttack.attacks.size()); ++ai)
+                            {
+                                auto& def = combatAttack.attacks[ai];
+                                std::string label = def.name.empty() ? ("Attack " + std::to_string(ai)) : def.name;
+                                if (ImGui::TreeNode((label + "##attackDef").c_str()))
+                                {
+                                    char nameBuffer[128] = {};
+                                    strncpy_s(nameBuffer, def.name.c_str(), sizeof(nameBuffer) - 1);
+                                    if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer)))
+                                        def.name = nameBuffer;
+                                    ImGui::DragInt("Startup Frames", &def.startupFrames, 1.0f, 0, 300);
+                                    ImGui::DragInt("Active Frames", &def.activeFrames, 1.0f, 1, 300);
+                                    ImGui::DragInt("Recovery Frames", &def.recoveryFrames, 1.0f, 0, 300);
+                                    ImGui::DragFloat("Damage", &def.damage, 0.1f, 0.0f, 1000.0f);
+                                    ImGui::DragFloat("Posture Damage", &def.postureDamage, 0.1f, 0.0f, 1000.0f);
+                                    ImGui::DragFloat3("Hitbox Center", &def.hitboxCenter.x, 0.05f);
+                                    ImGui::DragFloat("Hitbox Radius", &def.hitboxRadius, 0.01f, 0.01f, 10.0f);
+                                    ImGui::DragFloat("Cooldown", &def.cooldownSeconds, 0.01f, 0.0f, 10.0f);
+                                    if (InspectorDangerButton("Remove Attack Definition"))
+                                    {
+                                        combatAttack.attacks.erase(combatAttack.attacks.begin() + ai);
+                                        ImGui::TreePop();
+                                        break;
+                                    }
+                                    ImGui::TreePop();
+                                }
+                            }
+
+                            if (InspectorActionButton("Add Attack Definition"))
+                                combatAttack.attacks.emplace_back();
+
+                            if (InspectorDangerButton("Remove Combat Attack"))
+                                selectedEntity->RemoveComponent<CombatAttackComponent>();
+                        }
+                    }
+                    else
+                    {
+                        if (InspectorActionButton("Add Combat Attack"))
+                        {
+                            selectedEntity->AddComponent<CombatAttackComponent>();
+                            if (!selectedEntity->HasComponent<CombatHitboxComponent>())
+                                selectedEntity->AddComponent<CombatHitboxComponent>();
+                        }
+                    }
+
+                    // Combat Stats Component (health/posture/reaction)
+                    if (selectedEntity->HasComponent<CombatStatsComponent>())
+                    {
+                        if (BeginInspectorSection("Combat Stats"))
+                        {
+                            auto& combatStats = selectedEntity->GetComponent<CombatStatsComponent>();
+                            InspectorGroupLabel("Vitals");
+                            ImGui::DragFloat("Max Health", &combatStats.maxHealth, 0.1f, 1.0f, 5000.0f);
+                            ImGui::DragFloat("Health", &combatStats.health, 0.1f, 0.0f, combatStats.maxHealth);
+                            ImGui::DragFloat("Max Posture", &combatStats.maxPosture, 0.1f, 1.0f, 5000.0f);
+                            ImGui::DragFloat("Posture", &combatStats.posture, 0.1f, 0.0f, combatStats.maxPosture);
+                            ImGui::DragFloat("Posture Recovery", &combatStats.postureRecoveryPerSecond, 0.1f, 0.0f, 500.0f);
+
+                            InspectorGroupLabel("Defense");
+                            ImGui::Checkbox("Guarding", &combatStats.guarding);
+                            ImGui::DragFloat("Guard Posture Mult", &combatStats.guardPostureMultiplier, 0.01f, 0.0f, 5.0f);
+
+                            InspectorGroupLabel("Runtime");
+                            ImGui::Text("Dead: %s", combatStats.isDead ? "Yes" : "No");
+                            ImGui::Text("Reaction Timer: %.2f", combatStats.reactionTimer);
+                            ImGui::Text("Last Damage: %.2f", combatStats.lastDamageTaken);
+                            ImGui::Text("Last Posture Damage: %.2f", combatStats.lastPostureDamageTaken);
+
+                            if (InspectorDangerButton("Remove Combat Stats"))
+                                selectedEntity->RemoveComponent<CombatStatsComponent>();
+                        }
+                    }
+                    else
+                    {
+                        if (InspectorActionButton("Add Combat Stats"))
+                        {
+                            selectedEntity->AddComponent<CombatStatsComponent>();
+                            if (!selectedEntity->HasComponent<CombatHurtboxComponent>())
+                                selectedEntity->AddComponent<CombatHurtboxComponent>();
+                        }
+                    }
+
+                    // Boss AI Component (hybrid FSM + punish windows)
+                    if (selectedEntity->HasComponent<BossAIComponent>())
+                    {
+                        if (BeginInspectorSection("Boss AI"))
+                        {
+                            auto& bossAI = selectedEntity->GetComponent<BossAIComponent>();
+                            InspectorGroupLabel("Behavior");
+                            ImGui::Checkbox("Enabled", &bossAI.enabled);
+                            ImGui::DragFloat("Approach Speed", &bossAI.approachSpeed, 0.05f, 0.0f, 20.0f);
+                            ImGui::DragFloat("Strafe Speed", &bossAI.strafeSpeed, 0.05f, 0.0f, 20.0f);
+                            ImGui::DragFloat("Desired Range", &bossAI.desiredRange, 0.05f, 0.1f, 20.0f);
+                            ImGui::DragFloat("Attack Range", &bossAI.attackRange, 0.05f, 0.1f, 20.0f);
+                            ImGui::DragFloat("Punish Range", &bossAI.punishRange, 0.05f, 0.1f, 20.0f);
+                            ImGui::DragFloat("Decision Interval", &bossAI.decisionInterval, 0.01f, 0.01f, 2.0f);
+                            ImGui::DragFloat("Punish Window", &bossAI.punishWindowSeconds, 0.01f, 0.0f, 5.0f);
+
+                            std::string targetLabel = "(auto player)";
+                            if (bossAI.targetEntityID != 0)
+                            {
+                                auto target = TransformHierarchy::FindEntityByID(scene, bossAI.targetEntityID);
+                                if (target)
+                                    targetLabel = target->GetName();
+                            }
+                            if (ImGui::BeginCombo("Target", targetLabel.c_str()))
+                            {
+                                bool autoTarget = (bossAI.targetEntityID == 0);
+                                if (ImGui::Selectable("(auto player)", autoTarget))
+                                    bossAI.targetEntityID = 0;
+                                for (const auto& candidate : scene.GetEntities())
+                                {
+                                    if (!candidate || candidate.get() == selectedEntity || !candidate->HasComponent<TransformComponent>())
+                                        continue;
+                                    const bool selected = (candidate->GetID() == bossAI.targetEntityID);
+                                    if (ImGui::Selectable(candidate->GetName().c_str(), selected))
+                                        bossAI.targetEntityID = candidate->GetID();
+                                }
+                                ImGui::EndCombo();
+                            }
+
+                            InspectorGroupLabel("Runtime");
+                            ImGui::Text("Distance To Target: %.2f", bossAI.distanceToTarget);
+                            ImGui::Text("Facing Dot: %.2f", bossAI.facingDotToTarget);
+                            ImGui::Text("Punish Timer: %.2f", bossAI.punishWindowTimer);
+
+                            if (InspectorDangerButton("Remove Boss AI"))
+                                selectedEntity->RemoveComponent<BossAIComponent>();
+                        }
+                    }
+                    else
+                    {
+                        if (InspectorActionButton("Add Boss AI"))
+                            selectedEntity->AddComponent<BossAIComponent>();
                     }
 
                     // Joint Component (Fixed/Spring/Hinge constraints between entities)
@@ -7725,6 +8443,28 @@ int main(int argc, char** argv)
                 ImGui::Text("CPU Animation+Particles: %.3f ms", cpuAnimationMs);
                 ImGui::Text("CPU Render: %.3f ms", cpuRenderMs);
                 ImGui::Separator();
+                ImGui::Text("Frame Pacing Diagnostics");
+                ImGui::Text("Window: %d frames", framePacingDiagnostics.sampleCount);
+                ImGui::Text("Avg/Min/Max: %.3f / %.3f / %.3f ms",
+                    framePacingDiagnostics.averageFrameMs,
+                    framePacingDiagnostics.minFrameMs,
+                    framePacingDiagnostics.maxFrameMs);
+                ImGui::Text("StdDev: %.3f ms  Avg Jitter: %.3f ms",
+                    framePacingDiagnostics.stdDevFrameMs,
+                    framePacingDiagnostics.averageJitterMs);
+                ImGui::Text("Spikes >16.67ms: %d  >33.33ms: %d",
+                    framePacingDiagnostics.spikeCountOver16Ms,
+                    framePacingDiagnostics.spikeCountOver33Ms);
+                ImGui::Text("Camera Step/Jitter: %.3f / %.3f u/s",
+                    framePacingDiagnostics.cameraStepPerSec,
+                    framePacingDiagnostics.cameraStepJitterPerSec);
+                ImGui::Text("World Step/Jitter: %.3f / %.3f u/s",
+                    framePacingDiagnostics.worldStepPerSec,
+                    framePacingDiagnostics.worldStepJitterPerSec);
+                ImGui::Text("Large Steps (Cam/World): %d / %d",
+                    framePacingDiagnostics.cameraLargeStepCount,
+                    framePacingDiagnostics.worldLargeStepCount);
+                ImGui::Separator();
                 ImGui::Text("Terrain/Nav Pipeline");
                 ImGui::Text("Patch Queue: %zu (peak %zu)", pendingTerrainPatchJobs.size(), terrainPatchQueuePeak);
                 ImGui::Text("Patch Prep: %.3f ms  Upload: %.3f ms", terrainPatchPrepMs, terrainPatchUploadMs);
@@ -7760,11 +8500,17 @@ int main(int argc, char** argv)
 
                 ImGui::Separator();
                 ImGui::Text("Networking");
-                ImGui::Text("Session: %s", networkTransport->IsSessionReady() ? "Ready" : (networkSessionBootstrapPending ? "Connecting" : "Disconnected"));
+                const bool sessionReady = networkTransport->IsSessionReady();
+                const bool sessionTimedOut = networkTransport->IsSessionTimedOut();
+                const char* sessionStatus = sessionReady
+                    ? "Ready"
+                    : (sessionTimedOut ? "Timed Out" : (networkSessionBootstrapPending ? "Connecting" : "Disconnected"));
+                ImGui::Text("Session: %s", sessionStatus);
                 ImGui::Text("Transport: %s", usingSocketTransport ? "Socket (UDP localhost)" : "InMemory Fallback");
                 ImGui::Text("Client ID: %u", static_cast<unsigned int>(localClientID));
                 ImGui::Text("Net Tick: %u", static_cast<unsigned int>(networkTick));
                 ImGui::Text("Authoritative Scene: %s", hasAuthoritativeServerScene ? "Server/Client Split" : "Single Scene");
+                ImGui::Text("Connect Retries: %u", static_cast<unsigned int>(networkTransport->GetConnectRetryCount()));
                 ImGui::Checkbox("Networking Enabled", &networkingEnabled);
                 if (ImGui::Button("Reconnect Session"))
                 {
@@ -7776,7 +8522,44 @@ int main(int argc, char** argv)
                         networkTransport->SendConnectRequest(0u);
                     clientReconciliationState = MyEngine::Net::ClientReconciliationState{};
                     pendingInputByTick.clear();
+                    latestAuthoritativeInput = MyEngine::Net::InputCommand{};
+                    hasLatestAuthoritativeInput = false;
                     snapshotInterpolationBuffer = MyEngine::Net::SnapshotInterpolationBuffer(64);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Disconnect Session"))
+                {
+                    networkTransport->DisconnectSession();
+                    localClientID = 0u;
+                    networkSessionBootstrapPending = false;
+                    pendingInputByTick.clear();
+                    hasLatestAuthoritativeInput = false;
+                }
+
+                auto retrySettings = networkTransport->GetSessionRetrySettings();
+                bool retryEnabled = retrySettings.enabled;
+                if (ImGui::Checkbox("Connect Retry Enabled", &retryEnabled))
+                {
+                    retrySettings.enabled = retryEnabled;
+                    networkTransport->SetSessionRetrySettings(retrySettings);
+                }
+                int connectTimeoutTicks = static_cast<int>(retrySettings.connectTimeoutTicks);
+                if (ImGui::SliderInt("Connect Timeout (ticks)", &connectTimeoutTicks, 1, 120))
+                {
+                    retrySettings.connectTimeoutTicks = static_cast<MyEngine::Net::NetTick>(std::max(connectTimeoutTicks, 1));
+                    networkTransport->SetSessionRetrySettings(retrySettings);
+                }
+                int retryIntervalTicks = static_cast<int>(retrySettings.retryIntervalTicks);
+                if (ImGui::SliderInt("Retry Interval (ticks)", &retryIntervalTicks, 1, 60))
+                {
+                    retrySettings.retryIntervalTicks = static_cast<MyEngine::Net::NetTick>(std::max(retryIntervalTicks, 1));
+                    networkTransport->SetSessionRetrySettings(retrySettings);
+                }
+                int maxRetries = static_cast<int>(retrySettings.maxRetries);
+                if (ImGui::SliderInt("Max Connect Retries", &maxRetries, 0, 10))
+                {
+                    retrySettings.maxRetries = static_cast<std::uint32_t>(std::max(maxRetries, 0));
+                    networkTransport->SetSessionRetrySettings(retrySettings);
                 }
 
                 auto simSettings = networkTransport->GetSimulationSettings();
@@ -7822,6 +8605,12 @@ int main(int argc, char** argv)
                 if (ImGui::SliderInt("Snapshot Delay (ticks)", &snapshotDelayTicks, 0, 20))
                     transportSnapshotDelayTicks = static_cast<MyEngine::Net::NetTick>(std::max(snapshotDelayTicks, 0));
 
+                ImGui::Checkbox("Client Smoothing Enabled", &networkClientSmoothingEnabled);
+                ImGui::SliderFloat("Client Position Smooth Rate", &networkClientPositionSmoothingRate, 1.0f, 30.0f, "%.1f");
+                ImGui::SliderFloat("Client Rotation Smooth Rate", &networkClientRotationSmoothingRate, 1.0f, 30.0f, "%.1f");
+                ImGui::SliderFloat("Client Position Snap Distance", &networkClientPositionSnapDistance, 0.05f, 10.0f, "%.2f");
+                ImGui::SliderFloat("Client Rotation Snap Distance", &networkClientRotationSnapDistance, 1.0f, 180.0f, "%.1f");
+
                 ImGui::Checkbox("Interest Filter Enabled", &networkInterestSettings.enabled);
                 ImGui::SliderFloat("Interest Radius", &networkInterestSettings.radius, 1.0f, 200.0f, "%.1f");
 
@@ -7856,6 +8645,38 @@ int main(int argc, char** argv)
                 else
                 {
                     ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "Shader status: OK");
+                }
+
+                ImGui::Separator();
+                ImGui::Text("Plugins");
+                ImGui::Text("Loaded: %zu", pluginManager.GetLoadedPlugins().size());
+                if (ImGui::Button("Load Plugins"))
+                {
+                    MyEngine::Net::NetPluginRegistry::Clear();
+                    pluginManager.LoadAllFromRoot(pluginRootPath, pluginHostApi);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Reload Plugins (F10)"))
+                {
+                    MyEngine::Net::NetPluginRegistry::Clear();
+                    pluginManager.ReloadAllFromRoot(pluginRootPath, pluginHostApi);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Unload Plugins"))
+                {
+                    pluginManager.UnloadAll();
+                    MyEngine::Net::NetPluginRegistry::Clear();
+                }
+
+                for (const auto& loadedPlugin : pluginManager.GetLoadedPlugins())
+                    ImGui::BulletText("%s", loadedPlugin.manifest.packageName.c_str());
+
+                const auto& pluginErrors = pluginManager.GetLastErrors();
+                if (!pluginErrors.empty())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Plugin Loader Messages:");
+                    for (const auto& pluginError : pluginErrors)
+                        ImGui::BulletText("%s", pluginError.c_str());
                 }
 
                 if (ImGui::Button("Export CSV##perfExport"))
@@ -7960,6 +8781,147 @@ int main(int argc, char** argv)
                 ImGui::Text("  Collisions: %d", physicsSystem.collisionsDetected);
 
                 ImGui::End();
+            }
+
+            if (showCombatPanel)
+            {
+                ImGui::SetNextWindowPos(ImVec2(320, 700), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(420, 280), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Combat Debug", &showCombatPanel);
+
+                static bool drawCombatShapesOverlay = true;
+                ImGui::Checkbox("Draw Hitbox/Hurtbox Overlay", &drawCombatShapesOverlay);
+
+                int attackEntityCount = 0;
+                int activeHitboxCount = 0;
+                int hurtboxCount = 0;
+                int recentlyHitCount = 0;
+
+                for (const auto& entity : scene.GetEntities())
+                {
+                    if (!entity)
+                        continue;
+
+                    if (entity->HasComponent<CombatAttackComponent>())
+                    {
+                        ++attackEntityCount;
+                        const auto& attack = entity->GetComponent<CombatAttackComponent>();
+                        if (attack.phase == CombatAttackComponent::AttackPhase::Active)
+                            ++activeHitboxCount;
+                    }
+                    if (entity->HasComponent<CombatHurtboxComponent>())
+                    {
+                        ++hurtboxCount;
+                        if (entity->GetComponent<CombatHurtboxComponent>().wasHitThisStep)
+                            ++recentlyHitCount;
+                    }
+                }
+
+                ImGui::Text("Attack Entities: %d", attackEntityCount);
+                ImGui::Text("Active Hitboxes: %d", activeHitboxCount);
+                ImGui::Text("Hurtboxes: %d", hurtboxCount);
+                ImGui::Text("Hit This Step: %d", recentlyHitCount);
+
+                ImGui::Separator();
+                if (ImGui::CollapsingHeader("Frame Windows", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    for (const auto& entity : scene.GetEntities())
+                    {
+                        if (!entity || !entity->HasComponent<CombatAttackComponent>())
+                            continue;
+
+                        const auto& attack = entity->GetComponent<CombatAttackComponent>();
+                        std::string phaseText = "Idle";
+                        if (attack.phase == CombatAttackComponent::AttackPhase::Startup) phaseText = "Startup";
+                        else if (attack.phase == CombatAttackComponent::AttackPhase::Active) phaseText = "Active";
+                        else if (attack.phase == CombatAttackComponent::AttackPhase::Recovery) phaseText = "Recovery";
+
+                        std::string attackName = "<none>";
+                        if (attack.activeAttackIndex >= 0 && attack.activeAttackIndex < static_cast<int>(attack.attacks.size()))
+                            attackName = attack.attacks[attack.activeAttackIndex].name;
+
+                        ImGui::BulletText("%s | %s | frame %d | %s",
+                            entity->GetName().c_str(),
+                            phaseText.c_str(),
+                            attack.phaseFrame,
+                            attackName.c_str());
+                    }
+                }
+
+                if (ImGui::CollapsingHeader("Health/Posture & AI", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    for (const auto& entity : scene.GetEntities())
+                    {
+                        if (!entity)
+                            continue;
+
+                        if (entity->HasComponent<CombatStatsComponent>())
+                        {
+                            const auto& stats = entity->GetComponent<CombatStatsComponent>();
+                            ImGui::Text("%s HP %.1f/%.1f | Posture %.1f/%.1f | React %.2f",
+                                entity->GetName().c_str(),
+                                stats.health, stats.maxHealth,
+                                stats.posture, stats.maxPosture,
+                                stats.reactionTimer);
+                        }
+
+                        if (entity->HasComponent<BossAIComponent>())
+                        {
+                            const auto& ai = entity->GetComponent<BossAIComponent>();
+                            ImGui::TextDisabled("  AI %s | dist %.2f | face %.2f | punish %.2f",
+                                entity->GetName().c_str(), ai.distanceToTarget, ai.facingDotToTarget, ai.punishWindowTimer);
+                        }
+                    }
+                }
+
+                ImGui::End();
+
+                if (drawCombatShapesOverlay)
+                {
+                    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+                    const glm::mat4& viewMatrix = cameraSystem.GetViewMatrix();
+                    const glm::mat4& projectionMatrix = cameraSystem.GetProjectionMatrix();
+
+                    for (const auto& entity : scene.GetEntities())
+                    {
+                        if (!entity || !entity->HasComponent<TransformComponent>())
+                            continue;
+
+                        const auto& transform = entity->GetComponent<TransformComponent>();
+
+                        if (entity->HasComponent<CombatHitboxComponent>())
+                        {
+                            const auto& hitbox = entity->GetComponent<CombatHitboxComponent>();
+                            const glm::vec3 center = transform.position + hitbox.center;
+                            const glm::vec3 edge = center + glm::vec3(hitbox.radius, 0.0f, 0.0f);
+                            ImVec2 centerScreen;
+                            ImVec2 edgeScreen;
+                            if (ProjectWorldPointToScreen(center, viewMatrix, projectionMatrix, g_WindowWidth, g_WindowHeight, centerScreen) &&
+                                ProjectWorldPointToScreen(edge, viewMatrix, projectionMatrix, g_WindowWidth, g_WindowHeight, edgeScreen))
+                            {
+                                float pixelRadius = std::max(2.0f, std::abs(edgeScreen.x - centerScreen.x));
+                                ImU32 color = hitbox.active ? IM_COL32(255, 80, 80, 230) : IM_COL32(140, 70, 70, 160);
+                                drawList->AddCircle(centerScreen, pixelRadius, color, 24, 2.0f);
+                            }
+                        }
+
+                        if (entity->HasComponent<CombatHurtboxComponent>())
+                        {
+                            const auto& hurtbox = entity->GetComponent<CombatHurtboxComponent>();
+                            const glm::vec3 center = transform.position + hurtbox.center;
+                            const glm::vec3 edge = center + glm::vec3(hurtbox.radius, 0.0f, 0.0f);
+                            ImVec2 centerScreen;
+                            ImVec2 edgeScreen;
+                            if (ProjectWorldPointToScreen(center, viewMatrix, projectionMatrix, g_WindowWidth, g_WindowHeight, centerScreen) &&
+                                ProjectWorldPointToScreen(edge, viewMatrix, projectionMatrix, g_WindowWidth, g_WindowHeight, edgeScreen))
+                            {
+                                float pixelRadius = std::max(2.0f, std::abs(edgeScreen.x - centerScreen.x));
+                                ImU32 color = hurtbox.wasHitThisStep ? IM_COL32(255, 220, 80, 240) : IM_COL32(80, 255, 120, 200);
+                                drawList->AddCircle(centerScreen, pixelRadius, color, 24, 2.0f);
+                            }
+                        }
+                    }
+                }
             }
         }
 #endif
@@ -8086,7 +9048,7 @@ int main(int argc, char** argv)
                     auto& terrain = selectedEntity->GetComponent<TerrainComponent>();
                     const auto& terrainTransform = selectedEntity->GetComponent<TransformComponent>();
 
-                    if (terrain.sculptEnabled)
+                    if (terrain.sculptEnabled || terrain.paintEnabled)
                     {
                         glm::vec3 hitPoint(0.0f);
                         if (TerrainSystem::RaycastTerrain(
@@ -8104,43 +9066,76 @@ int main(int argc, char** argv)
                             if (Input::IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT))
                             {
                                 attemptedSculptStroke = true;
-                                if (!terrainSculptStrokeActive)
+                                if (!terrainSculptStrokeActive && !terrainPaintStrokeActive)
                                     beginTerrainStroke(selectedEntity, terrain);
 
-                                int minRow = 0, maxRow = 0, minCol = 0, maxCol = 0;
-                                if (TerrainSystem::ApplySculptBrush(
-                                    terrain,
-                                    terrainTransform.position,
-                                    hitPoint.x,
-                                    hitPoint.z,
-                                    terrain.sculptBrushRadius,
-                                    terrain.sculptBrushStrength,
-                                    terrain.sculptBrushFalloff,
-                                    std::max(deltaTime, 0.016f),
-                                    terrain.sculptRaise,
-                                    terrain.sculptBrushMode,
-                                    terrain.sculptFlattenHeight,
-                                    &minRow,
-                                    &maxRow,
-                                    &minCol,
-                                    &maxCol))
+                                if (terrain.sculptEnabled)
                                 {
-                                    queueTerrainPatchBounds(terrain, minRow, maxRow, minCol, maxCol);
-                                    terrain.sculptPatchAccumulatedTime += deltaTime;
-                                    if (terrain.sculptPatchAccumulatedTime >= std::max(terrain.sculptPatchCommitInterval, 0.005f))
-                                        flushTerrainPatch(selectedEntity, terrain);
-                                    sculptedThisFrame = true;
+                                    int minRow = 0, maxRow = 0, minCol = 0, maxCol = 0;
+                                    const bool invertRaiseDirection = Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT) || Input::IsKeyDown(GLFW_KEY_RIGHT_SHIFT);
+                                    const bool brushRaise = (terrain.sculptBrushMode == TerrainBrushMode::RaiseLower && invertRaiseDirection)
+                                        ? !terrain.sculptRaise
+                                        : terrain.sculptRaise;
+                                    if (TerrainSystem::ApplySculptBrush(
+                                        terrain,
+                                        terrainTransform.position,
+                                        hitPoint.x,
+                                        hitPoint.z,
+                                        terrain.sculptBrushRadius,
+                                        terrain.sculptBrushStrength,
+                                        terrain.sculptBrushFalloff,
+                                        std::max(deltaTime, 0.016f),
+                                        brushRaise,
+                                        terrain.sculptBrushMode,
+                                        terrain.sculptFlattenHeight,
+                                        &minRow,
+                                        &maxRow,
+                                        &minCol,
+                                        &maxCol))
+                                    {
+                                        queueTerrainPatchBounds(terrain, minRow, maxRow, minCol, maxCol);
+                                        terrain.sculptPatchAccumulatedTime += deltaTime;
+                                        if (terrain.sculptPatchAccumulatedTime >= std::max(terrain.sculptPatchCommitInterval, 0.005f))
+                                            flushTerrainPatch(selectedEntity, terrain);
+                                        sculptedThisFrame = true;
+                                    }
+                                }
+
+                                if (terrain.paintEnabled)
+                                {
+                                    int paintMinRow = 0, paintMaxRow = 0, paintMinCol = 0, paintMaxCol = 0;
+                                    if (TerrainSystem::ApplyPaintBrush(
+                                        terrain,
+                                        terrainTransform.position,
+                                        hitPoint.x,
+                                        hitPoint.z,
+                                        terrain.paintActiveLayer,
+                                        terrain.paintBrushRadius,
+                                        terrain.paintBrushStrength,
+                                        terrain.paintBrushFalloff,
+                                        std::max(deltaTime, 0.016f),
+                                        &paintMinRow,
+                                        &paintMaxRow,
+                                        &paintMinCol,
+                                        &paintMaxCol))
+                                    {
+                                        terrainPaintStrokeMinRow = std::min(terrainPaintStrokeMinRow, paintMinRow);
+                                        terrainPaintStrokeMaxRow = std::max(terrainPaintStrokeMaxRow, paintMaxRow);
+                                        terrainPaintStrokeMinCol = std::min(terrainPaintStrokeMinCol, paintMinCol);
+                                        terrainPaintStrokeMaxCol = std::max(terrainPaintStrokeMaxCol, paintMaxCol);
+                                        sculptedThisFrame = true;
+                                    }
                                 }
                             }
                         }
                     }
 
-                    if (terrainSculptStrokeActive && Input::IsMouseButtonReleased(GLFW_MOUSE_BUTTON_LEFT))
+                    if ((terrainSculptStrokeActive || terrainPaintStrokeActive) && Input::IsMouseButtonReleased(GLFW_MOUSE_BUTTON_LEFT))
                     {
                         endTerrainStroke(selectedEntity, terrain);
                     }
                 }
-                else if (terrainSculptStrokeActive && Input::IsMouseButtonReleased(GLFW_MOUSE_BUTTON_LEFT))
+                else if ((terrainSculptStrokeActive || terrainPaintStrokeActive) && Input::IsMouseButtonReleased(GLFW_MOUSE_BUTTON_LEFT))
                 {
                     if (selectedEntity && selectedEntity->HasComponent<TerrainComponent>())
                     {
@@ -8150,7 +9145,18 @@ int main(int argc, char** argv)
                     }
                     terrainSculptStrokeActive = false;
                     terrainSculptStrokeEntityID = 0;
+                    terrainPaintStrokeActive = false;
+                    terrainPaintStrokeEntityID = 0;
                     terrainSculptBeforeHeights.clear();
+                    terrainPaintBeforeWeights.clear();
+                    terrainStrokeMinRow = std::numeric_limits<int>::max();
+                    terrainStrokeMaxRow = std::numeric_limits<int>::min();
+                    terrainStrokeMinCol = std::numeric_limits<int>::max();
+                    terrainStrokeMaxCol = std::numeric_limits<int>::min();
+                    terrainPaintStrokeMinRow = std::numeric_limits<int>::max();
+                    terrainPaintStrokeMaxRow = std::numeric_limits<int>::min();
+                    terrainPaintStrokeMinCol = std::numeric_limits<int>::max();
+                    terrainPaintStrokeMaxCol = std::numeric_limits<int>::min();
                 }
 
                 if (!sculptedThisFrame && !attemptedSculptStroke && Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT))
@@ -8320,7 +9326,9 @@ int main(int argc, char** argv)
             if (terrainBrushPreviewEnabled && hasTerrainBrushPreviewHit && selectedEntity->HasComponent<TerrainComponent>() && selectedEntity->GetID() == terrainBrushPreviewEntityID)
             {
                 const auto& terrain = selectedEntity->GetComponent<TerrainComponent>();
-                const float radiusWorld = std::max(terrain.sculptBrushRadius, 0.1f);
+                const float radiusWorld = std::max(
+                    terrain.paintEnabled ? terrain.paintBrushRadius : terrain.sculptBrushRadius,
+                    0.1f);
                 glm::vec3 radiusOffset = overlayRight * radiusWorld;
                 ImVec2 centerScreen;
                 ImVec2 radiusScreen;
@@ -8329,9 +9337,17 @@ int main(int argc, char** argv)
                 {
                     float radiusPixels = std::sqrt((radiusScreen.x - centerScreen.x) * (radiusScreen.x - centerScreen.x) + (radiusScreen.y - centerScreen.y) * (radiusScreen.y - centerScreen.y));
                     radiusPixels = std::max(radiusPixels, 5.0f);
-                    ImU32 previewColor = IM_COL32(255, 196, 64, 220);
+                    ImU32 previewColor = terrain.paintEnabled ? IM_COL32(96, 180, 255, 230) : IM_COL32(255, 196, 64, 220);
                     overlayDrawList->AddCircle(centerScreen, radiusPixels, previewColor, 48, 2.0f);
                     overlayDrawList->AddCircleFilled(centerScreen, 3.0f, previewColor);
+
+                    if (terrain.paintEnabled)
+                    {
+                        const char* layerNames[4] = { "Layer 1", "Layer 2", "Layer 3", "Layer 4" };
+                        const int clampedLayer = std::clamp(terrain.paintActiveLayer, 0, 3);
+                        const std::string label = std::string("Paint ") + layerNames[clampedLayer];
+                        drawLabelBox(ImVec2(centerScreen.x + radiusPixels + 8.0f, centerScreen.y - 8.0f), label.c_str(), previewColor);
+                    }
                 }
             }
 
@@ -8448,6 +9464,9 @@ int main(int argc, char** argv)
 
     if (gpuFrameQueries[0] != 0 || gpuFrameQueries[1] != 0)
         glDeleteQueries(2, gpuFrameQueries);
+
+    pluginManager.UnloadAll();
+    MyEngine::Net::NetPluginRegistry::Clear();
 
     Input::Shutdown();
 

@@ -19,6 +19,12 @@ uniform bool u_UseTexture;
 uniform sampler2D u_Texture;
 uniform bool u_DirectionalShadowsEnabled;
 
+uniform bool u_TerrainLayerBlendEnabled;
+uniform int u_TerrainLayerCount;
+uniform sampler2D u_TerrainWeightMap;
+uniform sampler2D u_TerrainLayerTextures[4];
+uniform float u_TerrainLayerUVScale[4];
+
 // Cascaded shadow maps
 #define MAX_CASCADES 4
 uniform int          u_NumCascades;
@@ -240,12 +246,41 @@ float SpotShadowCalculation(int lightIndex, vec3 normal)
 	return shadow / 9.0;
 }
 
+vec3 SampleTerrainLayerBaseColor()
+{
+	vec4 weights = texture(u_TerrainWeightMap, v_TexCoords);
+	float weightSum = weights.r + weights.g + weights.b + weights.a;
+	if (weightSum < 0.0001)
+		weights = vec4(1.0, 0.0, 0.0, 0.0);
+	else
+		weights /= weightSum;
+
+	vec3 blended = vec3(0.0);
+	for (int i = 0; i < 4; ++i)
+	{
+		if (i >= u_TerrainLayerCount)
+			break;
+		float layerWeight = weights[i];
+		if (layerWeight <= 0.0001)
+			continue;
+		float uvScale = max(u_TerrainLayerUVScale[i], 0.001);
+		vec2 uv = v_TexCoords * uvScale;
+		vec3 layerColor = texture(u_TerrainLayerTextures[i], uv).rgb;
+		blended += layerColor * layerWeight;
+	}
+	return blended;
+}
+
 void main()
 {
 	vec3 N = normalize(v_Normal);
 	vec3 V = normalize(u_ViewPos - v_Position);
 
-	vec3 baseColor = u_UseTexture ? texture(u_Texture, v_TexCoords).rgb : u_MaterialAlbedo;
+	vec3 baseColor = u_MaterialAlbedo;
+	if (u_TerrainLayerBlendEnabled)
+		baseColor = SampleTerrainLayerBaseColor();
+	else if (u_UseTexture)
+		baseColor = texture(u_Texture, v_TexCoords).rgb;
 
 	// Ambient — modulated by SSAO if enabled
 	float ssao = 1.0;
@@ -309,7 +344,7 @@ void main()
 		lighting += (1.0 - spotShadow) * (diffuseS + specularS) * atten * coneFactor;
 	}
 
-	vec3 color = u_UseTexture ? lighting : lighting * v_Color;
+	vec3 color = (u_TerrainLayerBlendEnabled || u_UseTexture) ? lighting : lighting * v_Color;
 
 	if (u_DebugViewMode == 1)
 	{

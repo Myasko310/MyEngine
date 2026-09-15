@@ -23,5 +23,33 @@ jobs:
       - name: Build
         run: cmake --build build --config Debug --target ALL_BUILD
 
+      - name: Plugin ABI compatibility checks
+        shell: pwsh
+        run: ./tools/ci/check_plugin_abi.ps1
+
+      - name: Plugin ABI negative mismatch check
+        shell: pwsh
+        run: |
+          $pluginDllCandidates = @(
+            "build/Debug/plugins/SamplePlugin/SamplePlugin.dll",
+            "build/debug/Debug/plugins/SamplePlugin/SamplePlugin.dll"
+          )
+          $sourceDll = $null
+          foreach ($candidate in $pluginDllCandidates) {
+            if (Test-Path $candidate) { $sourceDll = $candidate; break }
+          }
+          if (-not $sourceDll) { throw "SamplePlugin.dll not found in expected output paths." }
+
+          $negativeRoot = "build/abi-negative-check/SamplePlugin"
+          New-Item -ItemType Directory -Force -Path $negativeRoot | Out-Null
+          Copy-Item $sourceDll "$negativeRoot/SamplePlugin.dll" -Force
+          @"
+          name=SamplePlugin
+          dll=SamplePlugin.dll
+          sdk_major=999
+          sdk_minor=0
+          "@ | Set-Content "$negativeRoot/plugin.ini" -Encoding utf8
+          ./tools/ci/check_plugin_abi.ps1 -ManifestPath "$negativeRoot/plugin.ini" -PluginDllPath "$negativeRoot/SamplePlugin.dll" -ExpectFailure
+
       - name: Run smoke tests
         run: ctest --test-dir build --output-on-failure -C Debug

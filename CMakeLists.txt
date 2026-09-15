@@ -151,6 +151,7 @@ set(SOURCES
     src/network/SocketNetTransport.cpp
     src/network/NetPluginHooks.cpp
     src/network/NetReplicationSystem.cpp
+    src/plugins/PluginManager.cpp
     src/editor/EditorStyle.cpp
     src/editor/panels/AnimationStateMachinePanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp
@@ -169,6 +170,7 @@ set(SOURCES
         src/systems/MeshRendererSystem.cpp
         src/systems/CameraSystem.cpp
         src/systems/PhysicsSystem.cpp
+        src/systems/CombatSystem.cpp
         src/systems/AudioSystem.cpp
         src/systems/AnimationSystem.cpp
         src/systems/ScriptSystem.cpp
@@ -509,6 +511,43 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
     )
 
     add_test(NAME MyEngineSmokeTests COMMAND $<TARGET_FILE:MyEngineSmokeTests>)
+endif()
+
+# ============================================================
+# Sample dynamic plugin package
+# ============================================================
+option(MYENGINE_BUILD_SAMPLE_PLUGIN "Build sample dynamic plugin package" ON)
+if(MYENGINE_BUILD_SAMPLE_PLUGIN)
+    add_library(SamplePlugin SHARED
+        plugins/SamplePlugin/SamplePlugin.cpp
+    )
+
+    target_include_directories(SamplePlugin PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    set_target_properties(SamplePlugin PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "SamplePlugin"
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>/plugins/SamplePlugin
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug/plugins/SamplePlugin
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/Release/plugins/SamplePlugin
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>/plugins/SamplePlugin
+        LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/Debug/plugins/SamplePlugin
+        LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/Release/plugins/SamplePlugin
+    )
+
+    add_custom_command(TARGET SamplePlugin POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:MyEngine>/plugins/SamplePlugin"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:SamplePlugin>" "$<TARGET_FILE_DIR:MyEngine>/plugins/SamplePlugin/SamplePlugin.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/plugins/SamplePlugin/plugin.ini" "$<TARGET_FILE_DIR:MyEngine>/plugins/SamplePlugin/plugin.ini"
+    )
+
+    add_custom_command(TARGET SamplePlugin POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${LEGACY_VS_OUTPUT}/plugins/SamplePlugin"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:SamplePlugin>" "${LEGACY_VS_OUTPUT}/plugins/SamplePlugin/SamplePlugin.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/plugins/SamplePlugin/plugin.ini" "${LEGACY_VS_OUTPUT}/plugins/SamplePlugin/plugin.ini"
+    )
 endif()
 
 # ============================================================

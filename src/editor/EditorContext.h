@@ -23,6 +23,7 @@ namespace MyEngine
 			Scene* scene = nullptr;
 			std::shared_ptr<Shader> litShader;
 			std::shared_ptr<Shader> litSkinnedShader;
+			std::shared_ptr<Shader> pbrShader;
 			Entity** selectedEntity = nullptr;
 			std::shared_ptr<Entity>* playerEntity = nullptr;
 			UIState* ui = nullptr;

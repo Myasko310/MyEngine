@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <vector>
 #include <glm/glm.hpp>
 #include "components/TerrainComponent.h"
@@ -83,6 +84,21 @@ public:
 							  int* outMinCol = nullptr,
 							  int* outMaxCol = nullptr);
 
+	// Apply a paint brush in world space to a target material layer [0..3].
+	// Blends weights toward target layer and returns modified paint texel bounds [row/col].
+	static bool ApplyPaintBrush(struct TerrainComponent& terrain,
+							 const glm::vec3& terrainWorldPosition,
+							 float worldX, float worldZ,
+							 int targetLayer,
+							 float radius,
+							 float strength,
+							 float falloff,
+							 float deltaTime,
+							 int* outMinRow = nullptr,
+							 int* outMaxRow = nullptr,
+							 int* outMinCol = nullptr,
+							 int* outMaxCol = nullptr);
+
 	// Prepare a local mesh patch (CPU only) with 1-ring neighbors included.
 	static bool PrepareMeshPatchData(const struct TerrainComponent& terrain,
 								 int minRow,
@@ -101,6 +117,18 @@ public:
 							  int maxRow,
 							  int minCol,
 							  int maxCol);
+
+	// Import height samples from an image file. Supports 8-bit and 16-bit grayscale PNG.
+	// Returns false on load/format failure.
+	static bool ImportHeightmap(struct TerrainComponent& terrain,
+							 const std::string& filePath,
+							 bool prefer16Bit = true);
+
+	// Export height samples to grayscale PNG.
+	// 16-bit uses full [0..65535], 8-bit uses [0..255].
+	static bool ExportHeightmap(const struct TerrainComponent& terrain,
+							 const std::string& filePath,
+							 bool export16Bit);
 
 private:
 	std::shared_ptr<MyEngine::Shader> m_TerrainShader;

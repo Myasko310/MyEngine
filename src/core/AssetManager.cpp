@@ -617,6 +617,54 @@ namespace MyEngine
 		return material;
 	}
 
+	// Helper to resolve texture paths that may be in incorrect locations
+	static std::string ResolveFallbackTexturePath(const std::string& originalPath)
+	{
+		namespace fs = std::filesystem;
+
+		// If the original path exists, use it
+		if (fs::exists(originalPath))
+			return originalPath;
+
+		// Try alternative paths for common asset structures
+		fs::path original(originalPath);
+		std::string filename = original.filename().string();
+
+		// Strategy 1: If path contains "source", try replacing with "textures"
+		std::string pathStr = originalPath;
+		size_t sourcePos = pathStr.find("source");
+		if (sourcePos != std::string::npos)
+		{
+			std::string fallback = pathStr.substr(0, sourcePos) + "textures" + pathStr.substr(sourcePos + 6);
+			if (fs::exists(fallback))
+			{
+				std::cout << "[AssetManager] Resolved texture: " << filename << " (source->textures)" << std::endl;
+				return fallback;
+			}
+		}
+
+		// Strategy 2: Try adjacent "textures" folder at same level as parent
+		fs::path parent = original.parent_path().parent_path();
+		fs::path texturesDir = parent / "textures" / filename;
+		if (fs::exists(texturesDir))
+		{
+			std::cout << "[AssetManager] Resolved texture: " << filename << " (adjacent textures folder)" << std::endl;
+			return texturesDir.generic_string();
+		}
+
+		// Strategy 3: Try textures folder at parent's parent level
+		parent = original.parent_path().parent_path().parent_path();
+		texturesDir = parent / "textures" / filename;
+		if (fs::exists(texturesDir))
+		{
+			std::cout << "[AssetManager] Resolved texture: " << filename << " (parent textures folder)" << std::endl;
+			return texturesDir.generic_string();
+		}
+
+		// Return original (may still fail to load, but we tried)
+		return originalPath;
+	}
+
 	std::vector<std::shared_ptr<Material>> AssetManager::ImportModelMaterials(
 		const std::string& modelPath,
 		const std::string& outputDir)
@@ -681,7 +729,8 @@ namespace MyEngine
 			{
 				try
 				{
-					mat->texture    = LoadTexture(md.diffuseTexturePath);
+					std::string resolvedPath = ResolveFallbackTexturePath(md.diffuseTexturePath);
+					mat->texture    = LoadTexture(resolvedPath);
 					mat->useTexture = (mat->texture != nullptr);
 				}
 				catch (...) {}
@@ -689,7 +738,11 @@ namespace MyEngine
 
 			if (!md.normalTexturePath.empty())
 			{
-				try { mat->normalMap = LoadTexture(md.normalTexturePath); }
+				try 
+				{ 
+					std::string resolvedPath = ResolveFallbackTexturePath(md.normalTexturePath);
+					mat->normalMap = LoadTexture(resolvedPath); 
+				}
 				catch (...) {}
 			}
 
@@ -747,6 +800,31 @@ namespace MyEngine
 		auto& mr = entity->AddComponent<MeshRendererComponent>();
 		if (shader)
 			mr.shader = shader;
+
+		// For imported model assets, auto-assign first imported material so
+		// spawned entities come in with texture already selected in Inspector.
+		std::error_code ec;
+		const bool modelPathExists = !assetPath.empty() && std::filesystem::exists(assetPath, ec);
+		if (modelPathExists)
+		{
+			std::string ext = std::filesystem::path(assetPath).extension().string();
+			std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			const bool isImportableModel =
+				ext == ".fbx" || ext == ".glb" || ext == ".gltf" ||
+				ext == ".obj" || ext == ".dae" || ext == ".blend";
+
+			if (isImportableModel)
+			{
+				auto importedMats = ImportModelMaterials(assetPath);
+				if (!importedMats.empty() && importedMats[0])
+				{
+					mr.material = importedMats[0];
+					mr.materialPath = importedMats[0]->GetPath();
+					if (importedMats[0]->shader && !entity->HasComponent<AnimationComponent>())
+						mr.shader = importedMats[0]->shader;
+				}
+			}
+		}
 
 		// Attach bounding sphere based on mesh bounds
 		auto& bs = entity->AddComponent<BoundingSphereComponent>();

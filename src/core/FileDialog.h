@@ -20,6 +20,10 @@ namespace MyEngine
 		// path, or an empty string if cancelled.
 		std::string OpenImageFile();
 
+		// Opens a native "Save File" dialog filtered to PNG image format.
+		// Returns the selected file path (with .png extension ensured), or empty when cancelled.
+		std::string SaveImageFile();
+
 		// Opens a native "Open File" dialog filtered to Lua scripts.
 		// Returns the selected file path, or an empty string if cancelled.
 		std::string OpenScriptFile();

@@ -6,11 +6,22 @@
 
 namespace MyEngine { class Mesh; class Shader; class Texture; }
 
+constexpr int kMaxTerrainPaintLayers = 4;
+
 enum class TerrainBrushMode
 {
 	RaiseLower = 0,
 	Smooth = 1,
 	Flatten = 2
+};
+
+struct TerrainPaintLayer
+{
+	std::string name;
+	std::string texturePath;
+	std::shared_ptr<MyEngine::Texture> texture;
+	float uvScale = 8.0f;
+	bool enabled = true;
 };
 
 struct TerrainComponent
@@ -27,9 +38,23 @@ struct TerrainComponent
 	// Runtime-generated mesh (rebuilt whenever settings change)
 	std::shared_ptr<MyEngine::Mesh> mesh;
 
-	// Optional textures for the terrain surface
+	// Optional legacy single surface texture
 	std::shared_ptr<MyEngine::Texture> surfaceTexture;
 	std::string surfaceTexturePath;
+
+	// Multi-layer paint data (RGBA splat map + up to 4 material layers)
+	std::vector<TerrainPaintLayer> paintLayers;
+	std::vector<float> paintWeightData;
+	unsigned int paintWeightTextureID = 0;
+	bool paintWeightTextureDirty = true;
+	int paintResolution = 128;
+
+	// Paint brush settings
+	bool paintEnabled = false;
+	int paintActiveLayer = 0;
+	float paintBrushRadius = 3.0f;
+	float paintBrushStrength = 0.5f;
+	float paintBrushFalloff = 1.0f;
 
 	// Optional override shader (falls back to the scene default)
 	std::shared_ptr<MyEngine::Shader> shader;

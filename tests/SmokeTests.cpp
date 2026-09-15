@@ -35,6 +35,8 @@
 #include "network/SocketNetTransport.h"
 #include "network/NetPluginHooks.h"
 #include "network/NetReplicationSystem.h"
+#include "plugins/PluginManager.h"
+#include "editor/EditorUndo.h"
 
 #include <GLFW/glfw3.h>
 
@@ -50,6 +52,31 @@
 
 namespace
 {
+	int g_PluginRuntimeSmokeLogCount = 0;
+	int g_PluginRuntimeSmokeNetRegistrationCount = 0;
+	void PluginRuntimeSmokeLogSink(MyEngine::Plugins::PluginLogLevel, const char*)
+	{
+		++g_PluginRuntimeSmokeLogCount;
+	}
+
+	bool PluginRuntimeSmokeRegisterNetReplicationHooks(const char* pluginName)
+	{
+		if (!pluginName || std::string(pluginName) != "SamplePlugin")
+			return false;
+
+		++g_PluginRuntimeSmokeNetRegistrationCount;
+		MyEngine::Net::NetPluginRegistry::RegisterInterestFilter([](const Entity& entity, const MyEngine::Net::ReplicatedEntityState&)
+		{
+			return entity.GetName() != "FilteredByPlugin";
+		});
+		MyEngine::Net::NetPluginRegistry::RegisterStateMutator([](const Entity&, MyEngine::Net::ReplicatedEntityState& state)
+		{
+			state.velocity = glm::vec3(9.0f, 0.0f, 0.0f);
+		});
+
+		return true;
+	}
+
 	bool NearlyEqual(float a, float b, float eps = 0.0001f)
 	{
 		return std::fabs(a - b) <= eps;
@@ -68,7 +95,7 @@ namespace
 		child->AddComponent<SkeletonComponent>();
 		child->AddComponent<CollisionEventsComponent>();
 		auto& childAudio = child->AddComponent<AudioSourceComponent>();
-		childAudio.clipPath = "assets/audio/test.wav";
+		childAudio.clipPath = "assets/audio/ping.wav";
 		childAudio.busName = "SFX";
 		childAudio.eventName = "Explosion";
 
@@ -1075,6 +1102,18 @@ namespace
 		}
 
 		MyEngine::Net::InMemoryTransport transport;
+		MyEngine::Net::TerrainPatchDelta seedTerrainPatch;
+		seedTerrainPatch.terrainEntityID = 777u;
+		seedTerrainPatch.resolution = 64;
+		seedTerrainPatch.minRow = 8;
+		seedTerrainPatch.maxRow = 10;
+		seedTerrainPatch.minCol = 12;
+		seedTerrainPatch.maxCol = 16;
+		seedTerrainPatch.authoredTick = snapshot.tick;
+		seedTerrainPatch.points.push_back({ 8, 12, 0.10f, 0.22f });
+		seedTerrainPatch.points.push_back({ 9, 14, 0.20f, 0.35f });
+		snapshot.terrainPatches.push_back(seedTerrainPatch);
+
 		MyEngine::Net::SnapshotMessage outgoing;
 		outgoing.clientID = 1u;
 		outgoing.snapshot = snapshot;
@@ -1084,6 +1123,13 @@ namespace
 		if (!transport.PollSnapshotForClient(received) || received.snapshot.entities.empty())
 		{
 			std::cerr << "NetworkingReplicationSmokeTest: transport snapshot queue failed" << std::endl;
+			return false;
+		}
+		if (received.snapshot.terrainPatches.size() != 1 ||
+			received.snapshot.terrainPatches.front().points.size() != 2 ||
+			received.snapshot.terrainPatches.front().terrainEntityID != 777u)
+		{
+			std::cerr << "NetworkingReplicationSmokeTest: terrain patch payload did not roundtrip through transport" << std::endl;
 			return false;
 		}
 
@@ -1224,6 +1270,40 @@ namespace
 		{
 			std::cerr << "NetworkingReplicationSmokeTest: reconciliation target mismatch" << std::endl;
 			return false;
+		}
+
+		{
+			Scene authoritativeScene;
+			auto controlledEntity = authoritativeScene.CreateEntity("AuthoritativeController");
+			if (!controlledEntity)
+				return false;
+
+			auto& controlledController = controlledEntity->AddComponent<MyEngine::CharacterControllerComponent>();
+			MyEngine::PhysicsSystem authoritativePhysics;
+			authoritativePhysics.fixedTimestep = 0.02f;
+			authoritativePhysics.maxSubsteps = 1;
+
+			MyEngine::Net::InputCommand authoritativeInput;
+			authoritativeInput.tick = 1u;
+			authoritativeInput.moveAxis = glm::vec2(0.5f, 0.75f);
+			authoritativeInput.jumpPressed = true;
+			authoritativePhysics.OnUpdate(authoritativeScene, 0.0f, nullptr, glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(1.0f, 0.0f, 0.0f), &authoritativeInput);
+
+			if (!NearlyEqual(controlledController.moveInput.x, 0.5f) || !NearlyEqual(controlledController.moveInput.z, -0.75f) || !controlledController.jumpHeld || !controlledController.jumpRequested)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: authoritative input mapping failed" << std::endl;
+				return false;
+			}
+
+			authoritativeInput.tick = 2u;
+			authoritativeInput.moveAxis = glm::vec2(-1.0f, 0.0f);
+			authoritativeInput.jumpPressed = false;
+			authoritativePhysics.OnUpdate(authoritativeScene, 0.0f, nullptr, glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(1.0f, 0.0f, 0.0f), &authoritativeInput);
+			if (!(controlledController.moveInput.x < -0.99f) || !NearlyEqual(controlledController.moveInput.z, 0.0f) || controlledController.jumpHeld)
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: authoritative input update failed" << std::endl;
+				return false;
+			}
 		}
 
 		{
@@ -1756,6 +1836,12 @@ namespace
 				socketTransport.Shutdown();
 				return false;
 			}
+			if (!socketReceived.snapshot.terrainPatches.empty())
+			{
+				std::cerr << "NetworkingReplicationSmokeTest: unexpected terrain patches in large baseline snapshot" << std::endl;
+				socketTransport.Shutdown();
+				return false;
+			}
 
 			MyEngine::Net::InputMessage socketInput;
 			socketInput.clientID = accept.assignedClientID;
@@ -1794,6 +1880,354 @@ namespace
 			socketTransport.Shutdown();
 		}
 
+		return true;
+	}
+
+	bool PluginSdkManifestSmokeTest()
+	{
+		const std::filesystem::path root = std::filesystem::temp_directory_path() / "myengine_plugin_sdk_smoke";
+		std::filesystem::remove_all(root);
+		std::filesystem::create_directories(root / "ValidPlugin");
+		std::filesystem::create_directories(root / "MinorAheadPlugin");
+		std::filesystem::create_directories(root / "MajorMismatchPlugin");
+		std::filesystem::create_directories(root / "BrokenPlugin");
+
+		{
+			std::ofstream ofs((root / "ValidPlugin" / "plugin.ini").string(), std::ios::trunc);
+			ofs << "name=ValidPlugin\n";
+			ofs << "dll=valid_plugin.dll\n";
+			ofs << "sdk_major=" << MyEngine::Plugins::kPluginSdkVersionMajor << "\n";
+			ofs << "sdk_minor=" << MyEngine::Plugins::kPluginSdkVersionMinor << "\n";
+		}
+		{
+			std::ofstream ofs((root / "MinorAheadPlugin" / "plugin.ini").string(), std::ios::trunc);
+			ofs << "name=MinorAheadPlugin\n";
+			ofs << "dll=ahead_plugin.dll\n";
+			ofs << "sdk_major=" << MyEngine::Plugins::kPluginSdkVersionMajor << "\n";
+			ofs << "sdk_minor=" << (MyEngine::Plugins::kPluginSdkVersionMinor + 1u) << "\n";
+		}
+		{
+			std::ofstream ofs((root / "MajorMismatchPlugin" / "plugin.ini").string(), std::ios::trunc);
+			ofs << "name=MajorMismatchPlugin\n";
+			ofs << "dll=major_plugin.dll\n";
+			ofs << "sdk_major=" << (MyEngine::Plugins::kPluginSdkVersionMajor + 1u) << "\n";
+			ofs << "sdk_minor=0\n";
+		}
+		{
+			std::ofstream ofs((root / "BrokenPlugin" / "plugin.ini").string(), std::ios::trunc);
+			ofs << "name=BrokenPlugin\n";
+			ofs << "sdk_major=1\n";
+			ofs << "sdk_minor=0\n";
+		}
+
+		std::vector<std::string> warnings;
+		const auto manifests = MyEngine::Plugins::PluginManager::DiscoverPluginPackages(root, &warnings);
+		if (manifests.size() != 3)
+		{
+			std::cerr << "PluginSdkManifestSmokeTest: expected 3 valid manifests" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+		if (warnings.empty())
+		{
+			std::cerr << "PluginSdkManifestSmokeTest: expected warning for broken manifest" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		bool sawValidCompatible = false;
+		bool sawMinorAheadIncompatible = false;
+		bool sawMajorMismatchIncompatible = false;
+		for (const auto& manifest : manifests)
+		{
+			std::string reason;
+			const bool compatible = MyEngine::Plugins::PluginManager::IsManifestCompatible(manifest, reason);
+			if (manifest.packageName == "ValidPlugin")
+				sawValidCompatible = compatible;
+			else if (manifest.packageName == "MinorAheadPlugin")
+				sawMinorAheadIncompatible = !compatible;
+			else if (manifest.packageName == "MajorMismatchPlugin")
+				sawMajorMismatchIncompatible = !compatible;
+		}
+
+		std::filesystem::remove_all(root);
+		if (!sawValidCompatible || !sawMinorAheadIncompatible || !sawMajorMismatchIncompatible)
+		{
+			std::cerr << "PluginSdkManifestSmokeTest: compatibility gating mismatch" << std::endl;
+			return false;
+		}
+
+		return true;
+	}
+
+	bool PluginRuntimeIntegrationSmokeTest()
+	{
+		std::filesystem::path sourcePluginDir;
+		const std::vector<std::filesystem::path> candidatePluginDirs = {
+			std::filesystem::current_path() / "plugins" / "SamplePlugin",
+			std::filesystem::current_path() / "Debug" / "plugins" / "SamplePlugin",
+			std::filesystem::current_path() / "Release" / "plugins" / "SamplePlugin",
+			std::filesystem::current_path() / "build" / "debug" / "Debug" / "plugins" / "SamplePlugin",
+			std::filesystem::current_path() / "build" / "debug" / "Release" / "plugins" / "SamplePlugin"
+		};
+		for (const auto& candidateDir : candidatePluginDirs)
+		{
+			if (std::filesystem::exists(candidateDir / "plugin.ini") && std::filesystem::exists(candidateDir / "SamplePlugin.dll"))
+			{
+				sourcePluginDir = candidateDir;
+				break;
+			}
+		}
+
+		if (sourcePluginDir.empty())
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: sample plugin package not found in expected plugin output folders" << std::endl;
+			return false;
+		}
+
+		const std::filesystem::path sourceManifest = sourcePluginDir / "plugin.ini";
+		const std::filesystem::path sourceDll = sourcePluginDir / "SamplePlugin.dll";
+
+		const std::filesystem::path root = std::filesystem::temp_directory_path() / "myengine_plugin_runtime_smoke";
+		const std::filesystem::path packageDir = root / "SamplePlugin";
+		std::filesystem::remove_all(root);
+		std::filesystem::create_directories(packageDir);
+
+		std::error_code copyEc;
+		std::filesystem::copy_file(sourceManifest, packageDir / "plugin.ini", std::filesystem::copy_options::overwrite_existing, copyEc);
+		if (copyEc)
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: failed to copy manifest" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+		copyEc.clear();
+		std::filesystem::copy_file(sourceDll, packageDir / "SamplePlugin.dll", std::filesystem::copy_options::overwrite_existing, copyEc);
+		if (copyEc)
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: failed to copy plugin DLL" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		MyEngine::Plugins::HostApi hostApi{};
+		g_PluginRuntimeSmokeLogCount = 0;
+		g_PluginRuntimeSmokeNetRegistrationCount = 0;
+		MyEngine::Net::NetPluginRegistry::Clear();
+		hostApi.Log = &PluginRuntimeSmokeLogSink;
+		hostApi.RegisterNetReplicationHooks = &PluginRuntimeSmokeRegisterNetReplicationHooks;
+
+		MyEngine::Plugins::PluginManager manager;
+		if (!manager.LoadAllFromRoot(root, hostApi))
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: plugin load returned false" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		const auto& loaded = manager.GetLoadedPlugins();
+		if (loaded.empty() || loaded.front().manifest.packageName != "SamplePlugin" || !loaded.front().api.OnLoad || !loaded.front().api.OnUnload)
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: loaded plugin metadata mismatch" << std::endl;
+			manager.UnloadAll();
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		const auto& api = loaded.front().api;
+		if (api.pluginVersionMajor != 1u || api.pluginVersionMinor != 0u || api.pluginVersionPatch != 0u)
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: plugin semantic version metadata mismatch" << std::endl;
+			manager.UnloadAll();
+			std::filesystem::remove_all(root);
+			return false;
+		}
+		if (!MyEngine::Plugins::HasCapability(api.declaredCapabilities, MyEngine::Plugins::PluginCapability_LifecycleHooks) ||
+			!MyEngine::Plugins::HasCapability(api.declaredCapabilities, MyEngine::Plugins::PluginCapability_HostLogging) ||
+			!MyEngine::Plugins::HasCapability(api.declaredCapabilities, MyEngine::Plugins::PluginCapability_NetReplicationHooks))
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: plugin capability metadata mismatch" << std::endl;
+			manager.UnloadAll();
+			MyEngine::Net::NetPluginRegistry::Clear();
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		if (g_PluginRuntimeSmokeNetRegistrationCount <= 0)
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: expected net hook registration callback" << std::endl;
+			manager.UnloadAll();
+			MyEngine::Net::NetPluginRegistry::Clear();
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		Scene pluginScene;
+		auto allowedEntity = pluginScene.CreateEntityWithID(9101u, "AllowedByPlugin");
+		auto filteredEntity = pluginScene.CreateEntityWithID(9102u, "FilteredByPlugin");
+		if (!allowedEntity || !filteredEntity)
+		{
+			manager.UnloadAll();
+			MyEngine::Net::NetPluginRegistry::Clear();
+			std::filesystem::remove_all(root);
+			return false;
+		}
+		allowedEntity->AddComponent<TransformComponent>().position = glm::vec3(1.0f, 0.0f, 0.0f);
+		filteredEntity->AddComponent<TransformComponent>().position = glm::vec3(2.0f, 0.0f, 0.0f);
+
+		auto pluginSnapshot = MyEngine::Net::NetReplicationSystem::BuildSnapshot(pluginScene, 111u);
+		if (pluginSnapshot.entities.size() != 1 || pluginSnapshot.entities.front().entityID != 9101u ||
+			!NearlyEqual(pluginSnapshot.entities.front().velocity.x, 9.0f))
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: net replication plugin hook behavior mismatch" << std::endl;
+			manager.UnloadAll();
+			MyEngine::Net::NetPluginRegistry::Clear();
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		if (g_PluginRuntimeSmokeLogCount <= 0)
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: expected plugin OnLoad host log" << std::endl;
+			manager.UnloadAll();
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		MyEngine::Net::NetPluginRegistry::Clear();
+		if (!manager.ReloadAllFromRoot(root, hostApi) || manager.GetLoadedPlugins().empty())
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: plugin reload failed" << std::endl;
+			manager.UnloadAll();
+			MyEngine::Net::NetPluginRegistry::Clear();
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		manager.UnloadAll();
+		MyEngine::Net::NetPluginRegistry::Clear();
+		if (!manager.GetLoadedPlugins().empty())
+		{
+			std::cerr << "PluginRuntimeIntegrationSmokeTest: unload did not clear loaded plugins" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		std::filesystem::remove_all(root);
+		return true;
+	}
+
+	bool PluginRuntimeStressSmokeTest()
+	{
+		std::filesystem::path sourcePluginDir;
+		const std::vector<std::filesystem::path> candidatePluginDirs = {
+			std::filesystem::current_path() / "plugins" / "SamplePlugin",
+			std::filesystem::current_path() / "Debug" / "plugins" / "SamplePlugin",
+			std::filesystem::current_path() / "Release" / "plugins" / "SamplePlugin",
+			std::filesystem::current_path() / "build" / "debug" / "Debug" / "plugins" / "SamplePlugin",
+			std::filesystem::current_path() / "build" / "debug" / "Release" / "plugins" / "SamplePlugin"
+		};
+		for (const auto& candidateDir : candidatePluginDirs)
+		{
+			if (std::filesystem::exists(candidateDir / "plugin.ini") && std::filesystem::exists(candidateDir / "SamplePlugin.dll"))
+			{
+				sourcePluginDir = candidateDir;
+				break;
+			}
+		}
+		if (sourcePluginDir.empty())
+		{
+			std::cerr << "PluginRuntimeStressSmokeTest: sample plugin package not found in expected plugin output folders" << std::endl;
+			return false;
+		}
+
+		const std::filesystem::path root = std::filesystem::temp_directory_path() / "myengine_plugin_runtime_stress_smoke";
+		const std::filesystem::path packageDir = root / "SamplePlugin";
+		std::filesystem::remove_all(root);
+		std::filesystem::create_directories(packageDir);
+
+		std::error_code copyEc;
+		std::filesystem::copy_file(sourcePluginDir / "plugin.ini", packageDir / "plugin.ini", std::filesystem::copy_options::overwrite_existing, copyEc);
+		if (copyEc)
+		{
+			std::cerr << "PluginRuntimeStressSmokeTest: failed to copy manifest" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+		copyEc.clear();
+		std::filesystem::copy_file(sourcePluginDir / "SamplePlugin.dll", packageDir / "SamplePlugin.dll", std::filesystem::copy_options::overwrite_existing, copyEc);
+		if (copyEc)
+		{
+			std::cerr << "PluginRuntimeStressSmokeTest: failed to copy plugin DLL" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		MyEngine::Plugins::HostApi hostApi{};
+		hostApi.Log = &PluginRuntimeSmokeLogSink;
+		hostApi.RegisterNetReplicationHooks = &PluginRuntimeSmokeRegisterNetReplicationHooks;
+		g_PluginRuntimeSmokeLogCount = 0;
+		g_PluginRuntimeSmokeNetRegistrationCount = 0;
+
+		MyEngine::Plugins::PluginManager manager;
+		static constexpr int kStressIterations = 20;
+		for (int i = 0; i < kStressIterations; ++i)
+		{
+			MyEngine::Net::NetPluginRegistry::Clear();
+			if (!manager.LoadAllFromRoot(root, hostApi))
+			{
+				std::cerr << "PluginRuntimeStressSmokeTest: load failed on iteration " << i << std::endl;
+				std::filesystem::remove_all(root);
+				return false;
+			}
+			if (manager.GetLoadedPlugins().size() != 1 || manager.GetLoadedPlugins().front().manifest.packageName != "SamplePlugin")
+			{
+				std::cerr << "PluginRuntimeStressSmokeTest: loaded plugin state mismatch on iteration " << i << std::endl;
+				manager.UnloadAll();
+				std::filesystem::remove_all(root);
+				return false;
+			}
+
+			if (!manager.ReloadAllFromRoot(root, hostApi))
+			{
+				std::cerr << "PluginRuntimeStressSmokeTest: reload failed on iteration " << i << std::endl;
+				manager.UnloadAll();
+				std::filesystem::remove_all(root);
+				return false;
+			}
+			if (manager.GetLoadedPlugins().size() != 1)
+			{
+				std::cerr << "PluginRuntimeStressSmokeTest: reload plugin count mismatch on iteration " << i << std::endl;
+				manager.UnloadAll();
+				std::filesystem::remove_all(root);
+				return false;
+			}
+
+			manager.UnloadAll();
+			MyEngine::Net::NetPluginRegistry::Clear();
+			if (!manager.GetLoadedPlugins().empty())
+			{
+				std::cerr << "PluginRuntimeStressSmokeTest: unload did not clear plugins on iteration " << i << std::endl;
+				std::filesystem::remove_all(root);
+				return false;
+			}
+		}
+
+		if (g_PluginRuntimeSmokeLogCount < kStressIterations * 2)
+		{
+			std::cerr << "PluginRuntimeStressSmokeTest: expected load/unload logs were not observed" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+		if (g_PluginRuntimeSmokeNetRegistrationCount < kStressIterations * 2)
+		{
+			std::cerr << "PluginRuntimeStressSmokeTest: expected net hook registrations were not observed" << std::endl;
+			std::filesystem::remove_all(root);
+			return false;
+		}
+
+		MyEngine::Net::NetPluginRegistry::Clear();
+		std::filesystem::remove_all(root);
 		return true;
 	}
 
@@ -1842,6 +2276,34 @@ namespace
 		if (raisedHeight <= terrainOrigin.y)
 		{
 			std::cerr << "TerrainSculptingSmokeTest: sampled height did not increase after raise brush" << std::endl;
+			return false;
+		}
+
+		if (!TerrainSystem::ApplySculptBrush(
+			terrain,
+			terrainOrigin,
+			0.0f,
+			0.0f,
+			4.0f,
+			2.5f,
+			1.5f,
+			0.016f,
+			false,
+			TerrainBrushMode::RaiseLower,
+			0.0f,
+			&minRow,
+			&maxRow,
+			&minCol,
+			&maxCol))
+		{
+			std::cerr << "TerrainSculptingSmokeTest: lower brush failed to modify terrain" << std::endl;
+			return false;
+		}
+
+		const float loweredHeight = TerrainSystem::SampleHeight(terrain, 0.0f, 0.0f, terrainOrigin);
+		if (!(loweredHeight < raisedHeight))
+		{
+			std::cerr << "TerrainSculptingSmokeTest: sampled height did not decrease after lower brush" << std::endl;
 			return false;
 		}
 
@@ -1906,6 +2368,39 @@ namespace
 			return false;
 		}
 
+		TerrainComponent outOfBoundsTerrain;
+		outOfBoundsTerrain.width = 20.0f;
+		outOfBoundsTerrain.depth = 20.0f;
+		outOfBoundsTerrain.heightScale = 8.0f;
+		outOfBoundsTerrain.resolution = 16;
+		outOfBoundsTerrain.heightData.assign(static_cast<size_t>(outOfBoundsTerrain.resolution) * static_cast<size_t>(outOfBoundsTerrain.resolution), 0.35f);
+		const auto beforeOutOfBounds = outOfBoundsTerrain.heightData;
+		if (TerrainSystem::ApplySculptBrush(
+			outOfBoundsTerrain,
+			terrainOrigin,
+			1000.0f,
+			1000.0f,
+			2.0f,
+			1.0f,
+			1.0f,
+			0.016f,
+			true,
+			TerrainBrushMode::RaiseLower,
+			0.0f,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr))
+		{
+			std::cerr << "TerrainSculptingSmokeTest: out-of-bounds sculpt unexpectedly modified terrain" << std::endl;
+			return false;
+		}
+		if (outOfBoundsTerrain.heightData != beforeOutOfBounds)
+		{
+			std::cerr << "TerrainSculptingSmokeTest: out-of-bounds sculpt changed height data" << std::endl;
+			return false;
+		}
+
 		return true;
 	}
 
@@ -1955,6 +2450,230 @@ namespace
 			std::cerr << "TerrainSculptPerformanceBaselineSmokeTest: terrain brush perf regression (" << elapsedMs << " ms)" << std::endl;
 			return false;
 		}
+		return true;
+	}
+
+	bool TerrainPaintAndHeightmapIoSmokeTest()
+	{
+		TerrainComponent terrain;
+		terrain.width = 64.0f;
+		terrain.depth = 64.0f;
+		terrain.heightScale = 20.0f;
+		terrain.resolution = 64;
+		terrain.heightData.assign(static_cast<size_t>(terrain.resolution) * static_cast<size_t>(terrain.resolution), 0.25f);
+		terrain.paintResolution = 64;
+		const glm::vec3 terrainOrigin(0.0f, 0.0f, 0.0f);
+
+		int minRow = 0;
+		int maxRow = 0;
+		int minCol = 0;
+		int maxCol = 0;
+		if (!TerrainSystem::ApplyPaintBrush(
+			terrain,
+			terrainOrigin,
+			1.0f,
+			-1.0f,
+			2,
+			5.0f,
+			2.5f,
+			1.25f,
+			0.033f,
+			&minRow,
+			&maxRow,
+			&minCol,
+			&maxCol))
+		{
+			std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: paint brush failed to modify weights" << std::endl;
+			return false;
+		}
+		if (maxRow < minRow || maxCol < minCol)
+		{
+			std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: invalid paint patch bounds" << std::endl;
+			return false;
+		}
+
+		const int paintRes = std::clamp(terrain.paintResolution, 2, 2048);
+		bool foundInfluence = false;
+		for (int row = minRow; row <= maxRow && !foundInfluence; ++row)
+		{
+			for (int col = minCol; col <= maxCol; ++col)
+			{
+				const size_t base = (static_cast<size_t>(row) * static_cast<size_t>(paintRes) + static_cast<size_t>(col)) * 4;
+				if (base + 3 >= terrain.paintWeightData.size())
+					continue;
+				const float w0 = terrain.paintWeightData[base + 0];
+				const float w1 = terrain.paintWeightData[base + 1];
+				const float w2 = terrain.paintWeightData[base + 2];
+				const float w3 = terrain.paintWeightData[base + 3];
+				const float sum = w0 + w1 + w2 + w3;
+				if (!NearlyEqual(sum, 1.0f, 0.01f))
+				{
+					std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: paint weight normalization failed" << std::endl;
+					return false;
+				}
+				if (w2 > 0.01f)
+					foundInfluence = true;
+			}
+		}
+		if (!foundInfluence)
+		{
+			std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: target paint layer was not applied" << std::endl;
+			return false;
+		}
+
+		const std::filesystem::path temp8 = std::filesystem::temp_directory_path() / "myengine_terrain_hm_8.png";
+		const std::filesystem::path temp16 = std::filesystem::temp_directory_path() / "myengine_terrain_hm_16.png";
+		std::cout << "[TerrainPaintAndHeightmapIoSmokeTest] Export 8-bit" << std::endl;
+		if (!TerrainSystem::ExportHeightmap(terrain, temp8.string(), false))
+		{
+			std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: 8-bit heightmap export failed" << std::endl;
+			return false;
+		}
+		std::cout << "[TerrainPaintAndHeightmapIoSmokeTest] Export 16-bit" << std::endl;
+		if (!TerrainSystem::ExportHeightmap(terrain, temp16.string(), true))
+		{
+			std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: 16-bit heightmap export failed" << std::endl;
+			return false;
+		}
+
+		TerrainComponent imported8;
+		imported8.width = terrain.width;
+		imported8.depth = terrain.depth;
+		imported8.heightScale = terrain.heightScale;
+		imported8.resolution = terrain.resolution;
+		std::cout << "[TerrainPaintAndHeightmapIoSmokeTest] Import 8-bit" << std::endl;
+		if (!TerrainSystem::ImportHeightmap(imported8, temp8.string(), false))
+		{
+			std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: 8-bit heightmap import failed" << std::endl;
+			return false;
+		}
+		if (imported8.heightData.size() != terrain.heightData.size())
+		{
+			std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: 8-bit import sample count mismatch" << std::endl;
+			return false;
+		}
+
+		TerrainComponent imported16;
+		imported16.width = terrain.width;
+		imported16.depth = terrain.depth;
+		imported16.heightScale = terrain.heightScale;
+		imported16.resolution = terrain.resolution;
+		std::cout << "[TerrainPaintAndHeightmapIoSmokeTest] Import 16-bit" << std::endl;
+		if (!TerrainSystem::ImportHeightmap(imported16, temp16.string(), true))
+		{
+			std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: 16-bit heightmap import failed" << std::endl;
+			return false;
+		}
+		if (imported16.heightData.size() != terrain.heightData.size())
+		{
+			std::cerr << "TerrainPaintAndHeightmapIoSmokeTest: 16-bit import sample count mismatch" << std::endl;
+			return false;
+		}
+
+		return true;
+	}
+
+	bool TerrainUndoPaintSmokeTest()
+	{
+		Scene scene;
+		auto entity = scene.CreateEntity("TerrainUndoTest");
+		auto& terrain = entity->AddComponent<TerrainComponent>();
+		terrain.width = 32.0f;
+		terrain.depth = 32.0f;
+		terrain.heightScale = 10.0f;
+		terrain.resolution = 32;
+		terrain.heightData.assign(static_cast<size_t>(terrain.resolution) * static_cast<size_t>(terrain.resolution), 0.0f);
+		terrain.paintResolution = 32;
+		TerrainSystem::RebuildMesh(terrain);
+
+		const auto beforeWeights = terrain.paintWeightData;
+		int minRow = 0;
+		int maxRow = 0;
+		int minCol = 0;
+		int maxCol = 0;
+		if (!TerrainSystem::ApplyPaintBrush(
+			terrain,
+			glm::vec3(0.0f),
+			0.0f,
+			0.0f,
+			1,
+			4.0f,
+			3.0f,
+			1.0f,
+			0.05f,
+			&minRow,
+			&maxRow,
+			&minCol,
+			&maxCol))
+		{
+			std::cerr << "TerrainUndoPaintSmokeTest: paint application failed" << std::endl;
+			return false;
+		}
+
+		std::vector<EditorUndo::TerrainWeightDelta> deltas;
+		const int paintRes = std::clamp(terrain.paintResolution, 2, 2048);
+		for (int row = minRow; row <= maxRow; ++row)
+		{
+			for (int col = minCol; col <= maxCol; ++col)
+			{
+				const size_t base = (static_cast<size_t>(row) * static_cast<size_t>(paintRes) + static_cast<size_t>(col)) * 4;
+				if (base + 3 >= beforeWeights.size() || base + 3 >= terrain.paintWeightData.size())
+					continue;
+				float diff = 0.0f;
+				for (int i = 0; i < 4; ++i)
+					diff += std::abs(beforeWeights[base + static_cast<size_t>(i)] - terrain.paintWeightData[base + static_cast<size_t>(i)]);
+				if (diff < 1e-6f)
+					continue;
+				EditorUndo::TerrainWeightDelta delta;
+				delta.row = row;
+				delta.col = col;
+				for (int i = 0; i < 4; ++i)
+				{
+					delta.before[i] = beforeWeights[base + static_cast<size_t>(i)];
+					delta.after[i] = terrain.paintWeightData[base + static_cast<size_t>(i)];
+				}
+				deltas.push_back(delta);
+			}
+		}
+		if (deltas.empty())
+		{
+			std::cerr << "TerrainUndoPaintSmokeTest: no paint deltas generated" << std::endl;
+			return false;
+		}
+
+		EditorUndo::UndoStack undoStack;
+		undoStack.Push(std::make_unique<EditorUndo::TerrainPaintDeltaCommand>(entity->GetID(), paintRes, deltas));
+		undoStack.Undo(scene);
+		if (terrain.paintWeightData.size() != beforeWeights.size())
+		{
+			std::cerr << "TerrainUndoPaintSmokeTest: undo size mismatch" << std::endl;
+			return false;
+		}
+		for (size_t i = 0; i < beforeWeights.size(); ++i)
+		{
+			if (!NearlyEqual(terrain.paintWeightData[i], beforeWeights[i], 0.0005f))
+			{
+				std::cerr << "TerrainUndoPaintSmokeTest: undo failed to restore paint weights" << std::endl;
+				return false;
+			}
+		}
+
+		undoStack.Redo(scene);
+		bool redoChanged = false;
+		for (size_t i = 0; i < beforeWeights.size(); ++i)
+		{
+			if (!NearlyEqual(terrain.paintWeightData[i], beforeWeights[i], 0.0005f))
+			{
+				redoChanged = true;
+				break;
+			}
+		}
+		if (!redoChanged)
+		{
+			std::cerr << "TerrainUndoPaintSmokeTest: redo did not reapply paint edits" << std::endl;
+			return false;
+		}
+
 		return true;
 	}
 
@@ -2165,6 +2884,215 @@ namespace
 		return true;
 	}
 
+	bool TerrainNavCrowdRepathResilienceSmokeTest()
+	{
+		Scene scene;
+
+		auto terrainEntity = scene.CreateEntity("CrowdTerrain");
+		auto& terrainTransform = terrainEntity->AddComponent<TransformComponent>();
+		terrainTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
+		auto& terrain = terrainEntity->AddComponent<TerrainComponent>();
+		terrain.width = 90.0f;
+		terrain.depth = 90.0f;
+		terrain.heightScale = 10.0f;
+		terrain.resolution = 96;
+		terrain.heightData.assign(static_cast<size_t>(terrain.resolution) * static_cast<size_t>(terrain.resolution), 0.0f);
+
+		const auto gate = scene.CreateEntity("CrowdGate");
+		auto& gateTransform = gate->AddComponent<TransformComponent>();
+		gateTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
+		auto& gateBox = gate->AddComponent<BoxColliderComponent>();
+		gateBox.halfExtents = glm::vec3(2.0f, 1.0f, 18.0f);
+
+		NavMeshSystem nav;
+		nav.Bake(scene, glm::vec2(-45.0f, -45.0f), glm::vec2(90.0f, 90.0f), 1.0f, 1.8f);
+		if (!nav.IsReady())
+		{
+			std::cerr << "TerrainNavCrowdRepathResilienceSmokeTest: initial navmesh bake failed" << std::endl;
+			return false;
+		}
+
+		struct AgentProbe
+		{
+			Entity* entity = nullptr;
+			glm::vec3 startPosition{ 0.0f };
+			glm::vec3 lastPosition{ 0.0f };
+			int stuckSamples = 0;
+			int forcedRepaths = 0;
+		};
+
+		std::vector<AgentProbe> probes;
+		probes.reserve(10);
+		for (int i = 0; i < 10; ++i)
+		{
+			const float laneZ = -18.0f + static_cast<float>(i) * 4.0f;
+			auto agentEntity = scene.CreateEntity("CrowdAgent" + std::to_string(i));
+			auto& tc = agentEntity->AddComponent<TransformComponent>();
+			tc.position = glm::vec3(-34.0f, 0.0f, laneZ);
+			auto& agent = agentEntity->AddComponent<NavigationAgentComponent>();
+			agent.speed = 5.5f;
+			agent.stoppingDistance = 0.35f;
+			agent.targetPosition = glm::vec3(34.0f, 0.0f, laneZ);
+			agent.path = nav.FindPath(tc.position, agent.targetPosition);
+			agent.waypointIndex = 0;
+			agent.arrived = agent.path.empty();
+			agent.active = !agent.arrived;
+
+			if (agent.path.empty())
+			{
+				std::cerr << "TerrainNavCrowdRepathResilienceSmokeTest: agent path missing at setup" << std::endl;
+				return false;
+			}
+
+			AgentProbe probe;
+			probe.entity = agentEntity.get();
+			probe.startPosition = tc.position;
+			probe.lastPosition = tc.position;
+			probes.push_back(probe);
+		}
+
+		int totalForcedRepaths = 0;
+		int scheduledRepaths = 0;
+		for (int frame = 0; frame < 260; ++frame)
+		{
+			if ((frame % 40) == 0)
+			{
+				const bool gateClosed = gate->HasComponent<BoxColliderComponent>();
+				if (gateClosed)
+					gate->RemoveComponent<BoxColliderComponent>();
+				else
+					gate->AddComponent<BoxColliderComponent>() = gateBox;
+				nav.RebuildRegion(scene, glm::vec2(-4.0f, -22.0f), glm::vec2(4.0f, 22.0f));
+			}
+
+			int minRow = 0;
+			int maxRow = 0;
+			int minCol = 0;
+			int maxCol = 0;
+			const float sculptX = std::sin(static_cast<float>(frame) * 0.08f) * 20.0f;
+			const float sculptZ = std::cos(static_cast<float>(frame) * 0.05f) * 20.0f;
+			if (TerrainSystem::ApplySculptBrush(
+				terrain,
+				terrainTransform.position,
+				sculptX,
+				sculptZ,
+				2.25f,
+				1.4f,
+				1.2f,
+				0.016f,
+				(frame % 3) != 0,
+				TerrainBrushMode::RaiseLower,
+				0.0f,
+				&minRow,
+				&maxRow,
+				&minCol,
+				&maxCol))
+			{
+				const float u0 = static_cast<float>(std::clamp(minCol - 1, 0, terrain.resolution - 1)) / static_cast<float>(terrain.resolution - 1);
+				const float u1 = static_cast<float>(std::clamp(maxCol + 1, 0, terrain.resolution - 1)) / static_cast<float>(terrain.resolution - 1);
+				const float v0 = static_cast<float>(std::clamp(minRow - 1, 0, terrain.resolution - 1)) / static_cast<float>(terrain.resolution - 1);
+				const float v1 = static_cast<float>(std::clamp(maxRow + 1, 0, terrain.resolution - 1)) / static_cast<float>(terrain.resolution - 1);
+				glm::vec2 regionMin(
+					terrainTransform.position.x + (u0 - 0.5f) * terrain.width,
+					terrainTransform.position.z + (v0 - 0.5f) * terrain.depth);
+				glm::vec2 regionMax(
+					terrainTransform.position.x + (u1 - 0.5f) * terrain.width,
+					terrainTransform.position.z + (v1 - 0.5f) * terrain.depth);
+				nav.RebuildRegion(scene, regionMin, regionMax);
+			}
+
+			nav.Update(scene, 0.016f);
+
+			if ((frame % 20) == 0)
+			{
+				for (auto& probe : probes)
+				{
+					if (!probe.entity || !probe.entity->HasComponent<NavigationAgentComponent>() || !probe.entity->HasComponent<TransformComponent>())
+						continue;
+					auto& tc = probe.entity->GetComponent<TransformComponent>();
+					auto& agent = probe.entity->GetComponent<NavigationAgentComponent>();
+					if (agent.arrived)
+						continue;
+					agent.path = nav.FindPath(tc.position, agent.targetPosition);
+					agent.waypointIndex = 0;
+					agent.arrived = agent.path.empty();
+					agent.active = !agent.arrived;
+					++scheduledRepaths;
+				}
+			}
+
+			if ((frame % 12) == 0)
+			{
+				for (auto& probe : probes)
+				{
+					if (!probe.entity || !probe.entity->HasComponent<NavigationAgentComponent>() || !probe.entity->HasComponent<TransformComponent>())
+						continue;
+
+					auto& tc = probe.entity->GetComponent<TransformComponent>();
+					auto& agent = probe.entity->GetComponent<NavigationAgentComponent>();
+					if (agent.arrived)
+						continue;
+
+					const float moved = glm::length(glm::vec2(tc.position.x - probe.lastPosition.x, tc.position.z - probe.lastPosition.z));
+					if (moved < 0.05f)
+						++probe.stuckSamples;
+					else
+						probe.stuckSamples = 0;
+					probe.lastPosition = tc.position;
+
+					if (probe.stuckSamples >= 3)
+					{
+						agent.path = nav.FindPath(tc.position, agent.targetPosition);
+						agent.waypointIndex = 0;
+						agent.arrived = agent.path.empty();
+						agent.active = !agent.arrived;
+						probe.stuckSamples = 0;
+						++probe.forcedRepaths;
+						++totalForcedRepaths;
+					}
+				}
+			}
+		}
+
+		int progressedAgents = 0;
+		for (const auto& probe : probes)
+		{
+			if (!probe.entity || !probe.entity->HasComponent<TransformComponent>() || !probe.entity->HasComponent<NavigationAgentComponent>())
+				continue;
+
+			const auto& tc = probe.entity->GetComponent<TransformComponent>();
+			const auto& agent = probe.entity->GetComponent<NavigationAgentComponent>();
+			const float advanced = tc.position.x - probe.startPosition.x;
+			if (advanced > 8.0f || agent.arrived)
+				++progressedAgents;
+
+			if (!agent.arrived && agent.path.empty())
+			{
+				std::cerr << "TerrainNavCrowdRepathResilienceSmokeTest: non-arrived agent ended with empty path" << std::endl;
+				return false;
+			}
+		}
+
+		if (progressedAgents < 7)
+		{
+			std::cerr << "TerrainNavCrowdRepathResilienceSmokeTest: insufficient crowd progress under dynamic updates" << std::endl;
+			return false;
+		}
+
+		if (scheduledRepaths <= 0)
+		{
+			std::cerr << "TerrainNavCrowdRepathResilienceSmokeTest: scheduled repaths did not execute" << std::endl;
+			return false;
+		}
+
+		if (totalForcedRepaths <= 0)
+		{
+			std::cout << "TerrainNavCrowdRepathResilienceSmokeTest: no stuck recoveries required in this run" << std::endl;
+		}
+
+		return true;
+	}
+
 	bool RenderCommandPlumbingSmokeTest()
 	{
 		MyEngine::RenderCommandList commands;
@@ -2274,28 +3202,42 @@ namespace
 
 int main()
 {
-	const bool serializerOk = SerializerSmokeTest();
-	const bool luaApiOk = LuaApiSmokeTest();
-	const bool luaAudioControlsOk = LuaAudioControlsSmokeTest();
-	const bool inputProfilesOk = InputProfilesSmokeTest();
-	const bool inputConflictsOk = InputConflictResolutionSmokeTest();
-	const bool prefabOk = PrefabRoundTripSmokeTest();
-	const bool assetDepsOk = AssetDependencySmokeTest();
-	const bool replaySimOk = ReplaySimulationConfigSmokeTest();
-	const bool prefabVariantMetaOk = PrefabVariantMetadataSmokeTest();
-	const bool prefabVariantComputeOk = PrefabVariantOverrideComputationSmokeTest();
-	const bool animationEventsOk = AnimationEventSerializationSmokeTest();
-	const bool animationEventBusOk = AnimationEventBusDispatchSmokeTest();
-	const bool renderBackendSelectionOk = RenderBackendSelectionSmokeTest();
-	const bool networkingReplicationOk = NetworkingReplicationSmokeTest();
-	const bool terrainSculptingOk = TerrainSculptingSmokeTest();
-	const bool terrainPerfBaselineOk = TerrainSculptPerformanceBaselineSmokeTest();
-	const bool terrainNavPhysicsIntegrationOk = TerrainNavPhysicsIntegrationSmokeTest();
-	const bool terrainNavSoakOk = TerrainNavStabilitySoakSmokeTest();
-	const bool renderCommandPlumbingOk = RenderCommandPlumbingSmokeTest();
-	const bool materialInheritanceOk = MaterialInheritanceSmokeTest();
+	auto runTest = [](const char* name, const std::function<bool()>& fn)
+	{
+		std::cout << "[RUN] " << name << std::endl;
+		const bool passed = fn();
+		std::cout << "[" << (passed ? "PASS" : "FAIL") << "] " << name << std::endl;
+		return passed;
+	};
 
-	if (!serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !prefabVariantComputeOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !networkingReplicationOk || !terrainSculptingOk || !terrainPerfBaselineOk || !terrainNavPhysicsIntegrationOk || !terrainNavSoakOk || !renderCommandPlumbingOk || !materialInheritanceOk)
+	const bool serializerOk = runTest("SerializerSmokeTest", SerializerSmokeTest);
+	const bool luaApiOk = runTest("LuaApiSmokeTest", LuaApiSmokeTest);
+	const bool luaAudioControlsOk = runTest("LuaAudioControlsSmokeTest", LuaAudioControlsSmokeTest);
+	const bool inputProfilesOk = runTest("InputProfilesSmokeTest", InputProfilesSmokeTest);
+	const bool inputConflictsOk = runTest("InputConflictResolutionSmokeTest", InputConflictResolutionSmokeTest);
+	const bool prefabOk = runTest("PrefabRoundTripSmokeTest", PrefabRoundTripSmokeTest);
+	const bool assetDepsOk = runTest("AssetDependencySmokeTest", AssetDependencySmokeTest);
+	const bool replaySimOk = runTest("ReplaySimulationConfigSmokeTest", ReplaySimulationConfigSmokeTest);
+	const bool prefabVariantMetaOk = runTest("PrefabVariantMetadataSmokeTest", PrefabVariantMetadataSmokeTest);
+	const bool prefabVariantComputeOk = runTest("PrefabVariantOverrideComputationSmokeTest", PrefabVariantOverrideComputationSmokeTest);
+	const bool animationEventsOk = runTest("AnimationEventSerializationSmokeTest", AnimationEventSerializationSmokeTest);
+	const bool animationEventBusOk = runTest("AnimationEventBusDispatchSmokeTest", AnimationEventBusDispatchSmokeTest);
+	const bool renderBackendSelectionOk = runTest("RenderBackendSelectionSmokeTest", RenderBackendSelectionSmokeTest);
+	const bool networkingReplicationOk = runTest("NetworkingReplicationSmokeTest", NetworkingReplicationSmokeTest);
+	const bool pluginSdkManifestOk = runTest("PluginSdkManifestSmokeTest", PluginSdkManifestSmokeTest);
+	const bool pluginRuntimeIntegrationOk = runTest("PluginRuntimeIntegrationSmokeTest", PluginRuntimeIntegrationSmokeTest);
+	const bool pluginRuntimeStressOk = runTest("PluginRuntimeStressSmokeTest", PluginRuntimeStressSmokeTest);
+	const bool terrainSculptingOk = runTest("TerrainSculptingSmokeTest", TerrainSculptingSmokeTest);
+	const bool terrainPerfBaselineOk = runTest("TerrainSculptPerformanceBaselineSmokeTest", TerrainSculptPerformanceBaselineSmokeTest);
+	const bool terrainPaintAndIoOk = runTest("TerrainPaintAndHeightmapIoSmokeTest", TerrainPaintAndHeightmapIoSmokeTest);
+	const bool terrainUndoPaintOk = runTest("TerrainUndoPaintSmokeTest", TerrainUndoPaintSmokeTest);
+	const bool terrainNavPhysicsIntegrationOk = runTest("TerrainNavPhysicsIntegrationSmokeTest", TerrainNavPhysicsIntegrationSmokeTest);
+	const bool terrainNavSoakOk = runTest("TerrainNavStabilitySoakSmokeTest", TerrainNavStabilitySoakSmokeTest);
+	const bool terrainNavCrowdRepathOk = runTest("TerrainNavCrowdRepathResilienceSmokeTest", TerrainNavCrowdRepathResilienceSmokeTest);
+	const bool renderCommandPlumbingOk = runTest("RenderCommandPlumbingSmokeTest", RenderCommandPlumbingSmokeTest);
+	const bool materialInheritanceOk = runTest("MaterialInheritanceSmokeTest", MaterialInheritanceSmokeTest);
+
+	if (!serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !prefabVariantComputeOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !networkingReplicationOk || !pluginSdkManifestOk || !pluginRuntimeIntegrationOk || !pluginRuntimeStressOk || !terrainSculptingOk || !terrainPerfBaselineOk || !terrainPaintAndIoOk || !terrainUndoPaintOk || !terrainNavPhysicsIntegrationOk || !terrainNavSoakOk || !terrainNavCrowdRepathOk || !renderCommandPlumbingOk || !materialInheritanceOk)
 		return 1;
 
 	std::cout << "Smoke tests passed" << std::endl;

@@ -15,11 +15,256 @@
 // stb_image for greyscale heightmap loading
 #include <stb_image.h>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <wincodec.h>
+#pragma comment(lib, "windowscodecs.lib")
+#endif
+
+namespace
+{
+	constexpr int kTerrainPaintTextureChannels = 4;
+
+#ifdef _WIN32
+	std::wstring Utf8ToWide(const std::string& text)
+	{
+		if (text.empty())
+			return std::wstring();
+		int len = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+		if (len <= 0)
+			len = MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, nullptr, 0);
+		if (len <= 0)
+			return std::wstring();
+		std::wstring out(static_cast<size_t>(len), L'\0');
+		if (MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, out.data(), len) <= 0)
+			MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, out.data(), len);
+		while (!out.empty() && out.back() == L'\0')
+			out.pop_back();
+		return out;
+	}
+
+	bool WriteGray16PngWIC(const std::string& filePath, int width, int height, const std::vector<std::uint16_t>& pixels)
+	{
+		if (width <= 0 || height <= 0 || pixels.size() != static_cast<size_t>(width) * static_cast<size_t>(height))
+			return false;
+
+		const HRESULT initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+		const bool shouldUninitialize = SUCCEEDED(initHr);
+
+		IWICImagingFactory* factory = nullptr;
+		IWICStream* stream = nullptr;
+		IWICBitmapEncoder* encoder = nullptr;
+		IWICBitmapFrameEncode* frame = nullptr;
+		IPropertyBag2* propertyBag = nullptr;
+
+		auto cleanup = [&]()
+		{
+			if (propertyBag) propertyBag->Release();
+			if (frame) frame->Release();
+			if (encoder) encoder->Release();
+			if (stream) stream->Release();
+			if (factory) factory->Release();
+			if (shouldUninitialize) CoUninitialize();
+		};
+
+		HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		hr = factory->CreateStream(&stream);
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		const std::wstring widePath = Utf8ToWide(filePath);
+		hr = stream->InitializeFromFilename(widePath.c_str(), GENERIC_WRITE);
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		hr = factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		hr = encoder->Initialize(stream, WICBitmapEncoderNoCache);
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		hr = encoder->CreateNewFrame(&frame, &propertyBag);
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		hr = frame->Initialize(propertyBag);
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		hr = frame->SetSize(static_cast<UINT>(width), static_cast<UINT>(height));
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		WICPixelFormatGUID format = GUID_WICPixelFormat16bppGray;
+		hr = frame->SetPixelFormat(&format);
+		if (FAILED(hr) || !IsEqualGUID(format, GUID_WICPixelFormat16bppGray))
+		{
+			cleanup();
+			return false;
+		}
+
+		hr = frame->WritePixels(
+			static_cast<UINT>(height),
+			static_cast<UINT>(width * static_cast<int>(sizeof(std::uint16_t))),
+			static_cast<UINT>(pixels.size() * sizeof(std::uint16_t)),
+			reinterpret_cast<BYTE*>(const_cast<std::uint16_t*>(pixels.data())));
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		hr = frame->Commit();
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		hr = encoder->Commit();
+		if (FAILED(hr))
+		{
+			cleanup();
+			return false;
+		}
+
+		cleanup();
+		return true;
+	}
+#endif
+
+	void EnsureTerrainPaintLayers(TerrainComponent& terrain)
+	{
+		if (terrain.paintLayers.size() > static_cast<size_t>(kMaxTerrainPaintLayers))
+			terrain.paintLayers.resize(kMaxTerrainPaintLayers);
+
+		if (terrain.paintLayers.empty())
+		{
+			TerrainPaintLayer baseLayer;
+			baseLayer.name = "Layer 0";
+			baseLayer.texturePath = terrain.surfaceTexturePath;
+			baseLayer.texture = terrain.surfaceTexture;
+			baseLayer.uvScale = 8.0f;
+			baseLayer.enabled = true;
+			terrain.paintLayers.push_back(std::move(baseLayer));
+		}
+
+		for (size_t i = 0; i < terrain.paintLayers.size(); ++i)
+		{
+			auto& layer = terrain.paintLayers[i];
+			if (layer.name.empty())
+				layer.name = "Layer " + std::to_string(i);
+			if (layer.uvScale <= 0.001f)
+				layer.uvScale = 8.0f;
+			if (!layer.texture && !layer.texturePath.empty())
+				layer.texture = MyEngine::AssetManager::LoadTexture(layer.texturePath);
+		}
+
+		if (!terrain.paintLayers.empty())
+		{
+			terrain.surfaceTexturePath = terrain.paintLayers[0].texturePath;
+			terrain.surfaceTexture = terrain.paintLayers[0].texture;
+		}
+	}
+
+	void EnsureTerrainPaintWeights(TerrainComponent& terrain)
+	{
+		const int paintRes = std::clamp(terrain.paintResolution, 2, 2048);
+		terrain.paintResolution = paintRes;
+		const size_t texelCount = static_cast<size_t>(paintRes) * static_cast<size_t>(paintRes);
+		const size_t expectedSamples = texelCount * static_cast<size_t>(kTerrainPaintTextureChannels);
+		if (terrain.paintWeightData.size() != expectedSamples)
+		{
+			terrain.paintWeightData.assign(expectedSamples, 0.0f);
+			for (size_t i = 0; i < texelCount; ++i)
+				terrain.paintWeightData[i * 4] = 1.0f;
+			terrain.paintWeightTextureDirty = true;
+		}
+	}
+
+	void EnsureTerrainPaintData(TerrainComponent& terrain)
+	{
+		if (terrain.paintResolution < 2)
+			terrain.paintResolution = std::clamp(terrain.resolution, 2, 2048);
+		EnsureTerrainPaintLayers(terrain);
+		EnsureTerrainPaintWeights(terrain);
+	}
+
+	void UploadTerrainPaintWeightTexture(TerrainComponent& terrain)
+	{
+		if (terrain.paintWeightData.empty() || terrain.paintResolution < 2)
+			return;
+		if (terrain.paintWeightTextureID == 0)
+		{
+			glGenTextures(1, &terrain.paintWeightTextureID);
+			glBindTexture(GL_TEXTURE_2D, terrain.paintWeightTextureID);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		}
+		else
+		{
+			glBindTexture(GL_TEXTURE_2D, terrain.paintWeightTextureID);
+		}
+
+		glTexImage2D(GL_TEXTURE_2D,
+			0,
+			GL_RGBA32F,
+			terrain.paintResolution,
+			terrain.paintResolution,
+			0,
+			GL_RGBA,
+			GL_FLOAT,
+			terrain.paintWeightData.data());
+		glBindTexture(GL_TEXTURE_2D, 0);
+		terrain.paintWeightTextureDirty = false;
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Mesh generation
@@ -29,6 +274,7 @@ void TerrainSystem::RebuildMesh(TerrainComponent& terrain)
 {
 	int res = std::clamp(terrain.resolution, 2, 512);
 	terrain.resolution = res;
+	EnsureTerrainPaintData(terrain);
 
 	// Build height data from PNG if a path is supplied
 	if (!terrain.heightmapPath.empty())
@@ -123,7 +369,107 @@ void TerrainSystem::RebuildMesh(TerrainComponent& terrain)
 	}
 
 	terrain.mesh = std::make_shared<MyEngine::Mesh>(verts, indices);
+	terrain.paintWeightTextureDirty = true;
 	terrain.dirty = false;
+}
+
+bool TerrainSystem::ImportHeightmap(TerrainComponent& terrain,
+							 const std::string& filePath,
+							 bool prefer16Bit)
+{
+	int w = 0, h = 0, channels = 0;
+	const int res = std::clamp(terrain.resolution, 2, 512);
+
+	bool loaded = false;
+	if (prefer16Bit)
+	{
+		unsigned short* data16 = stbi_load_16(filePath.c_str(), &w, &h, &channels, 1);
+		if (data16)
+		{
+			terrain.heightData.resize(static_cast<size_t>(res) * static_cast<size_t>(res));
+			for (int row = 0; row < res; ++row)
+			{
+				for (int col = 0; col < res; ++col)
+				{
+					const int px = std::clamp(static_cast<int>(col * (w - 1) / static_cast<float>(res - 1)), 0, w - 1);
+					const int py = std::clamp(static_cast<int>(row * (h - 1) / static_cast<float>(res - 1)), 0, h - 1);
+					terrain.heightData[static_cast<size_t>(row) * static_cast<size_t>(res) + static_cast<size_t>(col)] =
+						static_cast<float>(data16[static_cast<size_t>(py) * static_cast<size_t>(w) + static_cast<size_t>(px)]) / 65535.0f;
+				}
+			}
+			stbi_image_free(data16);
+			loaded = true;
+		}
+	}
+
+	if (!loaded)
+	{
+		unsigned char* data8 = stbi_load(filePath.c_str(), &w, &h, &channels, 1);
+		if (!data8)
+			return false;
+		terrain.heightData.resize(static_cast<size_t>(res) * static_cast<size_t>(res));
+		for (int row = 0; row < res; ++row)
+		{
+			for (int col = 0; col < res; ++col)
+			{
+				const int px = std::clamp(static_cast<int>(col * (w - 1) / static_cast<float>(res - 1)), 0, w - 1);
+				const int py = std::clamp(static_cast<int>(row * (h - 1) / static_cast<float>(res - 1)), 0, h - 1);
+				terrain.heightData[static_cast<size_t>(row) * static_cast<size_t>(res) + static_cast<size_t>(col)] =
+					static_cast<float>(data8[static_cast<size_t>(py) * static_cast<size_t>(w) + static_cast<size_t>(px)]) / 255.0f;
+			}
+		}
+		stbi_image_free(data8);
+	}
+
+	terrain.heightmapPath = filePath;
+	terrain.dirty = true;
+	RebuildMesh(terrain);
+	return true;
+}
+
+bool TerrainSystem::ExportHeightmap(const TerrainComponent& terrain,
+							 const std::string& filePath,
+							 bool export16Bit)
+{
+	const int res = std::clamp(terrain.resolution, 2, 512);
+	const size_t expected = static_cast<size_t>(res) * static_cast<size_t>(res);
+	if (terrain.heightData.size() != expected)
+		return false;
+
+	if (export16Bit)
+	{
+		std::vector<std::uint16_t> pixels(expected, 0);
+		for (size_t i = 0; i < expected; ++i)
+		{
+			const float clamped = std::clamp(terrain.heightData[i], 0.0f, 1.0f);
+			pixels[i] = static_cast<std::uint16_t>(std::round(clamped * 65535.0f));
+		}
+#ifdef _WIN32
+		if (!WriteGray16PngWIC(filePath, res, res, pixels))
+			return false;
+		return true;
+#else
+		std::vector<std::uint8_t> packed(expected * 2);
+		for (size_t i = 0; i < expected; ++i)
+		{
+			packed[i * 2 + 0] = static_cast<std::uint8_t>((pixels[i] >> 8) & 0xFFu);
+			packed[i * 2 + 1] = static_cast<std::uint8_t>(pixels[i] & 0xFFu);
+		}
+		stbi_flip_vertically_on_write(1);
+		const int ok = stbi_write_png(filePath.c_str(), res, res, 2, packed.data(), res * 2);
+		return ok != 0;
+#endif
+	}
+
+	std::vector<std::uint8_t> pixels(expected, 0);
+	for (size_t i = 0; i < expected; ++i)
+	{
+		const float clamped = std::clamp(terrain.heightData[i], 0.0f, 1.0f);
+		pixels[i] = static_cast<std::uint8_t>(std::round(clamped * 255.0f));
+	}
+	stbi_flip_vertically_on_write(1);
+	const int ok = stbi_write_png(filePath.c_str(), res, res, 1, pixels.data(), res);
+	return ok != 0;
 }
 
 float TerrainSystem::SampleHeight(const TerrainComponent& terrain,
@@ -388,6 +734,121 @@ bool TerrainSystem::ApplySculptBrush(TerrainComponent& terrain,
 	return true;
 }
 
+bool TerrainSystem::ApplyPaintBrush(TerrainComponent& terrain,
+							 const glm::vec3& terrainWorldPosition,
+							 float worldX, float worldZ,
+							 int targetLayer,
+							 float radius,
+							 float strength,
+							 float falloff,
+							 float deltaTime,
+							 int* outMinRow,
+							 int* outMaxRow,
+							 int* outMinCol,
+							 int* outMaxCol)
+{
+	EnsureTerrainPaintData(terrain);
+	if (terrain.paintResolution < 2)
+		return false;
+
+	const int paintRes = std::clamp(terrain.paintResolution, 2, 2048);
+	if (terrain.paintWeightData.size() != static_cast<size_t>(paintRes) * static_cast<size_t>(paintRes) * 4)
+		return false;
+
+	const int layerIndex = std::clamp(targetLayer, 0, kMaxTerrainPaintLayers - 1);
+	const float brushRadius = std::max(radius, 0.01f);
+	const float brushStrength = std::max(strength, 0.0f);
+	const float brushFalloff = std::max(falloff, 0.01f);
+
+	const float localX = worldX - terrainWorldPosition.x;
+	const float localZ = worldZ - terrainWorldPosition.z;
+	const float halfW = terrain.width * 0.5f;
+	const float halfD = terrain.depth * 0.5f;
+	if (localX < -halfW || localX > halfW || localZ < -halfD || localZ > halfD)
+		return false;
+
+	bool changed = false;
+	int minRow = paintRes - 1;
+	int maxRow = 0;
+	int minCol = paintRes - 1;
+	int maxCol = 0;
+
+	for (int row = 0; row < paintRes; ++row)
+	{
+		const float v = row / static_cast<float>(paintRes - 1);
+		const float pz = (v - 0.5f) * terrain.depth;
+		for (int col = 0; col < paintRes; ++col)
+		{
+			const float u = col / static_cast<float>(paintRes - 1);
+			const float px = (u - 0.5f) * terrain.width;
+			const float dx = px - localX;
+			const float dz = pz - localZ;
+			const float dist = std::sqrt(dx * dx + dz * dz);
+			if (dist > brushRadius)
+				continue;
+
+			const float t = 1.0f - (dist / brushRadius);
+			const float influence = std::pow(std::clamp(t, 0.0f, 1.0f), brushFalloff);
+			const float blend = std::clamp(influence * brushStrength * deltaTime, 0.0f, 1.0f);
+			if (blend <= 1e-6f)
+				continue;
+
+			const size_t base = (static_cast<size_t>(row) * static_cast<size_t>(paintRes) + static_cast<size_t>(col)) * 4;
+			float weights[4] = {
+				terrain.paintWeightData[base + 0],
+				terrain.paintWeightData[base + 1],
+				terrain.paintWeightData[base + 2],
+				terrain.paintWeightData[base + 3]
+			};
+
+			float beforeTarget = weights[layerIndex];
+			weights[layerIndex] = beforeTarget + (1.0f - beforeTarget) * blend;
+			const float otherScale = std::max(1.0f - blend, 0.0f);
+			for (int i = 0; i < 4; ++i)
+			{
+				if (i == layerIndex)
+					continue;
+				weights[i] *= otherScale;
+			}
+
+			float sum = weights[0] + weights[1] + weights[2] + weights[3];
+			if (sum < 1e-6f)
+			{
+				weights[0] = 1.0f;
+				weights[1] = weights[2] = weights[3] = 0.0f;
+				sum = 1.0f;
+			}
+			for (int i = 0; i < 4; ++i)
+				weights[i] /= sum;
+
+			float diff = 0.0f;
+			for (int i = 0; i < 4; ++i)
+				diff += std::abs(weights[i] - terrain.paintWeightData[base + static_cast<size_t>(i)]);
+			if (diff < 1e-6f)
+				continue;
+
+			for (int i = 0; i < 4; ++i)
+				terrain.paintWeightData[base + static_cast<size_t>(i)] = weights[i];
+
+			changed = true;
+			minRow = std::min(minRow, row);
+			maxRow = std::max(maxRow, row);
+			minCol = std::min(minCol, col);
+			maxCol = std::max(maxCol, col);
+		}
+	}
+
+	if (!changed)
+		return false;
+
+	if (outMinRow) *outMinRow = minRow;
+	if (outMaxRow) *outMaxRow = maxRow;
+	if (outMinCol) *outMinCol = minCol;
+	if (outMaxCol) *outMaxCol = maxCol;
+	terrain.paintWeightTextureDirty = true;
+	return true;
+}
+
 bool TerrainSystem::PrepareMeshPatchData(const TerrainComponent& terrain,
 								 int minRow,
 								 int maxRow,
@@ -505,6 +966,7 @@ bool TerrainSystem::RebuildMeshPatch(TerrainComponent& terrain,
 	if (!terrain.mesh)
 		return false;
 
+	EnsureTerrainPaintData(terrain);
 	TerrainMeshPatchData patch;
 	if (!PrepareMeshPatchData(terrain, minRow, maxRow, minCol, maxCol, patch))
 		return false;
@@ -576,17 +1038,48 @@ void TerrainSystem::Render(Scene& scene,
 		shader->SetMat4("u_Projection", projection);
 		shader->SetVec3("u_ViewPos",    viewPos);
 
-		// Bind surface texture to unit 0 if present
-		if (terrain.surfaceTexture)
+		EnsureTerrainPaintData(terrain);
+		if (terrain.paintWeightTextureDirty || terrain.paintWeightTextureID == 0)
+			UploadTerrainPaintWeightTexture(terrain);
+
+		shader->SetBool("u_TerrainLayerBlendEnabled", false);
+		shader->SetBool("u_UseTexture", false);
+
+		int layerCount = static_cast<int>(std::min(terrain.paintLayers.size(), static_cast<size_t>(kMaxTerrainPaintLayers)));
+		int boundLayerCount = 0;
+		for (int i = 0; i < layerCount; ++i)
+		{
+			auto& layer = terrain.paintLayers[static_cast<size_t>(i)];
+			if (!layer.enabled)
+				continue;
+			if (!layer.texture && !layer.texturePath.empty())
+				layer.texture = MyEngine::AssetManager::LoadTexture(layer.texturePath);
+			if (!layer.texture)
+				continue;
+
+			glActiveTexture(GL_TEXTURE1 + i);
+			glBindTexture(GL_TEXTURE_2D, layer.texture->GetID());
+			shader->SetInt("u_TerrainLayerTextures[" + std::to_string(i) + "]", 1 + i);
+			shader->SetFloat("u_TerrainLayerUVScale[" + std::to_string(i) + "]", layer.uvScale);
+			boundLayerCount = std::max(boundLayerCount, i + 1);
+		}
+
+		if (terrain.paintWeightTextureID != 0)
+		{
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, terrain.paintWeightTextureID);
+			shader->SetInt("u_TerrainWeightMap", 0);
+		}
+
+		shader->SetInt("u_TerrainLayerCount", boundLayerCount);
+		shader->SetBool("u_TerrainLayerBlendEnabled", boundLayerCount > 0 && terrain.paintWeightTextureID != 0);
+
+		if (boundLayerCount <= 0 && terrain.surfaceTexture)
 		{
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, terrain.surfaceTexture->GetID());
 			shader->SetInt("u_Texture", 0);
 			shader->SetBool("u_UseTexture", true);
-		}
-		else
-		{
-			shader->SetBool("u_UseTexture", false);
 		}
 
 		terrain.mesh->Draw();

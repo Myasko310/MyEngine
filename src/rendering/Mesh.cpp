@@ -2,6 +2,20 @@
 
 namespace MyEngine
 {
+    namespace
+    {
+        bool HasOpenGLContextFunctions()
+        {
+            return glGenVertexArrays != nullptr &&
+                   glGenBuffers != nullptr &&
+                   glBindVertexArray != nullptr &&
+                   glBindBuffer != nullptr &&
+                   glBufferData != nullptr &&
+                   glDeleteVertexArrays != nullptr &&
+                   glDeleteBuffers != nullptr;
+        }
+    }
+
     Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices)
     {
         m_IndexCount = static_cast<unsigned int>(indices.size());
@@ -81,6 +95,9 @@ namespace MyEngine
             m_BoundingCenter = glm::vec3(0.0f);
             m_BoundingRadius = 0.0f;
         }
+
+        if (!HasOpenGLContextFunctions())
+            return;
 
         glGenVertexArrays(1, &m_VAO);
         glGenBuffers(1, &m_VBO);
@@ -194,12 +211,15 @@ namespace MyEngine
         const size_t clampedCount = std::min(vertexCount, m_Vertices.size() - firstVertex);
         std::copy(vertices, vertices + clampedCount, m_Vertices.begin() + static_cast<std::ptrdiff_t>(firstVertex));
 
-        glBindBuffer(GL_ARRAY_BUFFER, m_VBO);
-        glBufferSubData(
-            GL_ARRAY_BUFFER,
-            static_cast<GLintptr>(firstVertex * sizeof(Vertex)),
-            static_cast<GLsizeiptr>(clampedCount * sizeof(Vertex)),
-            vertices);
+        if (m_VBO != 0 && glBindBuffer != nullptr && glBufferSubData != nullptr)
+        {
+            glBindBuffer(GL_ARRAY_BUFFER, m_VBO);
+            glBufferSubData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLintptr>(firstVertex * sizeof(Vertex)),
+                static_cast<GLsizeiptr>(clampedCount * sizeof(Vertex)),
+                vertices);
+        }
 
         // Conservative bounds refresh after local edits.
         if (!m_Vertices.empty())
@@ -221,6 +241,9 @@ namespace MyEngine
 
     void Mesh::Draw() const
     {
+        if (m_VAO == 0 || m_IndexCount == 0 || glBindVertexArray == nullptr || glDrawElements == nullptr)
+            return;
+
         glBindVertexArray(m_VAO);
         glDrawElements(GL_TRIANGLES, m_IndexCount, GL_UNSIGNED_INT, nullptr);
         glBindVertexArray(0);
@@ -228,21 +251,33 @@ namespace MyEngine
 
     void Mesh::Release()
     {
-        if (m_EBO != 0)
+        if (m_EBO != 0 && glDeleteBuffers != nullptr)
         {
             glDeleteBuffers(1, &m_EBO);
             m_EBO = 0;
         }
+        else if (m_EBO != 0)
+        {
+            m_EBO = 0;
+        }
 
-        if (m_VBO != 0)
+        if (m_VBO != 0 && glDeleteBuffers != nullptr)
         {
             glDeleteBuffers(1, &m_VBO);
             m_VBO = 0;
         }
+        else if (m_VBO != 0)
+        {
+            m_VBO = 0;
+        }
 
-        if (m_VAO != 0)
+        if (m_VAO != 0 && glDeleteVertexArrays != nullptr)
         {
             glDeleteVertexArrays(1, &m_VAO);
+            m_VAO = 0;
+        }
+        else if (m_VAO != 0)
+        {
             m_VAO = 0;
         }
 

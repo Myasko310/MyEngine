@@ -30,6 +30,9 @@
 #include "components/ParticleEmitterComponent.h"
 #include "components/PrefabInstanceComponent.h"
 #include "components/CollisionEventsComponent.h"
+#include "components/CombatAttackComponent.h"
+#include "components/CombatStatsComponent.h"
+#include "components/BossAIComponent.h"
 #include "core/LayerMask.h"
 #include "rendering/MeshPrimitives.h"
 #include "rendering/Texture.h"
@@ -470,6 +473,29 @@ namespace MyEngine
 					writer.Key("heightScale");        writer.Double(tc.heightScale);
 					writer.Key("resolution");         writer.Int(tc.resolution);
 					writer.Key("surfaceTexturePath"); writer.String(tc.surfaceTexturePath.c_str());
+					writer.Key("paintResolution");     writer.Int(tc.paintResolution);
+					writer.Key("paintEnabled");        writer.Bool(tc.paintEnabled);
+					writer.Key("paintActiveLayer");    writer.Int(tc.paintActiveLayer);
+					writer.Key("paintBrushRadius");    writer.Double(tc.paintBrushRadius);
+					writer.Key("paintBrushStrength");  writer.Double(tc.paintBrushStrength);
+					writer.Key("paintBrushFalloff");   writer.Double(tc.paintBrushFalloff);
+					writer.Key("paintLayers");
+					writer.StartArray();
+					for (const auto& layer : tc.paintLayers)
+					{
+						writer.StartObject();
+						writer.Key("name"); writer.String(layer.name.c_str());
+						writer.Key("texturePath"); writer.String(layer.texturePath.c_str());
+						writer.Key("uvScale"); writer.Double(layer.uvScale);
+						writer.Key("enabled"); writer.Bool(layer.enabled);
+						writer.EndObject();
+					}
+					writer.EndArray();
+					writer.Key("paintWeightData");
+					writer.StartArray();
+					for (float w : tc.paintWeightData)
+						writer.Double(w);
+					writer.EndArray();
 					writer.Key("shaderVertPath");     writer.String(tc.shaderVertPath.c_str());
 					writer.Key("shaderFragPath");     writer.String(tc.shaderFragPath.c_str());
 					writer.Key("sculptEnabled");      writer.Bool(tc.sculptEnabled);
@@ -719,6 +745,65 @@ namespace MyEngine
 					writer.Key("animationSpeedParameter"); writer.String(controller.animationSpeedParameter.c_str());
 					writer.Key("animationGroundedParameter"); writer.String(controller.animationGroundedParameter.c_str());
 					writer.Key("animationJumpTriggerParameter"); writer.String(controller.animationJumpTriggerParameter.c_str());
+					writer.EndObject();
+				}
+
+				if (e->HasComponent<CombatAttackComponent>())
+				{
+					auto& combatAttack = e->GetComponent<CombatAttackComponent>();
+					writer.Key("CombatAttack");
+					writer.StartObject();
+					writer.Key("attackSetPath"); writer.String(combatAttack.attackSetPath.c_str());
+					writer.Key("autoLoadFromJson"); writer.Bool(combatAttack.autoLoadFromJson);
+					writer.Key("selectedAttackIndex"); writer.Int(combatAttack.selectedAttackIndex);
+					writer.Key("attacks");
+					writer.StartArray();
+					for (const auto& attackDef : combatAttack.attacks)
+					{
+						writer.StartObject();
+						writer.Key("name"); writer.String(attackDef.name.c_str());
+						writer.Key("startupFrames"); writer.Int(attackDef.startupFrames);
+						writer.Key("activeFrames"); writer.Int(attackDef.activeFrames);
+						writer.Key("recoveryFrames"); writer.Int(attackDef.recoveryFrames);
+						writer.Key("damage"); writer.Double(attackDef.damage);
+						writer.Key("postureDamage"); writer.Double(attackDef.postureDamage);
+						writer.Key("hitboxCenter"); SerializeVec3(writer, attackDef.hitboxCenter);
+						writer.Key("hitboxRadius"); writer.Double(attackDef.hitboxRadius);
+						writer.Key("cooldownSeconds"); writer.Double(attackDef.cooldownSeconds);
+						writer.EndObject();
+					}
+					writer.EndArray();
+					writer.EndObject();
+				}
+
+				if (e->HasComponent<CombatStatsComponent>())
+				{
+					auto& combatStats = e->GetComponent<CombatStatsComponent>();
+					writer.Key("CombatStats");
+					writer.StartObject();
+					writer.Key("maxHealth"); writer.Double(combatStats.maxHealth);
+					writer.Key("health"); writer.Double(combatStats.health);
+					writer.Key("maxPosture"); writer.Double(combatStats.maxPosture);
+					writer.Key("posture"); writer.Double(combatStats.posture);
+					writer.Key("postureRecoveryPerSecond"); writer.Double(combatStats.postureRecoveryPerSecond);
+					writer.Key("guardPostureMultiplier"); writer.Double(combatStats.guardPostureMultiplier);
+					writer.EndObject();
+				}
+
+				if (e->HasComponent<BossAIComponent>())
+				{
+					auto& bossAI = e->GetComponent<BossAIComponent>();
+					writer.Key("BossAI");
+					writer.StartObject();
+					writer.Key("enabled"); writer.Bool(bossAI.enabled);
+					writer.Key("targetEntityID"); writer.Uint(bossAI.targetEntityID);
+					writer.Key("approachSpeed"); writer.Double(bossAI.approachSpeed);
+					writer.Key("strafeSpeed"); writer.Double(bossAI.strafeSpeed);
+					writer.Key("desiredRange"); writer.Double(bossAI.desiredRange);
+					writer.Key("attackRange"); writer.Double(bossAI.attackRange);
+					writer.Key("punishRange"); writer.Double(bossAI.punishRange);
+					writer.Key("decisionInterval"); writer.Double(bossAI.decisionInterval);
+					writer.Key("punishWindowSeconds"); writer.Double(bossAI.punishWindowSeconds);
 					writer.EndObject();
 				}
 
@@ -1178,6 +1263,44 @@ namespace MyEngine
 					if (to.HasMember("heightScale"))        tc.heightScale        = static_cast<float>(to["heightScale"].GetDouble());
 					if (to.HasMember("resolution"))         tc.resolution         = to["resolution"].GetInt();
 					if (to.HasMember("surfaceTexturePath")) tc.surfaceTexturePath = to["surfaceTexturePath"].GetString();
+					if (to.HasMember("paintResolution") && to["paintResolution"].IsInt()) tc.paintResolution = std::clamp(to["paintResolution"].GetInt(), 2, 2048);
+					if (to.HasMember("paintEnabled")) tc.paintEnabled = to["paintEnabled"].GetBool();
+					if (to.HasMember("paintActiveLayer") && to["paintActiveLayer"].IsInt()) tc.paintActiveLayer = std::clamp(to["paintActiveLayer"].GetInt(), 0, kMaxTerrainPaintLayers - 1);
+					if (to.HasMember("paintBrushRadius")) tc.paintBrushRadius = static_cast<float>(to["paintBrushRadius"].GetDouble());
+					if (to.HasMember("paintBrushStrength")) tc.paintBrushStrength = static_cast<float>(to["paintBrushStrength"].GetDouble());
+					if (to.HasMember("paintBrushFalloff")) tc.paintBrushFalloff = static_cast<float>(to["paintBrushFalloff"].GetDouble());
+					if (to.HasMember("paintLayers") && to["paintLayers"].IsArray())
+					{
+						tc.paintLayers.clear();
+						for (const auto& lv : to["paintLayers"].GetArray())
+						{
+							if (!lv.IsObject()) continue;
+							TerrainPaintLayer layer;
+							if (lv.HasMember("name") && lv["name"].IsString()) layer.name = lv["name"].GetString();
+							if (lv.HasMember("texturePath") && lv["texturePath"].IsString())
+							{
+								layer.texturePath = lv["texturePath"].GetString();
+								if (!layer.texturePath.empty())
+									layer.texture = MyEngine::AssetManager::LoadTexture(layer.texturePath);
+							}
+							if (lv.HasMember("uvScale")) layer.uvScale = static_cast<float>(lv["uvScale"].GetDouble());
+							if (lv.HasMember("enabled")) layer.enabled = lv["enabled"].GetBool();
+							tc.paintLayers.push_back(std::move(layer));
+							if (tc.paintLayers.size() >= static_cast<size_t>(kMaxTerrainPaintLayers))
+								break;
+						}
+					}
+					if (to.HasMember("paintWeightData") && to["paintWeightData"].IsArray())
+					{
+						tc.paintWeightData.clear();
+						tc.paintWeightData.reserve(to["paintWeightData"].Size());
+						for (const auto& wv : to["paintWeightData"].GetArray())
+						{
+							if (wv.IsNumber())
+								tc.paintWeightData.push_back(static_cast<float>(wv.GetDouble()));
+						}
+						tc.paintWeightTextureDirty = true;
+					}
 					if (to.HasMember("shaderVertPath"))     tc.shaderVertPath     = to["shaderVertPath"].GetString();
 					if (to.HasMember("shaderFragPath"))     tc.shaderFragPath     = to["shaderFragPath"].GetString();
 					if (to.HasMember("sculptEnabled"))      tc.sculptEnabled      = to["sculptEnabled"].GetBool();
@@ -1574,6 +1697,62 @@ namespace MyEngine
 					if (cco.HasMember("animationJumpTriggerParameter") && cco["animationJumpTriggerParameter"].IsString()) controller.animationJumpTriggerParameter = cco["animationJumpTriggerParameter"].GetString();
 				}
 
+				if (v.HasMember("CombatAttack") && v["CombatAttack"].IsObject())
+				{
+					auto& combatAttack = ent->AddComponent<CombatAttackComponent>();
+					const auto& cao = v["CombatAttack"];
+					if (cao.HasMember("attackSetPath") && cao["attackSetPath"].IsString()) combatAttack.attackSetPath = cao["attackSetPath"].GetString();
+					if (cao.HasMember("autoLoadFromJson")) combatAttack.autoLoadFromJson = cao["autoLoadFromJson"].GetBool();
+					if (cao.HasMember("selectedAttackIndex")) combatAttack.selectedAttackIndex = cao["selectedAttackIndex"].GetInt();
+					if (cao.HasMember("attacks") && cao["attacks"].IsArray())
+					{
+						combatAttack.attacks.clear();
+						for (const auto& attackValue : cao["attacks"].GetArray())
+						{
+							if (!attackValue.IsObject())
+								continue;
+							CombatAttackDefinition def;
+							if (attackValue.HasMember("name") && attackValue["name"].IsString()) def.name = attackValue["name"].GetString();
+							if (attackValue.HasMember("startupFrames")) def.startupFrames = attackValue["startupFrames"].GetInt();
+							if (attackValue.HasMember("activeFrames")) def.activeFrames = attackValue["activeFrames"].GetInt();
+							if (attackValue.HasMember("recoveryFrames")) def.recoveryFrames = attackValue["recoveryFrames"].GetInt();
+							if (attackValue.HasMember("damage")) def.damage = static_cast<float>(attackValue["damage"].GetDouble());
+							if (attackValue.HasMember("postureDamage")) def.postureDamage = static_cast<float>(attackValue["postureDamage"].GetDouble());
+							if (attackValue.HasMember("hitboxCenter")) def.hitboxCenter = DeserializeVec3(attackValue["hitboxCenter"]);
+							if (attackValue.HasMember("hitboxRadius")) def.hitboxRadius = static_cast<float>(attackValue["hitboxRadius"].GetDouble());
+							if (attackValue.HasMember("cooldownSeconds")) def.cooldownSeconds = static_cast<float>(attackValue["cooldownSeconds"].GetDouble());
+							combatAttack.attacks.push_back(def);
+						}
+					}
+				}
+
+				if (v.HasMember("CombatStats") && v["CombatStats"].IsObject())
+				{
+					auto& combatStats = ent->AddComponent<CombatStatsComponent>();
+					const auto& cso = v["CombatStats"];
+					if (cso.HasMember("maxHealth")) combatStats.maxHealth = static_cast<float>(cso["maxHealth"].GetDouble());
+					if (cso.HasMember("health")) combatStats.health = static_cast<float>(cso["health"].GetDouble());
+					if (cso.HasMember("maxPosture")) combatStats.maxPosture = static_cast<float>(cso["maxPosture"].GetDouble());
+					if (cso.HasMember("posture")) combatStats.posture = static_cast<float>(cso["posture"].GetDouble());
+					if (cso.HasMember("postureRecoveryPerSecond")) combatStats.postureRecoveryPerSecond = static_cast<float>(cso["postureRecoveryPerSecond"].GetDouble());
+					if (cso.HasMember("guardPostureMultiplier")) combatStats.guardPostureMultiplier = static_cast<float>(cso["guardPostureMultiplier"].GetDouble());
+				}
+
+				if (v.HasMember("BossAI") && v["BossAI"].IsObject())
+				{
+					auto& bossAI = ent->AddComponent<BossAIComponent>();
+					const auto& bio = v["BossAI"];
+					if (bio.HasMember("enabled")) bossAI.enabled = bio["enabled"].GetBool();
+					if (bio.HasMember("targetEntityID")) bossAI.targetEntityID = bio["targetEntityID"].GetUint();
+					if (bio.HasMember("approachSpeed")) bossAI.approachSpeed = static_cast<float>(bio["approachSpeed"].GetDouble());
+					if (bio.HasMember("strafeSpeed")) bossAI.strafeSpeed = static_cast<float>(bio["strafeSpeed"].GetDouble());
+					if (bio.HasMember("desiredRange")) bossAI.desiredRange = static_cast<float>(bio["desiredRange"].GetDouble());
+					if (bio.HasMember("attackRange")) bossAI.attackRange = static_cast<float>(bio["attackRange"].GetDouble());
+					if (bio.HasMember("punishRange")) bossAI.punishRange = static_cast<float>(bio["punishRange"].GetDouble());
+					if (bio.HasMember("decisionInterval")) bossAI.decisionInterval = static_cast<float>(bio["decisionInterval"].GetDouble());
+					if (bio.HasMember("punishWindowSeconds")) bossAI.punishWindowSeconds = static_cast<float>(bio["punishWindowSeconds"].GetDouble());
+				}
+
 				// Plane Collider
 				if (v.HasMember("PlaneCollider") && v["PlaneCollider"].IsObject())
 				{
@@ -1810,6 +1989,9 @@ namespace MyEngine
 									COPY_COMPONENT(BoxColliderComponent);
 									COPY_COMPONENT(CapsuleColliderComponent);
 									COPY_COMPONENT(CharacterControllerComponent);
+									COPY_COMPONENT(CombatAttackComponent);
+									COPY_COMPONENT(CombatStatsComponent);
+									COPY_COMPONENT(BossAIComponent);
 									COPY_COMPONENT(PlaneColliderComponent);
 									COPY_COMPONENT(AudioSourceComponent);
 									COPY_COMPONENT(AudioListenerComponent);
@@ -2119,13 +2301,23 @@ namespace MyEngine
 													!nearlyEqual(a.heightScale, b.heightScale) ||
 													(a.resolution != b.resolution) ||
 													(a.surfaceTexturePath != b.surfaceTexturePath) ||
+													(a.paintResolution != b.paintResolution) ||
+													(a.paintEnabled != b.paintEnabled) ||
+													(a.paintActiveLayer != b.paintActiveLayer) ||
+													!nearlyEqual(a.paintBrushRadius, b.paintBrushRadius) ||
+													!nearlyEqual(a.paintBrushStrength, b.paintBrushStrength) ||
+													!nearlyEqual(a.paintBrushFalloff, b.paintBrushFalloff) ||
+													(a.paintLayers.size() != b.paintLayers.size()) ||
+													(a.paintWeightData.size() != b.paintWeightData.size()) ||
 													(a.shaderVertPath != b.shaderVertPath) ||
 													(a.shaderFragPath != b.shaderFragPath) ||
 													(a.sculptEnabled != b.sculptEnabled) ||
 													!nearlyEqual(a.sculptBrushRadius, b.sculptBrushRadius) ||
 													!nearlyEqual(a.sculptBrushStrength, b.sculptBrushStrength) ||
 													!nearlyEqual(a.sculptBrushFalloff, b.sculptBrushFalloff) ||
-													(a.sculptRaise != b.sculptRaise);
+													(a.sculptRaise != b.sculptRaise) ||
+													(a.sculptBrushMode != b.sculptBrushMode) ||
+													!nearlyEqual(a.sculptFlattenHeight, b.sculptFlattenHeight);
 									}
 
 									auto lodLevelsEqual = [&](const std::vector<LODComponent::Level>& lhs, const std::vector<LODComponent::Level>& rhs)
@@ -2282,19 +2474,22 @@ namespace MyEngine
 													}
 
 										#define COPY_COMPONENT(T) \
-									if (source->HasComponent<T>()) spawned->AddComponent<T>() = source->GetComponent<T>()
-									COPY_COMPONENT(TransformComponent);
-									COPY_COMPONENT(CameraComponent);
-									COPY_COMPONENT(LightComponent);
-									COPY_COMPONENT(MeshComponent);
-									COPY_COMPONENT(MeshRendererComponent);
-									COPY_COMPONENT(BoundingSphereComponent);
-									COPY_COMPONENT(RigidbodyComponent);
-									COPY_COMPONENT(BoxColliderComponent);
-									COPY_COMPONENT(CapsuleColliderComponent);
-									COPY_COMPONENT(CharacterControllerComponent);
-									COPY_COMPONENT(PlaneColliderComponent);
-									COPY_COMPONENT(AudioSourceComponent);
+											if (source->HasComponent<T>()) spawned->AddComponent<T>() = source->GetComponent<T>()
+											COPY_COMPONENT(TransformComponent);
+											COPY_COMPONENT(CameraComponent);
+											COPY_COMPONENT(LightComponent);
+											COPY_COMPONENT(MeshComponent);
+											COPY_COMPONENT(MeshRendererComponent);
+											COPY_COMPONENT(BoundingSphereComponent);
+											COPY_COMPONENT(RigidbodyComponent);
+											COPY_COMPONENT(BoxColliderComponent);
+											COPY_COMPONENT(CapsuleColliderComponent);
+											COPY_COMPONENT(CharacterControllerComponent);
+											COPY_COMPONENT(CombatAttackComponent);
+											COPY_COMPONENT(CombatStatsComponent);
+											COPY_COMPONENT(BossAIComponent);
+											COPY_COMPONENT(PlaneColliderComponent);
+											COPY_COMPONENT(AudioSourceComponent);
 									COPY_COMPONENT(AudioListenerComponent);
 									COPY_COMPONENT(JointComponent);
 									COPY_COMPONENT(MeshColliderComponent);

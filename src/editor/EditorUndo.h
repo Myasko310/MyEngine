@@ -65,6 +65,14 @@ namespace EditorUndo
 		float after = 0.0f;
 	};
 
+	struct TerrainWeightDelta
+	{
+		int row = 0;
+		int col = 0;
+		float before[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		float after[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	};
+
 	class TerrainPatchDeltaCommand : public Command
 	{
 	public:
@@ -109,10 +117,10 @@ namespace EditorUndo
 				if (std::abs(terrain.heightData[index] - target) < 1e-6f)
 					continue;
 				terrain.heightData[index] = target;
-				minRow = std::min(minRow, delta.row);
-				maxRow = std::max(maxRow, delta.row);
-				minCol = std::min(minCol, delta.col);
-				maxCol = std::max(maxCol, delta.col);
+				minRow = (std::min)(minRow, delta.row);
+				maxRow = (std::max)(maxRow, delta.row);
+				minCol = (std::min)(minCol, delta.col);
+				maxCol = (std::max)(maxCol, delta.col);
 				changed = true;
 			}
 
@@ -127,6 +135,58 @@ namespace EditorUndo
 		uint32_t m_EntityID = 0;
 		int m_Resolution = 0;
 		std::vector<TerrainHeightDelta> m_Deltas;
+	};
+
+	class TerrainPaintDeltaCommand : public Command
+	{
+	public:
+		TerrainPaintDeltaCommand(uint32_t entityID, int paintResolution, const std::vector<TerrainWeightDelta>& deltas)
+			: m_EntityID(entityID), m_PaintResolution(paintResolution), m_Deltas(deltas)
+		{
+		}
+
+		void Undo(Scene& scene) override { Apply(scene, true); }
+		void Redo(Scene& scene) override { Apply(scene, false); }
+
+	private:
+		void Apply(Scene& scene, bool useBefore)
+		{
+			auto entity = TransformHierarchy::FindEntityByID(scene, m_EntityID);
+			if (!entity || !entity->HasComponent<TerrainComponent>())
+				return;
+
+			auto& terrain = entity->GetComponent<TerrainComponent>();
+			const int paintRes = std::clamp(terrain.paintResolution, 2, 2048);
+			if (paintRes != m_PaintResolution)
+				return;
+
+			const size_t expected = static_cast<size_t>(paintRes) * static_cast<size_t>(paintRes) * 4;
+			if (terrain.paintWeightData.size() != expected)
+				return;
+
+			bool changed = false;
+			for (const auto& delta : m_Deltas)
+			{
+				if (delta.row < 0 || delta.row >= paintRes || delta.col < 0 || delta.col >= paintRes)
+					continue;
+				const size_t base = (static_cast<size_t>(delta.row) * static_cast<size_t>(paintRes) + static_cast<size_t>(delta.col)) * 4;
+				for (int i = 0; i < 4; ++i)
+				{
+					const float target = useBefore ? delta.before[i] : delta.after[i];
+					if (std::abs(terrain.paintWeightData[base + static_cast<size_t>(i)] - target) < 1e-6f)
+						continue;
+					terrain.paintWeightData[base + static_cast<size_t>(i)] = target;
+					changed = true;
+				}
+			}
+
+			if (changed)
+				terrain.paintWeightTextureDirty = true;
+		}
+
+		uint32_t m_EntityID = 0;
+		int m_PaintResolution = 0;
+		std::vector<TerrainWeightDelta> m_Deltas;
 	};
 
 	class SceneStateCommand : public Command
@@ -349,9 +409,11 @@ namespace EditorUndo
 
 		bool CanUndo() const { return !m_Undo.empty(); }
 		bool CanRedo() const { return !m_Redo.empty(); }
+		size_t GetUndoCount() const { return m_Undo.size(); }
+		size_t GetRedoCount() const { return m_Redo.size(); }
 
 		void Undo(Scene& scene)
-		{
+		{ 
 			if (m_Undo.empty())
 				return;
 			auto cmd = std::move(m_Undo.back());

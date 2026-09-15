@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 #ifdef USE_IMGUI
 #include <imgui.h>
@@ -36,6 +37,59 @@ namespace MyEngine
     static glm::vec3 GetRight(const glm::vec3& forward)
     {
         return glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+    }
+
+    static std::shared_ptr<Entity> FindBestLockOnTarget(
+        Scene& scene,
+        const std::shared_ptr<Entity>& followTarget,
+        uint32_t existingTargetID,
+        const glm::vec3& viewForward,
+        float maxDistance,
+        float maxAngleDegrees)
+    {
+        if (!followTarget || !followTarget->HasComponent<TransformComponent>())
+            return nullptr;
+
+        const glm::vec3 origin = followTarget->GetComponent<TransformComponent>().position;
+        const glm::vec3 flatForward = glm::normalize(glm::vec3(viewForward.x, 0.0f, viewForward.z));
+        const float maxDistanceSq = maxDistance * maxDistance;
+        const float minDot = std::cos(glm::radians(maxAngleDegrees));
+
+        std::shared_ptr<Entity> best;
+        float bestScore = -1.0f;
+
+        for (const auto& candidate : scene.GetEntities())
+        {
+            if (!candidate || candidate.get() == followTarget.get() || !candidate->HasComponent<TransformComponent>())
+                continue;
+
+            const bool isBossLike = (candidate->GetTag() == "Boss") || (candidate->GetName().find("Boss") != std::string::npos);
+            if (!isBossLike)
+                continue;
+
+            const glm::vec3 toCandidate = candidate->GetComponent<TransformComponent>().position - origin;
+            const glm::vec3 flatToCandidate = glm::vec3(toCandidate.x, 0.0f, toCandidate.z);
+            const float distSq = glm::dot(flatToCandidate, flatToCandidate);
+            if (distSq > maxDistanceSq || distSq < 0.0001f)
+                continue;
+
+            const glm::vec3 dir = glm::normalize(flatToCandidate);
+            const float dotValue = glm::dot(flatForward, dir);
+            if (dotValue < minDot)
+                continue;
+
+            float score = dotValue * 2.0f + (1.0f - (distSq / maxDistanceSq));
+            if (candidate->GetID() == existingTargetID)
+                score += 0.15f;
+
+            if (!best || score > bestScore)
+            {
+                best = candidate;
+                bestScore = score;
+            }
+        }
+
+        return best;
     }
 
     void CameraSystem::Update(Scene& scene, GLFWwindow* window, float deltaTime, float aspectRatio)
@@ -79,6 +133,54 @@ namespace MyEngine
                     hasFollowTarget = true;
                     break;
                 }
+            }
+
+            std::shared_ptr<Entity> lockOnTarget;
+            if (camera.thirdPerson && camera.lockOnEnabled && hasFollowTarget)
+            {
+                if (camera.lockOnTargetID != 0)
+                {
+                    auto candidate = TransformHierarchy::FindEntityByID(scene, camera.lockOnTargetID);
+                    if (candidate && candidate->HasComponent<TransformComponent>() && candidate.get() != followTarget.get())
+                    {
+                        const glm::vec3 origin = followTarget->GetComponent<TransformComponent>().position;
+                        const glm::vec3 toTarget = candidate->GetComponent<TransformComponent>().position - origin;
+                        const glm::vec3 flatToTarget(toTarget.x, 0.0f, toTarget.z);
+                        const float distance = glm::length(flatToTarget);
+
+                        glm::vec3 viewForward = GetForward(camera.yaw, 0.0f);
+                        glm::vec3 flatForward(viewForward.x, 0.0f, viewForward.z);
+                        if (glm::length(flatForward) > 0.0001f)
+                            flatForward = glm::normalize(flatForward);
+                        else
+                            flatForward = glm::vec3(0.0f, 0.0f, -1.0f);
+
+                        const glm::vec3 dir = distance > 0.0001f ? (flatToTarget / distance) : glm::vec3(0.0f, 0.0f, -1.0f);
+                        const float dotValue = glm::dot(flatForward, dir);
+                        const float minDot = std::cos(glm::radians(camera.lockOnMaxAngleDegrees));
+
+                        if (distance <= camera.lockOnMaxDistance && dotValue >= minDot)
+                            lockOnTarget = candidate;
+                    }
+                }
+
+                if (!lockOnTarget)
+                {
+                    glm::vec3 viewForward = GetForward(camera.yaw, 0.0f);
+                    lockOnTarget = FindBestLockOnTarget(
+                        scene,
+                        followTarget,
+                        camera.lockOnTargetID,
+                        viewForward,
+                        camera.lockOnMaxDistance,
+                        camera.lockOnMaxAngleDegrees);
+                }
+
+                camera.lockOnTargetID = lockOnTarget ? lockOnTarget->GetID() : 0;
+            }
+            else
+            {
+                camera.lockOnTargetID = 0;
             }
 
             if (camera.enableInput)
@@ -200,14 +302,45 @@ namespace MyEngine
 
             if (hasFollowTarget)
             {
-                // Orbit around the target's position using yaw/pitch (driven by
-                // mouse look above) at a fixed distance/height, then look back
-                // at the target so it stays framed regardless of orbit angle.
                 const auto& targetTransform = followTarget->GetComponent<TransformComponent>();
                 glm::vec3 pivot = targetTransform.position + glm::vec3(0.0f, camera.followHeight, 0.0f);
 
-                transform.position = pivot - forward * camera.followDistance;
-                lookTarget = pivot;
+                if (camera.lockOnEnabled && lockOnTarget && lockOnTarget->HasComponent<TransformComponent>())
+                {
+                    const auto& lockTransform = lockOnTarget->GetComponent<TransformComponent>();
+                    glm::vec3 enemyPivot = lockTransform.position + glm::vec3(0.0f, camera.lockOnHeightOffset, 0.0f);
+
+                    glm::vec3 toEnemy = enemyPivot - pivot;
+                    glm::vec3 flatToEnemy(toEnemy.x, 0.0f, toEnemy.z);
+                    if (glm::length(flatToEnemy) > 0.0001f)
+                    {
+                        glm::vec3 enemyDir = glm::normalize(flatToEnemy);
+                        float desiredYaw = glm::degrees(std::atan2(enemyDir.z, enemyDir.x));
+                        const float yawBlend = std::clamp(deltaTime * 10.0f, 0.0f, 1.0f);
+                        camera.yaw = glm::mix(camera.yaw, desiredYaw, yawBlend);
+                        camera.pitch = glm::mix(camera.pitch, -8.0f, std::clamp(deltaTime * 6.0f, 0.0f, 1.0f));
+
+                        glm::vec3 desiredPos = pivot - enemyDir * camera.lockOnCameraDistance;
+                        desiredPos.y += camera.lockOnCameraHeight;
+                        const float posBlend = std::clamp(deltaTime * 12.0f, 0.0f, 1.0f);
+                        transform.position = glm::mix(transform.position, desiredPos, posBlend);
+
+                        lookTarget = glm::mix(pivot, enemyPivot, 0.55f);
+                    }
+                    else
+                    {
+                        transform.position = pivot - forward * camera.followDistance;
+                        lookTarget = pivot;
+                    }
+                }
+                else
+                {
+                    // Orbit around the target's position using yaw/pitch (driven by
+                    // mouse look above) at a fixed distance/height, then look back
+                    // at the target so it stays framed regardless of orbit angle.
+                    transform.position = pivot - forward * camera.followDistance;
+                    lookTarget = pivot;
+                }
             }
 
             m_ViewMatrix = glm::lookAt(

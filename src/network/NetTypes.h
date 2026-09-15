@@ -32,10 +32,31 @@ namespace MyEngine::Net
 		std::string audioEventName;
 	};
 
+	struct TerrainPatchPointDelta
+	{
+		std::int32_t row = 0;
+		std::int32_t col = 0;
+		float heightBefore = 0.0f;
+		float heightAfter = 0.0f;
+	};
+
+	struct TerrainPatchDelta
+	{
+		std::uint32_t terrainEntityID = 0;
+		std::int32_t resolution = 0;
+		std::int32_t minRow = 0;
+		std::int32_t maxRow = 0;
+		std::int32_t minCol = 0;
+		std::int32_t maxCol = 0;
+		NetTick authoredTick = 0;
+		std::vector<TerrainPatchPointDelta> points;
+	};
+
 	struct WorldSnapshot
 	{
 		NetTick tick = 0;
 		std::vector<ReplicatedEntityState> entities;
+		std::vector<TerrainPatchDelta> terrainPatches;
 	};
 
 	struct InputMessage

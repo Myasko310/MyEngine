@@ -36,6 +36,15 @@ namespace MyEngine
         float followDistance = 5.0f;
         float followHeight = 2.0f;
 
+        // --- Lock-on mode (1v1 combat camera) ---
+        bool lockOnEnabled = false;
+        uint32_t lockOnTargetID = 0;
+        float lockOnMaxDistance = 18.0f;
+        float lockOnMaxAngleDegrees = 70.0f;
+        float lockOnHeightOffset = 1.2f;
+        float lockOnCameraDistance = 4.2f;
+        float lockOnCameraHeight = 1.8f;
+
         glm::vec3 velocity = glm::vec3(0.0f);
         glm::vec2 smoothedMouseDelta = glm::vec2(0.0f);
 

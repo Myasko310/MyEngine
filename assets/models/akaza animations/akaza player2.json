@@ -76,9 +76,9 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -4.395529747009277,
-                    3.279749870300293,
-                    3.8570077419281006
+                    1.0760996341705322,
+                    2.254239320755005,
+                    6.632445812225342
                 ],
                 "rotation": [
                     0.0,
@@ -181,8 +181,8 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -8.048853874206543,
-                    0.792708158493042,
+                    -7.277586460113525,
+                    1.198116660118103,
                     -2.0
                 ],
                 "rotation": [
@@ -1193,7 +1193,7 @@
                             "name": "Attack1_2",
                             "clipName": "Cross Punch",
                             "loop": false,
-                            "playbackSpeed": 1.1299999952316284,
+                            "playbackSpeed": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 8,
@@ -1223,7 +1223,7 @@
                             "name": "Attack1_3",
                             "clipName": "Hook Punch",
                             "loop": false,
-                            "playbackSpeed": 1.440000057220459,
+                            "playbackSpeed": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 0,
@@ -1239,7 +1239,7 @@
                             "name": "Attack2_1",
                             "clipName": "Kicking",
                             "loop": false,
-                            "playbackSpeed": 1.5099999904632568,
+                            "playbackSpeed": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 10,
@@ -1269,7 +1269,7 @@
                             "name": "Attack2_2",
                             "clipName": "Kicking (1)",
                             "loop": false,
-                            "playbackSpeed": 1.2400000095367432,
+                            "playbackSpeed": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 11,
@@ -1329,7 +1329,7 @@
                             "name": "Attack2_4",
                             "clipName": "Mma Kick",
                             "loop": false,
-                            "playbackSpeed": 1.4299999475479126,
+                            "playbackSpeed": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 0,
@@ -1345,7 +1345,7 @@
                             "name": "Attack3_1",
                             "clipName": "Uppercut Jab",
                             "loop": false,
-                            "playbackSpeed": 1.309999942779541,
+                            "playbackSpeed": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 14,
@@ -1375,7 +1375,7 @@
                             "name": "Attack3_2",
                             "clipName": "Mma Kick (1)",
                             "loop": false,
-                            "playbackSpeed": 1.5399999618530273,
+                            "playbackSpeed": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 0,
@@ -1511,7 +1511,7 @@
                 ],
                 "shininess": 32.0,
                 "useTexture": true,
-                "texturePath": "assets/textures/gradient.png",
+                "texturePath": "assets/imported/embedded_textures/akazaglb_embedded_0.png",
                 "shaderVertexPath": "shaders/lit_skinned.vert",
                 "shaderFragmentPath": "shaders/lit.frag"
             },

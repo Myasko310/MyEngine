@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <iostream>
 #include <string>
 
 #include "animation/AnimationStateMachine.h"
@@ -198,6 +199,28 @@ namespace MyEngine::Editor::Panels
 					const bool isStaticModel = (ext == ".obj");
 					const bool isSkinnedCandidate = (ext == ".gltf" || ext == ".glb" || ext == ".fbx");
 
+					// Helper to resolve the actual model path if it's in a nested structure
+					auto resolveModelPath = [](const std::string& originalPath) -> std::string
+					{
+						// For FBX files, check if there's a "source" subfolder variant
+						if (originalPath.find(".fbx") != std::string::npos)
+						{
+							namespace fs = std::filesystem;
+							fs::path original(originalPath);
+
+							// Check for adjacent "source" subfolder
+							fs::path sourceVariant = original.parent_path() / "source" / original.filename();
+							if (fs::exists(sourceVariant))
+							{
+								std::cout << "[AssetBrowser] Using source variant: " << sourceVariant.generic_string() << std::endl;
+								return sourceVariant.generic_string();
+							}
+						}
+						return originalPath;
+					};
+
+					std::string modelPath = resolveModelPath(filePath);
+
 					if (isStaticModel || isSkinnedCandidate)
 					{
 						const std::string beforeState = context.captureSceneState ? context.captureSceneState() : std::string{};
@@ -208,45 +231,93 @@ namespace MyEngine::Editor::Panels
 						const bool isRinAnimatedModel = entry.path().filename().string() == "rin_tohsaka_anim.glb";
 						bool attached = false;
 
+						// Try loading as skinned model first (may have skeleton or not)
 						if (isSkinnedCandidate && context.litSkinnedShader)
 						{
-							MyEngine::SkinnedModelData skinnedData = MyEngine::AssetManager::LoadSkinnedModel(filePath);
-							if (!skinnedData.meshes.empty() && skinnedData.skeleton && skinnedData.skeleton->GetBoneCount() > 0)
+							MyEngine::SkinnedModelData skinnedData = MyEngine::AssetManager::LoadSkinnedModel(modelPath);
+							if (!skinnedData.meshes.empty())
 							{
-								MyEngine::AssetManager::AttachSkinnedModelToEntity(ent, skinnedData, context.litSkinnedShader, filePath);
-								if (isRinAnimatedModel)
+								if (skinnedData.skeleton && skinnedData.skeleton->GetBoneCount() > 0)
 								{
-									auto& script = ent->HasComponent<ScriptComponent>()
-										? ent->GetComponent<ScriptComponent>()
-										: ent->AddComponent<ScriptComponent>();
-									script.scriptPath = "assets/scripts/rin_animation_hotkeys.lua";
-									script.requestReload = true;
+									// Has skeleton - attach as skinned
+									MyEngine::AssetManager::AttachSkinnedModelToEntity(ent, skinnedData, context.litSkinnedShader, modelPath);
+									if (isRinAnimatedModel)
+									{
+										auto& script = ent->HasComponent<ScriptComponent>()
+											? ent->GetComponent<ScriptComponent>()
+											: ent->AddComponent<ScriptComponent>();
+										script.scriptPath = "assets/scripts/rin_animation_hotkeys.lua";
+										script.requestReload = true;
+									}
+									attached = true;
 								}
-								attached = true;
+								else
+								{
+									// No skeleton but has meshes - attach as static
+									MyEngine::AssetManager::AttachMeshToEntity(ent, skinnedData.meshes[0], modelPath, context.litShader);
+									attached = true;
+								}
 							}
 						}
 
+						// Fallback if skinned loading failed or file is OBJ
 						if (!attached && context.litShader)
 						{
-							auto meshes = MyEngine::AssetManager::LoadModel(filePath);
+							auto meshes = MyEngine::AssetManager::LoadModel(modelPath);
 							if (!meshes.empty())
 							{
-								MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], filePath, context.litShader);
+								MyEngine::AssetManager::AttachMeshToEntity(ent, meshes[0], modelPath, context.litShader);
 								attached = true;
 							}
 						}
 
+						// If mesh is attached, try to import and apply materials
 						if (attached)
 						{
-							auto importedMats = MyEngine::AssetManager::ImportModelMaterials(filePath);
+							auto importedMats = MyEngine::AssetManager::ImportModelMaterials(modelPath);
+
+							auto& mr = ent->GetComponent<MeshRendererComponent>();
+
 							if (!importedMats.empty() && importedMats[0])
 							{
-								auto& mr = ent->GetComponent<MeshRendererComponent>();
 								mr.material = importedMats[0];
 								mr.materialPath = importedMats[0]->GetPath();
-								if (importedMats[0]->shader && !ent->HasComponent<AnimationComponent>())
+
+								// Use PBR shader if material has PBR properties, otherwise use material's shader
+								if (importedMats[0]->shader)
+								{
 									mr.shader = importedMats[0]->shader;
+									std::cout << "[AssetBrowser] Applied material shader from asset: " << mr.materialPath << std::endl;
+								}
+								else if (context.pbrShader && 
+										(importedMats[0]->usePBR || 
+										 importedMats[0]->metallicRoughnessMap != nullptr ||
+										 (importedMats[0]->metallic > 0.0f || importedMats[0]->roughness < 1.0f)))
+								{
+									// Material has PBR workflow properties, use PBR shader
+									mr.shader = context.pbrShader;
+									mr.usePBR = true;
+									std::cout << "[AssetBrowser] Applied PBR shader to entity: " << ent->GetName() << std::endl;
+								}
+								else if (!ent->HasComponent<AnimationComponent>() && context.litShader)
+								{
+									// Fallback to lit shader for non-animated models without PBR properties
+									mr.shader = context.litShader;
+									std::cout << "[AssetBrowser] Applied lit shader to entity: " << ent->GetName() << std::endl;
+								}
 							}
+							else
+							{
+								// No materials imported, ensure we have a basic shader
+								if (!mr.shader && context.litShader)
+								{
+									mr.shader = context.litShader;
+									// Set a default visible color if no material
+									mr.albedo = glm::vec3(0.8f, 0.8f, 0.8f);
+									std::cout << "[AssetBrowser] No materials found, using default lit shader with grey albedo" << std::endl;
+								}
+							}
+
 							selectedEntity = ent.get();
 							const std::string afterState = context.captureSceneState ? context.captureSceneState() : std::string{};
 							if (!beforeState.empty() && !afterState.empty() && beforeState != afterState && context.pushSceneStateCommand)
@@ -254,6 +325,7 @@ namespace MyEngine::Editor::Panels
 						}
 						else
 						{
+							std::cout << "[AssetBrowser] Failed to load model: " << modelPath << std::endl;
 							scene.DestroyEntity(ent->GetID());
 						}
 					}

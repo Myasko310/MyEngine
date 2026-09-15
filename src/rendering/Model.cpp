@@ -5,11 +5,14 @@
 #include <assimp/postprocess.h>
 #include <assimp/material.h>
 
+#include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
+#include <vector>
+#include <stb_image_write.h>
 
 namespace MyEngine
 {
@@ -46,6 +49,20 @@ namespace MyEngine
 		return name;
 	}
 
+	static std::string ResolveIfExists(const std::filesystem::path& path)
+	{
+		if (path.empty())
+			return "";
+
+		std::error_code ec;
+		std::filesystem::path normalized = path.lexically_normal();
+		if (!std::filesystem::exists(normalized, ec) && ec)
+			return "";
+		if (std::filesystem::exists(normalized, ec))
+			return normalized.generic_string();
+		return "";
+	}
+
 	static std::string ResolveMaterialTexturePath(
 		const aiScene* scene,
 		const std::filesystem::path& modelPath,
@@ -65,6 +82,15 @@ namespace MyEngine
 			if (!embedded)
 				return "";
 
+			std::filesystem::path outDir = std::filesystem::path("assets") / "imported" / "embedded_textures";
+			std::error_code ec;
+			std::filesystem::create_directories(outDir, ec);
+
+			std::string modelStem = modelPath.stem().string();
+			if (modelStem.empty()) modelStem = "model";
+			std::string embeddedName = tp.substr(1);
+			if (embeddedName.empty()) embeddedName = "0";
+
 			// Handle compressed embedded textures (common in GLB).
 			if (embedded->mHeight == 0 && embedded->pcData && embedded->mWidth > 0)
 			{
@@ -72,15 +98,6 @@ namespace MyEngine
 				if (ext.empty()) ext = "bin";
 				for (char& c : ext)
 					c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-				std::filesystem::path outDir = std::filesystem::path("assets") / "imported" / "embedded_textures";
-				std::error_code ec;
-				std::filesystem::create_directories(outDir, ec);
-
-				std::string modelStem = modelPath.stem().string();
-				if (modelStem.empty()) modelStem = "model";
-				std::string embeddedName = tp.substr(1);
-				if (embeddedName.empty()) embeddedName = "0";
 
 				std::filesystem::path outPath = outDir / (modelStem + "_embedded_" + embeddedName + "." + ext);
 				std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
@@ -94,15 +111,61 @@ namespace MyEngine
 				return outPath.generic_string();
 			}
 
+			// Handle uncompressed embedded textures (common in FBX).
+			if (embedded->mHeight > 0 && embedded->pcData && embedded->mWidth > 0)
+			{
+				const int width = static_cast<int>(embedded->mWidth);
+				const int height = static_cast<int>(embedded->mHeight);
+				std::vector<unsigned char> rgba;
+				rgba.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4u);
+
+				for (int y = 0; y < height; ++y)
+				{
+					for (int x = 0; x < width; ++x)
+					{
+						const size_t src = static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x);
+						const size_t dst = src * 4u;
+						const aiTexel& texel = embedded->pcData[src];
+						rgba[dst + 0] = texel.r;
+						rgba[dst + 1] = texel.g;
+						rgba[dst + 2] = texel.b;
+						rgba[dst + 3] = texel.a;
+					}
+				}
+
+				std::filesystem::path outPath = outDir / (modelStem + "_embedded_" + embeddedName + ".png");
+				const int strideBytes = width * 4;
+				const int ok = stbi_write_png(outPath.generic_string().c_str(), width, height, 4, rgba.data(), strideBytes);
+				if (ok != 0)
+					return outPath.generic_string();
+			}
+
 			return "";
 		}
 
 		std::filesystem::path texturePath(tp);
 		if (texturePath.is_absolute())
-			return texturePath.lexically_normal().generic_string();
+		{
+			std::string directAbsolute = ResolveIfExists(texturePath);
+			if (!directAbsolute.empty())
+				return directAbsolute;
+			texturePath = texturePath.filename();
+		}
 
-		std::filesystem::path resolved = (modelPath.parent_path() / texturePath).lexically_normal();
-		return resolved.generic_string();
+		std::vector<std::filesystem::path> candidates;
+		candidates.push_back(modelPath.parent_path() / texturePath);
+		candidates.push_back(modelPath.parent_path() / texturePath.filename());
+		candidates.push_back(modelPath.parent_path() / (modelPath.stem().string() + ".fbm") / texturePath.filename());
+		candidates.push_back(modelPath.parent_path() / "textures" / texturePath.filename());
+
+		for (const auto& candidate : candidates)
+		{
+			std::string resolved = ResolveIfExists(candidate);
+			if (!resolved.empty())
+				return resolved;
+		}
+
+		return (modelPath.parent_path() / texturePath).lexically_normal().generic_string();
 	}
 
 	// Adds a weight/index influence to a vertex's least-significant free
@@ -394,9 +457,9 @@ namespace MyEngine
 
 			AnimationClip clip;
 			clip.name = aAnim->mName.length > 0 ? aAnim->mName.C_Str() : ("Animation" + std::to_string(a));
-			clip.durationTicks = static_cast<float>(aAnim->mDuration);
 			clip.ticksPerSecond = aAnim->mTicksPerSecond > 0.0001 ? static_cast<float>(aAnim->mTicksPerSecond) : 25.0f;
 
+			float resolvedDurationTicks = static_cast<float>(aAnim->mDuration);
 			for (unsigned int c = 0; c < aAnim->mNumChannels; ++c)
 			{
 				aiNodeAnim* channel = aAnim->mChannels[c];
@@ -411,6 +474,8 @@ namespace MyEngine
 					PositionKey key;
 					key.time = static_cast<float>(channel->mPositionKeys[k].mTime);
 					key.value = ToGlmVec3(channel->mPositionKeys[k].mValue);
+					if (key.time > resolvedDurationTicks)
+						resolvedDurationTicks = key.time;
 					track.positionKeys.push_back(key);
 				}
 
@@ -420,6 +485,8 @@ namespace MyEngine
 					RotationKey key;
 					key.time = static_cast<float>(channel->mRotationKeys[k].mTime);
 					key.value = ToGlmQuat(channel->mRotationKeys[k].mValue);
+					if (key.time > resolvedDurationTicks)
+						resolvedDurationTicks = key.time;
 					track.rotationKeys.push_back(key);
 				}
 
@@ -429,12 +496,15 @@ namespace MyEngine
 					ScaleKey key;
 					key.time = static_cast<float>(channel->mScalingKeys[k].mTime);
 					key.value = ToGlmVec3(channel->mScalingKeys[k].mValue);
+					if (key.time > resolvedDurationTicks)
+						resolvedDurationTicks = key.time;
 					track.scaleKeys.push_back(key);
 				}
 
 				clip.tracks.push_back(std::move(track));
 			}
 
+			clip.durationTicks = std::max(0.0f, resolvedDurationTicks);
 			m_AnimationClips.push_back(std::move(clip));
 		}
 

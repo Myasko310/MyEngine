@@ -13,6 +13,11 @@
 class Scene;
 class Entity;
 
+namespace MyEngine::Net
+{
+	struct InputCommand;
+}
+
 namespace MyEngine
 {
 	struct RigidbodyComponent;
@@ -25,7 +30,7 @@ namespace MyEngine
 		~PhysicsSystem() override = default;
 
 		void OnUpdate(Scene& scene, float deltaTime) override;
-		void OnUpdate(Scene& scene, float deltaTime, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight);
+		void OnUpdate(Scene& scene, float deltaTime, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight, const Net::InputCommand* authoritativeInput = nullptr);
 
 		// Physics settings
 		glm::vec3 gravity = glm::vec3(0.0f, -9.81f, 0.0f);  // Default gravity (m/s²)
@@ -75,7 +80,12 @@ namespace MyEngine
 			std::unordered_set<uint64_t> activeCollisionPairs;
 			std::unordered_set<uint64_t> activeTriggerPairs;
 
+			// Tracks last activation id that already hit for (attacker,target).
+			// Key is directional: high 32 bits = attacker, low 32 bits = target.
+			std::unordered_map<uint64_t, uint32_t> lastCombatHitActivationByPair;
+
 			static uint64_t MakePairKey(uint32_t idA, uint32_t idB);
+			void ProcessCombatHitboxes(Scene& scene);
 			static void FireEnterEvent(const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b, bool isTrigger);
 			static void FireExitEvent(const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b, bool isTrigger);
 
@@ -85,7 +95,7 @@ namespace MyEngine
 				void IntegrateVelocity(Scene& scene, float dt);
 				void SweepCCDBody(Scene& scene, const std::shared_ptr<Entity>& entity, float dt);
 			void UpdateCharacterControllers(Scene& scene, float dt);
-			void CollectCharacterControllerInput(Scene& scene, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight);
+			void CollectCharacterControllerInput(Scene& scene, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight, const Net::InputCommand* authoritativeInput = nullptr);
 			void DetectAndResolveCollisions(Scene& scene);
 			void SolveJoints(Scene& scene, float dt);
 

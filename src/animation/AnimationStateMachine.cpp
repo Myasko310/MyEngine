@@ -124,13 +124,19 @@ namespace MyEngine
 				if (stateValue.HasMember("loop") && stateValue["loop"].IsBool())
 					state.loop = stateValue["loop"].GetBool();
 				if (stateValue.HasMember("playbackSpeed") && stateValue["playbackSpeed"].IsNumber())
-					state.playbackSpeed = stateValue["playbackSpeed"].GetFloat();
+					state.playbackSpeed = std::max(0.01f, stateValue["playbackSpeed"].GetFloat());
 				if (stateValue.HasMember("trimStartNormalized") && stateValue["trimStartNormalized"].IsNumber())
 					state.trimStartNormalized = std::clamp(stateValue["trimStartNormalized"].GetFloat(), 0.0f, 1.0f);
 				if (stateValue.HasMember("trimEndNormalized") && stateValue["trimEndNormalized"].IsNumber())
 					state.trimEndNormalized = std::clamp(stateValue["trimEndNormalized"].GetFloat(), 0.0f, 1.0f);
 				if (state.trimEndNormalized < state.trimStartNormalized)
 					std::swap(state.trimStartNormalized, state.trimEndNormalized);
+				if (state.trimEndNormalized - state.trimStartNormalized < 0.01f)
+				{
+					state.trimEndNormalized = std::min(1.0f, state.trimStartNormalized + 0.01f);
+					if (state.trimEndNormalized - state.trimStartNormalized < 0.01f)
+						state.trimStartNormalized = std::max(0.0f, state.trimEndNormalized - 0.01f);
+				}
 
 				if (stateValue.HasMember("transitions") && stateValue["transitions"].IsArray())
 				{

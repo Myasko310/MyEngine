@@ -36,6 +36,13 @@ namespace MyEngine::Editor::Panels
 		else
 		{
 			auto& sm = *ui.editingAnimationStateMachine;
+			if (selectedEntity && selectedEntity->HasComponent<AnimationStateMachineComponent>())
+			{
+				auto& liveSmComponent = selectedEntity->GetComponent<AnimationStateMachineComponent>();
+				liveSmComponent.stateMachine = ui.editingAnimationStateMachine;
+				if (!ui.selectedAnimationStateMachinePath.empty())
+					liveSmComponent.assetPath = ui.selectedAnimationStateMachinePath;
+			}
 			static char smNameBuffer[256] = "";
 			static std::string smLastPath;
 			if (smLastPath != ui.selectedAnimationStateMachinePath)
@@ -53,6 +60,15 @@ namespace MyEngine::Editor::Panels
 			if (ImGui::InputText("Name##animsm", smNameBuffer, sizeof(smNameBuffer)))
 				sm.name = smNameBuffer;
 
+			auto bindEditedStateMachineToSelectedEntity = [&](const std::string& savedPath)
+			{
+				if (!selectedEntity || !selectedEntity->HasComponent<AnimationStateMachineComponent>())
+					return;
+				auto& liveSmComponent = selectedEntity->GetComponent<AnimationStateMachineComponent>();
+				liveSmComponent.stateMachine = ui.editingAnimationStateMachine;
+				liveSmComponent.assetPath = savedPath;
+			};
+
 			if (InspectorActionButton("Save##animsm"))
 			{
 				std::string savePath = ui.selectedAnimationStateMachinePath.empty()
@@ -63,6 +79,7 @@ namespace MyEngine::Editor::Panels
 					sm.SetPath(savePath);
 					sm.SaveToFile(savePath);
 					ui.selectedAnimationStateMachinePath = savePath;
+					bindEditedStateMachineToSelectedEntity(savePath);
 				}
 			}
 			if (InspectorActionButton("Save As...##animsm"))
@@ -73,9 +90,11 @@ namespace MyEngine::Editor::Panels
 					sm.SetPath(savePath);
 					sm.SaveToFile(savePath);
 					ui.selectedAnimationStateMachinePath = savePath;
+					bindEditedStateMachineToSelectedEntity(savePath);
 				}
 			}
 
+			const bool isPlaying = context.isPlaying && *context.isPlaying;
 			const std::vector<MyEngine::AnimationClip>* stateMachineEditorClips = nullptr;
 			AnimationComponent* stateMachineEditorAnim = nullptr;
 			if (selectedEntity && selectedEntity->HasComponent<AnimationComponent>())
@@ -84,7 +103,8 @@ namespace MyEngine::Editor::Panels
 				if (selectedAnim.clips && !selectedAnim.clips->empty())
 				{
 					stateMachineEditorClips = selectedAnim.clips.get();
-					stateMachineEditorAnim = &selectedAnim;
+					if (!isPlaying)
+						stateMachineEditorAnim = &selectedAnim;
 				}
 			}
 
@@ -93,6 +113,8 @@ namespace MyEngine::Editor::Panels
 				ImGui::TextDisabled("Clip source: selected entity (%d clip(s))", static_cast<int>(stateMachineEditorClips->size()));
 			else
 				ImGui::TextDisabled("Select an animated entity to use clip dropdowns and validation.");
+			if (isPlaying)
+				ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Preview scrub is disabled during Play mode to avoid runtime animation interference.");
 
 			if (ImGui::CollapsingHeader("Parameters##animsm", ImGuiTreeNodeFlags_DefaultOpen))
 			{
@@ -216,7 +238,7 @@ namespace MyEngine::Editor::Panels
 
 						InspectorGroupLabel("Playback");
 						ImGui::Checkbox("Loop", &state.loop);
-						ImGui::DragFloat("Playback Speed", &state.playbackSpeed, 0.01f, 0.0f, 4.0f, "%.2f");
+						ImGui::DragFloat("Playback Speed", &state.playbackSpeed, 0.01f, 0.01f, 4.0f, "%.2f");
 						float trimStart = state.trimStartNormalized;
 						float trimEnd = state.trimEndNormalized;
 						if (ImGui::DragFloatRange2("Trim Range (Normalized)", &trimStart, &trimEnd, 0.005f, 0.0f, 1.0f, "Start %.2f", "End %.2f"))
@@ -225,6 +247,13 @@ namespace MyEngine::Editor::Panels
 							trimEnd = std::clamp(trimEnd, 0.0f, 1.0f);
 							if (trimEnd < trimStart)
 								std::swap(trimStart, trimEnd);
+							constexpr float kMinTrimRangeNormalized = 0.01f;
+							if (trimEnd - trimStart < kMinTrimRangeNormalized)
+							{
+								trimEnd = std::min(1.0f, trimStart + kMinTrimRangeNormalized);
+								if (trimEnd - trimStart < kMinTrimRangeNormalized)
+									trimStart = std::max(0.0f, trimEnd - kMinTrimRangeNormalized);
+							}
 							state.trimStartNormalized = trimStart;
 							state.trimEndNormalized = trimEnd;
 						}
@@ -258,9 +287,19 @@ namespace MyEngine::Editor::Panels
 									const float trimEndSeconds = std::clamp(state.trimEndNormalized, 0.0f, 1.0f) * clipDuration;
 									ImGui::TextDisabled("Trim Window: %.3fs - %.3fs", trimStartSeconds, trimEndSeconds);
 									if (InspectorActionButton("Set Trim Start From Scrub##animsmTrimStart"))
+									{
 										state.trimStartNormalized = std::min(previewNormalized, state.trimEndNormalized);
+										constexpr float kMinTrimRangeNormalized = 0.01f;
+										if (state.trimEndNormalized - state.trimStartNormalized < kMinTrimRangeNormalized)
+											state.trimEndNormalized = std::min(1.0f, state.trimStartNormalized + kMinTrimRangeNormalized);
+									}
 									if (InspectorActionButton("Set Trim End From Scrub##animsmTrimEnd"))
+									{
 										state.trimEndNormalized = std::max(previewNormalized, state.trimStartNormalized);
+										constexpr float kMinTrimRangeNormalized = 0.01f;
+										if (state.trimEndNormalized - state.trimStartNormalized < kMinTrimRangeNormalized)
+											state.trimStartNormalized = std::max(0.0f, state.trimEndNormalized - kMinTrimRangeNormalized);
+									}
 									if (InspectorActionButton("Preview Trim Segment##animsmTrimPreview"))
 									{
 										stateMachineEditorAnim->activeClipIndex = previewClipIndex;

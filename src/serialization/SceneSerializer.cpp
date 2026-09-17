@@ -183,7 +183,9 @@ namespace MyEngine
 				writer.Key("name"); writer.String(state.name.c_str());
 				writer.Key("clipName"); writer.String(state.clipName.c_str());
 				writer.Key("loop"); writer.Bool(state.loop);
-				writer.Key("playbackSpeed"); writer.Double(state.playbackSpeed);
+				writer.Key("playbackSpeed"); writer.Double(std::max(0.01f, state.playbackSpeed));
+				writer.Key("trimStartNormalized"); writer.Double(std::clamp(state.trimStartNormalized, 0.0f, 1.0f));
+				writer.Key("trimEndNormalized"); writer.Double(std::clamp(state.trimEndNormalized, 0.0f, 1.0f));
 				writer.Key("transitions");
 				writer.StartArray();
 				for (const auto& transition : state.transitions)
@@ -258,7 +260,19 @@ namespace MyEngine
 					if (stateValue.HasMember("loop") && stateValue["loop"].IsBool())
 						state.loop = stateValue["loop"].GetBool();
 					if (stateValue.HasMember("playbackSpeed") && stateValue["playbackSpeed"].IsNumber())
-						state.playbackSpeed = stateValue["playbackSpeed"].GetFloat();
+						state.playbackSpeed = std::max(0.01f, stateValue["playbackSpeed"].GetFloat());
+					if (stateValue.HasMember("trimStartNormalized") && stateValue["trimStartNormalized"].IsNumber())
+						state.trimStartNormalized = std::clamp(stateValue["trimStartNormalized"].GetFloat(), 0.0f, 1.0f);
+					if (stateValue.HasMember("trimEndNormalized") && stateValue["trimEndNormalized"].IsNumber())
+						state.trimEndNormalized = std::clamp(stateValue["trimEndNormalized"].GetFloat(), 0.0f, 1.0f);
+					if (state.trimEndNormalized < state.trimStartNormalized)
+						std::swap(state.trimStartNormalized, state.trimEndNormalized);
+					if (state.trimEndNormalized - state.trimStartNormalized < 0.01f)
+					{
+						state.trimEndNormalized = std::min(1.0f, state.trimStartNormalized + 0.01f);
+						if (state.trimEndNormalized - state.trimStartNormalized < 0.01f)
+							state.trimStartNormalized = std::max(0.0f, state.trimEndNormalized - 0.01f);
+					}
 
 					if (stateValue.HasMember("transitions") && stateValue["transitions"].IsArray())
 					{
@@ -1514,30 +1528,32 @@ namespace MyEngine
 				{
 					auto& sm = ent->AddComponent<AnimationStateMachineComponent>();
 					const auto& smo = v["AnimationStateMachineComponent"];
-					bool loadedFromAsset = false;
 					if (smo.HasMember("assetPath") && smo["assetPath"].IsString())
-					{
 						sm.assetPath = smo["assetPath"].GetString();
-						if (!sm.assetPath.empty())
-						{
-							sm.stateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
-							if (sm.stateMachine->LoadFromFile(sm.assetPath))
-							{
-								loadedFromAsset = true;
-							}
-							else
-							{
-								sm.stateMachine.reset();
-								sm.assetPath.clear();
-							}
-						}
-					}
-					if (!loadedFromAsset && smo.HasMember("stateMachineData") && smo["stateMachineData"].IsObject())
+
+					// Prefer scene-embedded state machine data so manual scene saves
+					// reliably restore animation timing/trim/speed edits on engine reload.
+					bool loadedFromSceneData = false;
+					if (smo.HasMember("stateMachineData") && smo["stateMachineData"].IsObject())
 					{
 						sm.stateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
-						if (!DeserializeStateMachineDefinition(smo["stateMachineData"], *sm.stateMachine))
+						if (DeserializeStateMachineDefinition(smo["stateMachineData"], *sm.stateMachine))
+						{
+							loadedFromSceneData = true;
+						}
+						else
 						{
 							sm.stateMachine.reset();
+						}
+					}
+
+					if (!loadedFromSceneData && !sm.assetPath.empty())
+					{
+						sm.stateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
+						if (!sm.stateMachine->LoadFromFile(sm.assetPath))
+						{
+							sm.stateMachine.reset();
+							sm.assetPath.clear();
 						}
 					}
 					if (smo.HasMember("currentStateIndex")) sm.currentStateIndex = smo["currentStateIndex"].GetInt();
@@ -1545,6 +1561,8 @@ namespace MyEngine
 					if (smo.HasMember("currentStateTime")) sm.currentStateTime = static_cast<float>(smo["currentStateTime"].GetDouble());
 					if (smo.HasMember("autoInitialize")) sm.autoInitialize = smo["autoInitialize"].GetBool();
 					if (smo.HasMember("debugPauseTransitions")) sm.debugPauseTransitions = smo["debugPauseTransitions"].GetBool();
+					if (sm.autoInitialize)
+						sm.ResetRuntimeState();
 					if (smo.HasMember("parameterValues") && smo["parameterValues"].IsArray())
 					{
 						sm.parameterValues.clear();

@@ -506,6 +506,29 @@ int main(int argc, char** argv)
         return -1;
 
     GLFWwindow* window = renderPlatform->GetWindow();
+
+    // Default to windowed fullscreen (borderless window on the primary monitor).
+    if (window)
+    {
+        GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+        if (primaryMonitor)
+        {
+            int monitorX = 0;
+            int monitorY = 0;
+            glfwGetMonitorPos(primaryMonitor, &monitorX, &monitorY);
+
+            const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
+            if (mode)
+            {
+                glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+                glfwSetWindowAttrib(window, GLFW_RESIZABLE, GLFW_FALSE);
+                glfwSetWindowMonitor(window, nullptr, monitorX, monitorY, mode->width, mode->height, mode->refreshRate);
+                g_WindowWidth = mode->width;
+                g_WindowHeight = mode->height;
+            }
+        }
+    }
+
     glfwSetFramebufferSizeCallback(window, FramebufferSizeCallback);
 
     if (activeBackend == RenderBackendType::DirectX12)
@@ -1487,7 +1510,8 @@ int main(int argc, char** argv)
     bool        showStopPlayPrompt = false;
 
     // Networking runtime scaffolding (authoritative server + local client)
-    bool networkingEnabled = true;
+    // Hard-disabled for this branch so animation/state-machine editing is always local.
+    const bool networkingEnabled = false;
     MyEngine::Net::NetTick networkTick = 0;
     MyEngine::Net::ClientID localClientID = 0u;
     std::unique_ptr<MyEngine::Net::INetTransport> networkTransport = std::make_unique<MyEngine::Net::InMemoryTransport>();
@@ -3096,6 +3120,35 @@ int main(int argc, char** argv)
             showStopPlayPrompt = false;
             isPlaying = true;
 
+            // Entering play mode after animation-state editing should always start
+            // from a clean runtime pose/evaluation state. The editor preview can
+            // intentionally pause/scrub clips, which otherwise carries over and
+            // makes gameplay appear frozen.
+            for (auto& e : scene.GetEntities())
+            {
+                if (!e)
+                    continue;
+
+                if (e->HasComponent<AnimationComponent>())
+                {
+                    auto& anim = e->GetComponent<AnimationComponent>();
+                    anim.playing = true;
+                    anim.blending = false;
+                    anim.previousClipIndex = -1;
+                    anim.blendElapsed = 0.0f;
+                    anim.time = 0.0f;
+                    anim.previousTime = 0.0f;
+                }
+
+                if (e->HasComponent<AnimationStateMachineComponent>())
+                {
+                    auto& sm = e->GetComponent<AnimationStateMachineComponent>();
+                    sm.suppressStateMachineEvaluation = false;
+                    sm.debugPauseTransitions = false;
+                    sm.ResetRuntimeState();
+                }
+            }
+
             networkTick = 0;
             networkSnapshotTimer = 0.0f;
             {
@@ -3812,7 +3865,10 @@ int main(int argc, char** argv)
                     snapshotInterpolationBuffer.PushSnapshot(snapshotMessage.snapshot);
                 }
 
-                if (snapshotInterpolationBuffer.Size() >= 1)
+                // Local authoritative playback must continue every frame even if
+                // no delayed client snapshot was queued this tick; otherwise the
+                // render scene animation can freeze/stutter between snapshot arrivals.
+                if (hasAuthoritativeServerScene || snapshotInterpolationBuffer.Size() >= 1)
                 {
                     const MyEngine::Net::NetTick interpolationDelayTicks = (transportSnapshotDelayTicks > 0u) ? transportSnapshotDelayTicks : 1u;
                     const MyEngine::Net::NetTick targetTick = (networkTick > interpolationDelayTicks)
@@ -4114,14 +4170,25 @@ int main(int argc, char** argv)
         // origin (invisible) before Play is hit.
         {
             auto cpuStart = std::chrono::high_resolution_clock::now();
-            const bool usingAuthoritativeAnimationScene = isPlaying && networkingEnabled && hasAuthoritativeServerScene;
+            const bool authoritativeSessionActive =
+                networkingEnabled &&
+                hasAuthoritativeServerScene &&
+                networkTransport &&
+                networkTransport->IsSessionReady() &&
+                localClientID != 0u;
+            const bool usingAuthoritativeAnimationScene = isPlaying && authoritativeSessionActive;
             for (const auto& entity : scene.GetEntities())
             {
                 if (!entity || !entity->HasComponent<AnimationStateMachineComponent>())
                     continue;
                 entity->GetComponent<AnimationStateMachineComponent>().suppressStateMachineEvaluation = usingAuthoritativeAnimationScene;
             }
-            animationSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
+
+            // Animation time is already advanced in the simulation step during Play.
+            // This render pass should only refresh pose matrices without advancing
+            // time again, otherwise playback runs roughly 2x speed.
+            const float renderAnimationDelta = 0.0f;
+            animationSystem.Update(scene, renderAnimationDelta);
             particleSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
             cpuAnimationMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
         }
@@ -8511,30 +8578,12 @@ int main(int argc, char** argv)
                 ImGui::Text("Net Tick: %u", static_cast<unsigned int>(networkTick));
                 ImGui::Text("Authoritative Scene: %s", hasAuthoritativeServerScene ? "Server/Client Split" : "Single Scene");
                 ImGui::Text("Connect Retries: %u", static_cast<unsigned int>(networkTransport->GetConnectRetryCount()));
-                ImGui::Checkbox("Networking Enabled", &networkingEnabled);
-                if (ImGui::Button("Reconnect Session"))
-                {
-                    networkTransport->Clear();
-                    networkTransport->BeginServerSession();
-                    localClientID = 0u;
-                    networkSessionBootstrapPending = networkingEnabled;
-                    if (networkingEnabled)
-                        networkTransport->SendConnectRequest(0u);
-                    clientReconciliationState = MyEngine::Net::ClientReconciliationState{};
-                    pendingInputByTick.clear();
-                    latestAuthoritativeInput = MyEngine::Net::InputCommand{};
-                    hasLatestAuthoritativeInput = false;
-                    snapshotInterpolationBuffer = MyEngine::Net::SnapshotInterpolationBuffer(64);
-                }
+                ImGui::TextDisabled("Networking Mode: Hard-disabled in this build");
+                ImGui::BeginDisabled(true);
+                ImGui::Button("Reconnect Session");
                 ImGui::SameLine();
-                if (ImGui::Button("Disconnect Session"))
-                {
-                    networkTransport->DisconnectSession();
-                    localClientID = 0u;
-                    networkSessionBootstrapPending = false;
-                    pendingInputByTick.clear();
-                    hasLatestAuthoritativeInput = false;
-                }
+                ImGui::Button("Disconnect Session");
+                ImGui::EndDisabled();
 
                 auto retrySettings = networkTransport->GetSessionRetrySettings();
                 bool retryEnabled = retrySettings.enabled;

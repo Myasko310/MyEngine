@@ -76,9 +76,9 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    1.0760996341705322,
-                    2.254239320755005,
-                    6.632445812225342
+                    -3.869828224182129,
+                    3.024927854537964,
+                    7.0603837966918945
                 ],
                 "rotation": [
                     0.0,
@@ -181,8 +181,8 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -7.277586460113525,
-                    1.198116660118103,
+                    -13.006211280822754,
+                    1.1344243288040161,
                     -2.0
                 ],
                 "rotation": [
@@ -434,13 +434,13 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    0.6262590289115906,
+                    -1.5105359554290771,
                     0.030000001192092896,
-                    1.6577738523483276
+                    2.765752077102661
                 ],
                 "rotation": [
                     0.0,
-                    1.8950449228286743,
+                    -1.9080913066864014,
                     0.0
                 ],
                 "scale": [
@@ -458,11 +458,11 @@
                 "present": true
             },
             "AnimationComponent": {
-                "activeClipIndex": 41,
-                "time": 0.05522359907627106,
+                "activeClipIndex": 13,
+                "time": 0.0,
                 "playbackSpeed": 1.0,
                 "playing": true,
-                "looping": false,
+                "looping": true,
                 "enableRootMotion": true,
                 "rootMotionBoneName": "Hips",
                 "events": [],
@@ -538,9 +538,9 @@
             },
             "AnimationStateMachineComponent": {
                 "assetPath": "assets/models/akaza animations/akaza movement.animstate.json",
-                "currentStateIndex": 6,
-                "pendingStateIndex": 6,
-                "currentStateTime": 0.05522359907627106,
+                "currentStateIndex": 0,
+                "pendingStateIndex": -1,
+                "currentStateTime": 0.0,
                 "autoInitialize": true,
                 "debugPauseTransitions": false,
                 "stateMachineData": {
@@ -602,6 +602,8 @@
                             "clipName": "Bouncing Fight Idle",
                             "loop": true,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 6,
@@ -694,6 +696,8 @@
                             "clipName": "Swagger Walk",
                             "loop": true,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 6,
@@ -805,6 +809,8 @@
                             "clipName": "Running",
                             "loop": true,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 6,
@@ -902,6 +908,8 @@
                             "clipName": "Crouching Idle",
                             "loop": true,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 6,
@@ -994,6 +1002,8 @@
                             "clipName": "Crouched Walking",
                             "loop": true,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 6,
@@ -1086,6 +1096,8 @@
                             "clipName": "Fighting Idle",
                             "loop": true,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 6,
@@ -1161,9 +1173,11 @@
                         },
                         {
                             "name": "Attack1_1",
-                            "clipName": "Lead Jab",
+                            "clipName": "Illegal Knee",
                             "loop": false,
-                            "playbackSpeed": 1.0,
+                            "playbackSpeed": 1.4700000286102295,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 7,
@@ -1194,6 +1208,8 @@
                             "clipName": "Cross Punch",
                             "loop": false,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 8,
@@ -1224,6 +1240,8 @@
                             "clipName": "Hook Punch",
                             "loop": false,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 0,
@@ -1240,6 +1258,8 @@
                             "clipName": "Kicking",
                             "loop": false,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 10,
@@ -1270,6 +1290,8 @@
                             "clipName": "Kicking (1)",
                             "loop": false,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 11,
@@ -1300,6 +1322,8 @@
                             "clipName": "Kicking (2)",
                             "loop": false,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 12,
@@ -1330,6 +1354,8 @@
                             "clipName": "Mma Kick",
                             "loop": false,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 0,
@@ -1346,6 +1372,8 @@
                             "clipName": "Uppercut Jab",
                             "loop": false,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 14,
@@ -1376,6 +1404,8 @@
                             "clipName": "Mma Kick (1)",
                             "loop": false,
                             "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 0,
@@ -1389,9 +1419,11 @@
                         },
                         {
                             "name": "Jump",
-                            "clipName": "Jumping",
+                            "clipName": "Front Flip",
                             "loop": false,
-                            "playbackSpeed": 1.0,
+                            "playbackSpeed": 0.6600000262260437,
+                            "trimStartNormalized": 0.14000000059604645,
+                            "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
                                     "targetStateIndex": 0,

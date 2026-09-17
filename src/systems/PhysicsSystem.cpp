@@ -286,11 +286,14 @@ namespace MyEngine
 			moveRight = InputActions::GetAxis("MoveRight");
 			jumpDown = InputActions::IsAction("Jump");
 			jumpPressed = InputActions::IsActionPressed("Jump");
-			attack1Pressed = InputActions::IsActionPressed("Attack1");
-			attack2Pressed = InputActions::IsActionPressed("Attack2");
-			attack3Pressed = InputActions::IsActionPressed("Attack3");
-			genericAttackPressed = InputActions::IsActionPressed("Attack") || InputActions::IsActionPressed("Fight");
 		}
+
+		// Attack inputs are polled locally for now so combat remains responsive in
+		// both offline and authoritative-network play modes.
+		attack1Pressed = InputActions::IsActionPressed("Attack1");
+		attack2Pressed = InputActions::IsActionPressed("Attack2");
+		attack3Pressed = InputActions::IsActionPressed("Attack3");
+		genericAttackPressed = InputActions::IsActionPressed("Attack") || InputActions::IsActionPressed("Fight");
 
 		glm::vec3 moveInput = flattenedForward * moveForward + flattenedRight * moveRight;
 		if (glm::length(moveInput) > 1.0f)
@@ -311,10 +314,10 @@ namespace MyEngine
 			bool queueAttack2 = attack2Pressed;
 			bool queueAttack3 = attack3Pressed;
 
-			// Support single-button combo chaining: repeatedly pressing the generic
-			// attack input (or Attack1) advances Attack1 -> Attack2 -> Attack3 based
-			// on the current animation state name when explicit Attack2/3 inputs are
-			// not pressed.
+			// Support single-button chaining for authored attack branches.
+			// If the player presses generic Attack/Fight while already inside an
+			// AttackN_* state, keep arming that same AttackN trigger so authored
+			// intra-branch transitions (e.g. Attack1_1 -> Attack1_2) can fire.
 			const bool comboAdvancePressed = genericAttackPressed || attack1Pressed;
 			if (!authoritativeInput && comboAdvancePressed && !attack2Pressed && !attack3Pressed)
 			{
@@ -329,28 +332,20 @@ namespace MyEngine
 				std::transform(currentStateName.begin(), currentStateName.end(), currentStateName.begin(),
 					[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-				const bool inAttack3 = currentStateName.find("attack3") != std::string::npos ||
-					currentStateName.find("combo3") != std::string::npos;
-				const bool inAttack2 = currentStateName.find("attack2") != std::string::npos ||
-					currentStateName.find("combo2") != std::string::npos;
-				const bool inAttack1 = currentStateName.find("attack1") != std::string::npos ||
-					currentStateName.find("combo1") != std::string::npos;
+				const bool inAttack1Branch = currentStateName.find("attack1_") != std::string::npos;
+				const bool inAttack2Branch = currentStateName.find("attack2_") != std::string::npos;
+				const bool inAttack3Branch = currentStateName.find("attack3_") != std::string::npos;
 
-				if (inAttack2)
-				{
-					queueAttack1 = false;
-					queueAttack2 = false;
-					queueAttack3 = true;
-				}
-				else if (inAttack1)
-				{
-					queueAttack1 = false;
+				queueAttack1 = false;
+				queueAttack2 = false;
+				queueAttack3 = false;
+
+				if (inAttack2Branch)
 					queueAttack2 = true;
-				}
-				else if (!inAttack3)
-				{
+				else if (inAttack3Branch)
+					queueAttack3 = true;
+				else
 					queueAttack1 = true;
-				}
 			}
 
 			// Latch attack input edges until consumed by animation parameter update.

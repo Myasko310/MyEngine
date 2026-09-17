@@ -111,8 +111,16 @@ namespace MyEngine
 
 		outStartSeconds = startNormalized * durationSeconds;
 		outEndSeconds = endNormalized * durationSeconds;
-		if (outEndSeconds - outStartSeconds < 0.0001f)
-			outEndSeconds = std::min(durationSeconds, outStartSeconds + 0.0001f);
+
+		// Avoid ultra-short trim windows that make clips appear to replay/flicker
+		// many times per second when looping.
+		constexpr float kMinTrimWindowSeconds = 1.0f / 30.0f;
+		if (outEndSeconds - outStartSeconds < kMinTrimWindowSeconds)
+		{
+			outEndSeconds = std::min(durationSeconds, outStartSeconds + kMinTrimWindowSeconds);
+			if (outEndSeconds - outStartSeconds < kMinTrimWindowSeconds)
+				outStartSeconds = std::max(0.0f, outEndSeconds - kMinTrimWindowSeconds);
+		}
 	}
 
 	static bool ShouldTakeTransition(
@@ -182,6 +190,14 @@ namespace MyEngine
 		}
 	}
 
+	static float GetEffectiveStatePlaybackSpeed(const AnimationStateMachineState& state)
+	{
+		// Any near-zero playback speed can make trimmed playback appear stuck or
+		// repeatedly replay tiny windows, so enforce a small positive runtime floor.
+		(void)state;
+		return std::max(0.01f, state.playbackSpeed);
+	}
+
 	static void UpdateAnimationStateMachine(AnimationComponent& anim, AnimationStateMachineComponent& stateMachineComponent)
 	{
 		if (!stateMachineComponent.stateMachine || !anim.clips || anim.clips->empty())
@@ -211,7 +227,7 @@ namespace MyEngine
 		{
 			anim.TransitionTo(resolvedClipIndex, 0.15f);
 			anim.looping = currentState.loop;
-			anim.playbackSpeed = currentState.playbackSpeed;
+			anim.playbackSpeed = GetEffectiveStatePlaybackSpeed(currentState);
 			stateMachineComponent.currentStateTime = 0.0f;
 			const AnimationClip* currentStateClip = (resolvedClipIndex >= 0 && resolvedClipIndex < static_cast<int>(anim.clips->size()))
 				? &(*anim.clips)[resolvedClipIndex]
@@ -224,7 +240,19 @@ namespace MyEngine
 		else
 		{
 			anim.looping = currentState.loop;
-			anim.playbackSpeed = currentState.playbackSpeed;
+			anim.playbackSpeed = GetEffectiveStatePlaybackSpeed(currentState);
+
+			// If state trim/speed was edited while this state kept the same clip,
+			// realign playback to the new trim window at state start instead of
+			// carrying stale clip time from the previous authored range.
+			const AnimationClip* currentStateClip = (resolvedClipIndex >= 0 && resolvedClipIndex < static_cast<int>(anim.clips->size()))
+				? &(*anim.clips)[resolvedClipIndex]
+				: nullptr;
+			float trimStartSeconds = 0.0f;
+			float trimEndSeconds = 0.0f;
+			ComputeTrimmedTimeRangeSeconds(currentState, currentStateClip, trimStartSeconds, trimEndSeconds);
+			if (anim.time < trimStartSeconds - 0.0001f || anim.time > trimEndSeconds + 0.0001f)
+				anim.time = trimStartSeconds;
 		}
 
 		if (stateMachineComponent.debugPauseTransitions)
@@ -236,6 +264,7 @@ namespace MyEngine
 		const AnimationClip* currentClip = (resolvedClipIndex >= 0 && resolvedClipIndex < static_cast<int>(anim.clips->size()))
 			? &(*anim.clips)[resolvedClipIndex]
 			: nullptr;
+		bool tookTransition = false;
 		for (size_t transitionIndex = 0; transitionIndex < currentState.transitions.size(); ++transitionIndex)
 		{
 			const auto& transition = currentState.transitions[transitionIndex];
@@ -278,8 +307,22 @@ namespace MyEngine
 			stateMachineComponent.currentStateTime = transition.resetTimeOnEnter ? 0.0f : anim.time;
 			stateMachineComponent.debugPendingStateName = nextState.name;
 			anim.looping = nextState.loop;
-			anim.playbackSpeed = nextState.playbackSpeed;
-			anim.TransitionTo(nextClipIndex, transition.blendDuration);
+			anim.playbackSpeed = GetEffectiveStatePlaybackSpeed(nextState);
+			const bool sameClipTransition = (nextClipIndex == anim.activeClipIndex);
+			if (!sameClipTransition)
+			{
+				anim.TransitionTo(nextClipIndex, transition.blendDuration);
+			}
+			else
+			{
+				// Same-clip state transitions (common when authoring trim/speed variants)
+				// should not cross-fade from the clip onto itself; it causes stale time
+				// carryover and visible early-frame replay/freeze artifacts.
+				anim.blending = false;
+				anim.previousClipIndex = -1;
+				anim.blendElapsed = 0.0f;
+				anim.blendDuration = 0.0f;
+			}
 			const AnimationClip* nextClip = (nextClipIndex >= 0 && nextClipIndex < static_cast<int>(anim.clips->size()))
 				? &(*anim.clips)[nextClipIndex]
 				: nullptr;
@@ -293,7 +336,34 @@ namespace MyEngine
 
 			stateMachineComponent.debugSelectedTransitionIndex = static_cast<int>(transitionIndex);
 			ConsumeTriggeredParameters(stateMachine, stateMachineComponent, transition);
+			tookTransition = true;
 			break;
+		}
+
+		// Safety fallback: if a non-looping state reaches its trim end and no
+		// transition fired (e.g. after editing trim/speed), return to default
+		// state so playback never hard-freezes.
+		if (!tookTransition && currentClip && !currentState.loop)
+		{
+			float trimStartSeconds = 0.0f;
+			float trimEndSeconds = 0.0f;
+			ComputeTrimmedTimeRangeSeconds(currentState, currentClip, trimStartSeconds, trimEndSeconds);
+			if (anim.time >= (trimEndSeconds - 0.0001f) && stateMachine.IsValidStateIndex(stateMachine.defaultStateIndex))
+			{
+				const auto& fallbackState = stateMachine.states[stateMachine.defaultStateIndex];
+				const int fallbackClipIndex = stateMachine.ResolveClipIndex(*anim.clips, fallbackState);
+				if (fallbackClipIndex >= 0)
+				{
+					stateMachineComponent.currentStateIndex = stateMachine.defaultStateIndex;
+					stateMachineComponent.pendingStateIndex = -1;
+					stateMachineComponent.currentStateTime = 0.0f;
+					stateMachineComponent.debugPendingStateName = fallbackState.name;
+					anim.looping = fallbackState.loop;
+					anim.playbackSpeed = GetEffectiveStatePlaybackSpeed(fallbackState);
+					anim.TransitionTo(fallbackClipIndex, 0.1f);
+					anim.time = 0.0f;
+				}
+			}
 		}
 	}
 	// Samples a single bone's local transform (translate * rotate * scale)
@@ -589,9 +659,13 @@ namespace MyEngine
 				const float trimmedDurationSeconds = std::max(0.0001f, trimEndSeconds - trimStartSeconds);
 				if (anim.looping)
 				{
-					float localTime = std::fmod(anim.time - trimStartSeconds, trimmedDurationSeconds);
+					// Important: when a state has a non-zero trim start, times before the
+					// trim window must snap to the trimmed start (not wrap to the tail),
+					// otherwise edited start frames look like replay/glitch compensation.
+					float localTime = anim.time - trimStartSeconds;
 					if (localTime < 0.0f)
-						localTime += trimmedDurationSeconds;
+						localTime = 0.0f;
+					localTime = std::fmod(localTime, trimmedDurationSeconds);
 					anim.time = trimStartSeconds + localTime;
 				}
 				else
@@ -677,9 +751,10 @@ namespace MyEngine
 				float prevDuration = prevClip ? prevClip->GetDurationSeconds() : 0.0f;
 				if (prevDuration > 0.0001f)
 				{
-					anim.previousTime = std::fmod(anim.previousTime, prevDuration);
-					if (anim.previousTime < 0.0f)
-						anim.previousTime += prevDuration;
+					// During cross-fade, wrapping previousTime back to 0 replays early frames
+					// and causes visible stutter when state trim/speed has been edited.
+					// Clamp instead so the source pose progresses to its end without looping.
+					anim.previousTime = std::clamp(anim.previousTime, 0.0f, prevDuration);
 				}
 
 				float prevTimeTicks = prevClip ? anim.previousTime * prevClip->ticksPerSecond : 0.0f;

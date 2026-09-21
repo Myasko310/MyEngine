@@ -123,6 +123,7 @@
 #include "network/NetReplicationSystem.h"
 #include "network/NetPluginHooks.h"
 #include "plugins/PluginManager.h"
+#include "core/GameLoop.h"
 
 using namespace MyEngine;
 using MyEngine::Editor::Panels::FramePacingDiagnostics;

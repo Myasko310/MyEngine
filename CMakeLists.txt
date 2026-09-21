@@ -149,6 +149,7 @@ set(SOURCES
     src/core/CollisionMatrix.cpp
     src/core/FixedTimestep.cpp
     src/core/PerformanceMetrics.cpp
+    src/core/GameLoop.cpp
     src/network/NetTransport.cpp
     src/network/SocketNetTransport.cpp
     src/network/NetPluginHooks.cpp
@@ -159,6 +160,7 @@ set(SOURCES
     src/plugins/PluginManager.cpp
     src/editor/EditorStyle.cpp
     src/editor/PlayModeSession.cpp
+    src/editor/FrameTimingDisplay.cpp
     src/editor/panels/AnimationStateMachinePanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp
     src/editor/panels/CombatDebugPanel.cpp

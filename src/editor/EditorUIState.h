@@ -25,6 +25,7 @@ namespace MyEngine
 			bool showPerformancePanel = true;
 			bool showPhysicsPanel = true;
 			bool showCombatPanel = true;
+			bool drawCombatShapesOverlay = true;
 			bool showAssetBrowser = true;
 			bool showMaterialBrowser = false;
 			bool showIBLPanel = false;

@@ -147,15 +147,25 @@ set(SOURCES
     src/core/FileDialog.cpp
     src/core/LayerMask.cpp
     src/core/CollisionMatrix.cpp
+    src/core/FixedTimestep.cpp
+    src/core/PerformanceMetrics.cpp
     src/network/NetTransport.cpp
     src/network/SocketNetTransport.cpp
     src/network/NetPluginHooks.cpp
     src/network/NetReplicationSystem.cpp
+    src/network/NetworkManager.cpp
+    src/network/ClientNetworkSystem.cpp
+    src/network/ServerNetworkSystem.cpp
     src/plugins/PluginManager.cpp
     src/editor/EditorStyle.cpp
+    src/editor/PlayModeSession.cpp
     src/editor/panels/AnimationStateMachinePanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp
+    src/editor/panels/CombatDebugPanel.cpp
+    src/editor/panels/InspectorSectionsPanel.cpp
     src/editor/panels/MaterialBrowserPanel.cpp
+    src/editor/panels/PerformancePanel.cpp
+    src/editor/panels/PhysicsPanel.cpp
     src/editor/panels/SceneHierarchyPanel.cpp
     src/editor/panels/ScriptingPanel.cpp
     src/editor/panels/ToolbarPanel.cpp
@@ -175,6 +185,7 @@ set(SOURCES
         src/systems/AnimationSystem.cpp
         src/systems/ScriptSystem.cpp
         src/systems/ParticleSystem.cpp
+        src/systems/BossBattleSystem.cpp
         src/serialization/SceneSerializer.cpp
     )
 

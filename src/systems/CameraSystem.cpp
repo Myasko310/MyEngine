@@ -92,7 +92,7 @@ namespace MyEngine
         return best;
     }
 
-    void CameraSystem::Update(Scene& scene, GLFWwindow* window, float deltaTime, float aspectRatio)
+     void CameraSystem::Update(Scene& scene, GLFWwindow* window, float deltaTime, float aspectRatio)
     {
         for (auto& entity : scene.GetEntities())
         {
@@ -108,6 +108,11 @@ namespace MyEngine
                 continue;
 
             auto& transform = entity->GetComponent<TransformComponent>();
+
+            // Save previous frame camera state for interpolation
+            m_PreviousCameraState.position = transform.position;
+            m_PreviousCameraState.yaw = camera.yaw;
+            m_PreviousCameraState.pitch = camera.pitch;
 
             // Resolve the follow target (if any) up front so both the movement
             // and mouse-look sections below can consult it - third-person mode
@@ -368,5 +373,79 @@ namespace MyEngine
     const glm::mat4& CameraSystem::GetProjectionMatrix() const
     {
         return m_ProjectionMatrix;
+    }
+
+    void CameraSystem::ApplyCameraInterpolation(Scene& scene, float alpha)
+    {
+        // Find the primary camera and interpolate its position and rotation
+        for (auto& entity : scene.GetEntities())
+        {
+            if (!entity->HasComponent<CameraComponent>())
+                continue;
+
+            if (!entity->HasComponent<TransformComponent>())
+                continue;
+
+            auto& camera = entity->GetComponent<CameraComponent>();
+
+            if (!camera.isPrimary)
+                continue;
+
+            auto& transform = entity->GetComponent<TransformComponent>();
+
+            // Clamp alpha to [0, 1)
+            alpha = glm::clamp(alpha, 0.0f, 0.9999f);
+
+            // Interpolate position
+            glm::vec3 interpolatedPosition = glm::mix(
+                m_PreviousCameraState.position,
+                transform.position,
+                alpha
+            );
+
+            // Interpolate yaw and pitch (handling wrap-around at 360 degrees)
+            float yawDiff = camera.yaw - m_PreviousCameraState.yaw;
+            if (yawDiff > 180.0f)
+                yawDiff -= 360.0f;
+            else if (yawDiff < -180.0f)
+                yawDiff += 360.0f;
+
+            float interpolatedYaw = m_PreviousCameraState.yaw + yawDiff * alpha;
+
+            // Pitch doesn't wrap, so simple lerp
+            float interpolatedPitch = glm::mix(
+                m_PreviousCameraState.pitch,
+                camera.pitch,
+                alpha
+            );
+
+            // Temporarily update camera for view matrix calculation
+            glm::vec3 savedPosition = transform.position;
+            float savedYaw = camera.yaw;
+            float savedPitch = camera.pitch;
+
+            transform.position = interpolatedPosition;
+            camera.yaw = interpolatedYaw;
+            camera.pitch = interpolatedPitch;
+
+            // Recalculate view matrix with interpolated values
+            glm::vec3 forward;
+            forward.x = cos(glm::radians(camera.yaw)) * cos(glm::radians(camera.pitch));
+            forward.y = sin(glm::radians(camera.pitch));
+            forward.z = sin(glm::radians(camera.yaw)) * cos(glm::radians(camera.pitch));
+            forward = glm::normalize(forward);
+
+            glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+            glm::vec3 up = glm::normalize(glm::cross(right, forward));
+
+            m_ViewMatrix = glm::lookAt(transform.position, transform.position + forward, up);
+
+            // Restore actual camera state
+            transform.position = savedPosition;
+            camera.yaw = savedYaw;
+            camera.pitch = savedPitch;
+
+            return;
+        }
     }
 }

@@ -76,9 +76,9 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -3.869828224182129,
-                    3.024927854537964,
-                    7.0603837966918945
+                    -3.2260212898254395,
+                    3.751361846923828,
+                    7.135422706604004
                 ],
                 "rotation": [
                     0.0,
@@ -181,8 +181,8 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -13.006211280822754,
-                    1.1344243288040161,
+                    -16.700836181640625,
+                    0.8414620161056519,
                     -2.0
                 ],
                 "rotation": [
@@ -461,7 +461,7 @@
                 "activeClipIndex": 13,
                 "time": 0.0,
                 "playbackSpeed": 1.0,
-                "playing": true,
+                "playing": false,
                 "looping": true,
                 "enableRootMotion": true,
                 "rootMotionBoneName": "Hips",
@@ -1173,10 +1173,10 @@
                         },
                         {
                             "name": "Attack1_1",
-                            "clipName": "Illegal Knee",
+                            "clipName": "Hook",
                             "loop": false,
-                            "playbackSpeed": 1.4700000286102295,
-                            "trimStartNormalized": 0.0,
+                            "playbackSpeed": 1.25,
+                            "trimStartNormalized": 0.30000001192092896,
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
@@ -1207,8 +1207,8 @@
                             "name": "Attack1_2",
                             "clipName": "Cross Punch",
                             "loop": false,
-                            "playbackSpeed": 1.0,
-                            "trimStartNormalized": 0.0,
+                            "playbackSpeed": 1.2100000381469727,
+                            "trimStartNormalized": 0.47999998927116394,
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
@@ -1239,8 +1239,8 @@
                             "name": "Attack1_3",
                             "clipName": "Hook Punch",
                             "loop": false,
-                            "playbackSpeed": 1.0,
-                            "trimStartNormalized": 0.0,
+                            "playbackSpeed": 1.2599999904632568,
+                            "trimStartNormalized": 0.4399999976158142,
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
@@ -1255,10 +1255,10 @@
                         },
                         {
                             "name": "Attack2_1",
-                            "clipName": "Kicking",
+                            "clipName": "Leg Sweep",
                             "loop": false,
-                            "playbackSpeed": 1.0,
-                            "trimStartNormalized": 0.0,
+                            "playbackSpeed": 1.3799999952316284,
+                            "trimStartNormalized": 0.4000000059604645,
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
@@ -1289,8 +1289,8 @@
                             "name": "Attack2_2",
                             "clipName": "Kicking (1)",
                             "loop": false,
-                            "playbackSpeed": 1.0,
-                            "trimStartNormalized": 0.0,
+                            "playbackSpeed": 1.340000033378601,
+                            "trimStartNormalized": 0.4099999964237213,
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
@@ -1319,10 +1319,10 @@
                         },
                         {
                             "name": "Attack2_3",
-                            "clipName": "Kicking (2)",
+                            "clipName": "Bencao",
                             "loop": false,
-                            "playbackSpeed": 1.0,
-                            "trimStartNormalized": 0.0,
+                            "playbackSpeed": 1.3600000143051147,
+                            "trimStartNormalized": 0.2800000011920929,
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
@@ -1351,10 +1351,10 @@
                         },
                         {
                             "name": "Attack2_4",
-                            "clipName": "Mma Kick",
+                            "clipName": "Kicking (2)",
                             "loop": false,
-                            "playbackSpeed": 1.0,
-                            "trimStartNormalized": 0.0,
+                            "playbackSpeed": 1.3200000524520874,
+                            "trimStartNormalized": 0.20000000298023224,
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
@@ -1369,11 +1369,11 @@
                         },
                         {
                             "name": "Attack3_1",
-                            "clipName": "Uppercut Jab",
+                            "clipName": "Surprise Uppercut",
                             "loop": false,
-                            "playbackSpeed": 1.0,
-                            "trimStartNormalized": 0.0,
-                            "trimEndNormalized": 1.0,
+                            "playbackSpeed": 1.2000000476837158,
+                            "trimStartNormalized": 0.05000000074505806,
+                            "trimEndNormalized": 0.20999999344348907,
                             "transitions": [
                                 {
                                     "targetStateIndex": 14,
@@ -1401,11 +1401,11 @@
                         },
                         {
                             "name": "Attack3_2",
-                            "clipName": "Mma Kick (1)",
+                            "clipName": "Capoeira",
                             "loop": false,
-                            "playbackSpeed": 1.0,
-                            "trimStartNormalized": 0.0,
-                            "trimEndNormalized": 1.0,
+                            "playbackSpeed": 1.3700000047683716,
+                            "trimStartNormalized": 0.12999999523162842,
+                            "trimEndNormalized": 0.7799999713897705,
                             "transitions": [
                                 {
                                     "targetStateIndex": 0,

@@ -314,12 +314,10 @@ namespace MyEngine
 			bool queueAttack2 = attack2Pressed;
 			bool queueAttack3 = attack3Pressed;
 
-			// Support single-button chaining for authored attack branches.
-			// If the player presses generic Attack/Fight while already inside an
-			// AttackN_* state, keep arming that same AttackN trigger so authored
-			// intra-branch transitions (e.g. Attack1_1 -> Attack1_2) can fire.
-			const bool comboAdvancePressed = genericAttackPressed || attack1Pressed;
-			if (!authoritativeInput && comboAdvancePressed && !attack2Pressed && !attack3Pressed)
+			// Treat the generic Attack/Fight action as an Attack1 input only.
+			// Attack2 and Attack3 combos must be extended with their own inputs,
+			// so Attack1 or generic inputs no longer re-arm those branches.
+			if (!authoritativeInput && genericAttackPressed && !attack1Pressed && !attack2Pressed && !attack3Pressed)
 			{
 				std::string currentStateName;
 				if (entity->HasComponent<AnimationStateMachineComponent>())
@@ -332,19 +330,9 @@ namespace MyEngine
 				std::transform(currentStateName.begin(), currentStateName.end(), currentStateName.begin(),
 					[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-				const bool inAttack1Branch = currentStateName.find("attack1_") != std::string::npos;
 				const bool inAttack2Branch = currentStateName.find("attack2_") != std::string::npos;
 				const bool inAttack3Branch = currentStateName.find("attack3_") != std::string::npos;
-
-				queueAttack1 = false;
-				queueAttack2 = false;
-				queueAttack3 = false;
-
-				if (inAttack2Branch)
-					queueAttack2 = true;
-				else if (inAttack3Branch)
-					queueAttack3 = true;
-				else
+				if (!inAttack2Branch && !inAttack3Branch)
 					queueAttack1 = true;
 			}
 

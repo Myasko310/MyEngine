@@ -64,8 +64,19 @@ namespace MyEngine
 			void InsertAABB(const std::shared_ptr<Entity>& entity, const glm::vec3& aabbMin, const glm::vec3& aabbMax);
 
 			// Collects unique candidate pairs whose grid cells overlap. The
-			// callback is invoked once per unique pair.
+			// oversized-collider fallback uses AABB overlap instead. The callback
+			// is invoked once per unique pair.
 			void ForEachCandidatePair(const std::function<void(const std::shared_ptr<Entity>&, const std::shared_ptr<Entity>&)>& callback) const;
+
+		private:
+			struct BoundsEntry
+			{
+				std::shared_ptr<Entity> entity;
+				glm::vec3 min;
+				glm::vec3 max;
+			};
+			std::vector<BoundsEntry> smallEntries;
+			std::vector<BoundsEntry> oversizedEntries;
 		};
 
 	private:

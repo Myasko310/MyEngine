@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <filesystem>
 #include <string>
 
@@ -59,6 +60,7 @@ namespace MyEngine
         std::filesystem::file_time_type m_VertexWriteTime{};
         std::filesystem::file_time_type m_GeometryWriteTime{};
         std::filesystem::file_time_type m_FragmentWriteTime{};
+        std::chrono::steady_clock::time_point m_NextHotReloadCheck{};
 
     private:
         bool LoadFileAndTimestamp(const std::string& path, std::string& outSource, std::filesystem::file_time_type& outWriteTime);

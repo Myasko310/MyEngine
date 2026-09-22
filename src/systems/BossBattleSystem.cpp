@@ -20,9 +20,13 @@ namespace MyEngine
 	{
 		PROFILE_SCOPE("BossBattle");
 
+		// Health syncing from CombatStatsComponent
 		UpdateBossHealth(scene, deltaTime);
-		UpdateBossPhases(scene);
-		UpdateBossAttacks(scene, deltaTime);
+
+		// Apply telegraph visual feedback
+		ApplyTelegraphFeedback(scene);
+
+		// Special abilities (legacy system, complementary to AI)
 		UpdateSpecialAbilities(scene, deltaTime);
 	}
 
@@ -52,40 +56,41 @@ namespace MyEngine
 		}
 	}
 
-	void BossBattleSystem::UpdateBossPhases(Scene& scene)
+	void BossBattleSystem::ApplyTelegraphFeedback(Scene& scene)
 	{
+		// Telegraph visual feedback during attack tells
 		for (auto& entity : scene.GetEntities())
 		{
 			if (!entity->HasComponent<BossBattleComponent>())
 				continue;
 
 			auto& boss = entity->GetComponent<BossBattleComponent>();
-			float healthPercent = boss.maxHealth > 0 ? static_cast<float>(boss.currentHealth) / boss.maxHealth : 1.0f;
 
-			uint32_t newPhase = 1;
-			if (healthPercent <= boss.phaseTransitionHealth2)
-				newPhase = 3;
-			else if (healthPercent <= boss.phaseTransitionHealth1)
-				newPhase = 2;
+			// Only apply feedback during telegraph phase
+			if (boss.aiState != BossBattleComponent::AIState::Telegraphing)
+				continue;
 
-			if (newPhase != boss.phase)
+			// Calculate telegraph intensity (0.0 = just started, 1.0 = about to hit)
+			float telegraphProgress = 1.0f - (boss.telegraphTimer / boss.telegraphDuration);
+
+			if (enableDebugLogging && telegraphProgress > 0.9f)
 			{
-				boss.phase = newPhase;
-				if (enableDebugLogging)
-					std::cout << "Boss '" << boss.bossName << "' entered phase " << newPhase << std::endl;
-
-				// Trigger phase-transition animation
-				if (entity->HasComponent<AnimationStateMachineComponent>())
-				{
-					auto& anim = entity->GetComponent<AnimationStateMachineComponent>();
-					// Could transition to "BossPhase2" or "BossPhase3" state here
-				}
+				std::cout << "Boss '" << boss.bossName << "' attack incoming: " << boss.currentAttackPatternName << std::endl;
 			}
+
+			// TODO: Queue visual feedback
+			// - Screen shake intensity based on attack type
+			// - Red screen tint or UI warning based on telegraphProgress
+			// - Audio warning cue
 		}
 	}
 
 	void BossBattleSystem::UpdateBossAttacks(Scene& scene, float deltaTime)
 	{
+		// NOTE: Attack handling is now managed by BossBattleAI system
+		// This method is kept for legacy compatibility but should be 
+		// replaced by wiring BossBattleAI into the main scene update
+
 		for (auto& entity : scene.GetEntities())
 		{
 			if (!entity->HasComponent<BossBattleComponent>())
@@ -96,28 +101,29 @@ namespace MyEngine
 			if (boss.isDead)
 				continue;
 
-			// Update attack cooldown
-			if (boss.attackCooldownRemaining > 0.0f)
+			// Trigger animation state based on current AI state
+			if (entity->HasComponent<AnimationStateMachineComponent>())
 			{
-				boss.attackCooldownRemaining -= deltaTime;
-				if (boss.attackCooldownRemaining <= 0.0f)
-					boss.isAttacking = false;
-			}
+				auto& anim = entity->GetComponent<AnimationStateMachineComponent>();
 
-			// Trigger attack based on phase
-			if (boss.attackCooldownRemaining <= 0.0f)
-			{
-				boss.isAttacking = true;
-				boss.attackCooldownRemaining = boss.attackCooldown / boss.phase; // Faster attacks in later phases
-
-				if (enableDebugLogging)
-					std::cout << "Boss '" << boss.bossName << "' attacks!" << std::endl;
-
-				// Trigger attack animation
-				if (entity->HasComponent<AnimationStateMachineComponent>())
+				switch (boss.aiState)
 				{
-					auto& anim = entity->GetComponent<AnimationStateMachineComponent>();
-					// Could transition to "Attack" state here
+				case BossBattleComponent::AIState::Telegraphing:
+					// Transition to telegraph animation (usually idle with visual effect)
+					break;
+
+				case BossBattleComponent::AIState::Attacking:
+					// Transition to attack animation
+					if (!boss.currentAttackPatternName.empty())
+					{
+						// TODO: Trigger animation by pattern name
+						// e.g., "Boss_SlashCombo", "Boss_Spin", "Boss_BlastCharge"
+					}
+					break;
+
+				default:
+					// Idle or other states
+					break;
 				}
 			}
 		}

@@ -8,6 +8,7 @@
 
 #include "components/TransformComponent.h"
 #include "editor/EditorStyle.h"
+#include "editor/SceneHierarchyIndex.h"
 #include "ecs/TransformHierarchy.h"
 
 namespace MyEngine::Editor::Panels
@@ -25,7 +26,11 @@ namespace MyEngine::Editor::Panels
 
 		ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(300, 400), ImGuiCond_FirstUseEver);
-		ImGui::Begin("Scene Hierarchy", &ui.showSceneHierarchy);
+		if (!ImGui::Begin("Scene Hierarchy", &ui.showSceneHierarchy))
+		{
+			ImGui::End();
+			return;
+		}
 
 		static char hierarchyFilter[64] = "";
 		auto matchesFilter = [&](const std::shared_ptr<Entity>& entity)
@@ -69,19 +74,13 @@ namespace MyEngine::Editor::Panels
 
 		InspectorGroupLabel("Scene Graph");
 
+		const SceneHierarchyIndex hierarchy(scene);
+		uint32_t pendingDeleteID = 0;
 		std::function<void(const std::shared_ptr<Entity>&)> drawEntityNode =
 			[&](const std::shared_ptr<Entity>& entity)
 		{
-			bool hasChildren = false;
-			for (auto& other : scene.GetEntities())
-			{
-				if (other && other != entity && other->HasComponent<TransformComponent>() &&
-					other->GetComponent<TransformComponent>().parentID == entity->GetID())
-				{
-					hasChildren = true;
-					break;
-				}
-			}
+			const auto& children = hierarchy.Children(entity->GetID());
+			const bool hasChildren = !children.empty();
 
 			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DefaultOpen;
 			if (!hasChildren)
@@ -143,46 +142,22 @@ namespace MyEngine::Editor::Panels
 				}
 				if (ImGui::MenuItem("Delete"))
 				{
-					const std::string beforeState = context.captureSceneState ? context.captureSceneState() : std::string{};
-					uint32_t idToDelete = entity->GetID();
-					if (selectedEntity == entity.get())
-						selectedEntity = nullptr;
-					for (auto& other : scene.GetEntities())
-					{
-						if (other && other->HasComponent<TransformComponent>() &&
-							other->GetComponent<TransformComponent>().parentID == idToDelete)
-							TransformHierarchy::SetParent(scene, *other, 0);
-					}
-					scene.DestroyEntity(idToDelete);
-					const std::string afterState = context.captureSceneState ? context.captureSceneState() : std::string{};
-					if (!beforeState.empty() && !afterState.empty() && beforeState != afterState && context.pushSceneStateCommand)
-						context.pushSceneStateCommand(beforeState, afterState);
+					pendingDeleteID = entity->GetID();
 				}
 				ImGui::EndPopup();
 			}
 
 			if (open)
 			{
-				for (auto& child : scene.GetEntities())
-				{
-					if (child && child != entity && child->HasComponent<TransformComponent>() &&
-						child->GetComponent<TransformComponent>().parentID == entity->GetID())
-					{
-						drawEntityNode(child);
-					}
-				}
+				for (const auto& child : children)
+					drawEntityNode(child);
 				ImGui::TreePop();
 			}
 		};
 
-		for (auto& entity : scene.GetEntities())
+		for (const auto& entity : hierarchy.Roots())
 		{
-			if (!entity)
-				continue;
-			uint32_t parentID = entity->HasComponent<TransformComponent>()
-				? entity->GetComponent<TransformComponent>().parentID
-				: 0;
-			if (parentID == 0 && matchesFilter(entity))
+			if (matchesFilter(entity))
 				drawEntityNode(entity);
 		}
 
@@ -205,6 +180,23 @@ namespace MyEngine::Editor::Panels
 				}
 			}
 			ImGui::EndDragDropTarget();
+		}
+
+		if (pendingDeleteID != 0)
+		{
+			const std::string beforeState = context.captureSceneState ? context.captureSceneState() : std::string{};
+			if (selectedEntity && selectedEntity->GetID() == pendingDeleteID)
+				selectedEntity = nullptr;
+			for (const auto& other : scene.GetEntities())
+			{
+				if (other && other->HasComponent<TransformComponent>() &&
+					other->GetComponent<TransformComponent>().parentID == pendingDeleteID)
+					TransformHierarchy::SetParent(scene, *other, 0);
+			}
+			scene.DestroyEntity(pendingDeleteID);
+			const std::string afterState = context.captureSceneState ? context.captureSceneState() : std::string{};
+			if (!beforeState.empty() && !afterState.empty() && beforeState != afterState && context.pushSceneStateCommand)
+				context.pushSceneStateCommand(beforeState, afterState);
 		}
 
 		ImGui::End();

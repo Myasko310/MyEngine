@@ -29,6 +29,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/norm.hpp>
 #include "renderer/FrustumCuller.h"
+#include "renderer/RenderBounds.h"
 #include "MeshRendererSystem_Impl.h"
 
 struct MeshRendererSystem::Impl;
@@ -1210,11 +1211,12 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 continue;
             }
 
-            const auto& tc = entity->GetComponent<TransformComponent>();
             const auto& bs = entity->GetComponent<BoundingSphereComponent>();
-            float dist = glm::length(viewPos - tc.position);
-            float radius = std::max(bs.radius, 0.001f);
-            bool frustumVisible = cameraCuller.IsSphereVisible(tc.position + bs.center, radius);
+            const auto bounds = MyEngine::TransformSphereBounds(
+                TransformHierarchy::GetWorldMatrix(scene, *entity), bs.center, std::max(bs.radius, 0.001f));
+            float dist = glm::length(viewPos - bounds.center);
+            float radius = bounds.radius;
+            bool frustumVisible = cameraCuller.IsSphereVisible(bounds.center, radius);
             if (!frustumVisible)
             {
                 ++m_Impl->occlusionDiagnostics.frustumRejected;

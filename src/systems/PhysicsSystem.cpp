@@ -814,6 +814,14 @@ namespace MyEngine
 			float probePenetration = 0.0f;
 			glm::vec3 supportVelocity(0.0f);
 			bool hasSupport = QueryCharacterSupport(scene, entity, probeNormal, probePenetration, &supportVelocity);
+			if (!hasSupport && wasGroundedLastFrame && !ignoreGrounding && rb.velocity.y <= 0.0f)
+			{
+				// Ground snap leaves a skin-width gap. Recheck that gap before consuming a jump press.
+				const glm::vec3 originalPosition = transform.position;
+				transform.position.y -= std::max(controller.skinWidth, 0.0f) + 0.001f;
+				hasSupport = QueryCharacterSupport(scene, entity, probeNormal, probePenetration, &supportVelocity);
+				transform.position = originalPosition;
+			}
 			if (!ignoreGrounding && rb.velocity.y <= 0.0f && hasSupport && IsWalkableSlope(probeNormal, controller.maxSlopeAngleDegrees))
 			{
 				controller.isGrounded = true;
@@ -2179,6 +2187,8 @@ namespace MyEngine
 	void PhysicsSystem::BroadphaseGrid::Clear()
 	{
 		cells.clear();
+		smallEntries.clear();
+		oversizedEntries.clear();
 	}
 
 	void PhysicsSystem::BroadphaseGrid::InsertAABB(const std::shared_ptr<Entity>& entity, const glm::vec3& aabbMin, const glm::vec3& aabbMax)
@@ -2190,6 +2200,16 @@ namespace MyEngine
 		int maxX = static_cast<int>(std::floor(aabbMax.x * inv));
 		int maxY = static_cast<int>(std::floor(aabbMax.y * inv));
 		int maxZ = static_cast<int>(std::floor(aabbMax.z * inv));
+
+		// Large floors/walls otherwise allocate thousands of grid entries per fixed step.
+		const double cellCount = (static_cast<double>(maxX) - minX + 1.0) *
+			(static_cast<double>(maxY) - minY + 1.0) * (static_cast<double>(maxZ) - minZ + 1.0);
+		if (cellCount > 64.0)
+		{
+			oversizedEntries.push_back({ entity, aabbMin, aabbMax });
+			return;
+		}
+		smallEntries.push_back({ entity, aabbMin, aabbMax });
 
 		for (int x = minX; x <= maxX; ++x)
 		{
@@ -2210,6 +2230,23 @@ namespace MyEngine
 		std::unordered_map<long long, bool> seenPairs;
 		seenPairs.reserve(64);
 
+		auto emitPair = [&](const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b)
+		{
+			auto pa = reinterpret_cast<std::uintptr_t>(a.get());
+			auto pb = reinterpret_cast<std::uintptr_t>(b.get());
+			if (pa == pb)
+				return;
+			std::uintptr_t lo = std::min(pa, pb);
+			std::uintptr_t hi = std::max(pa, pb);
+			long long key = static_cast<long long>((lo * 2654435761u) ^ (hi * 2246822519u));
+			if (!seenPairs.emplace(key, true).second)
+				return;
+			if (lo == pa)
+				callback(a, b);
+			else
+				callback(b, a);
+		};
+
 		for (const auto& cellEntry : cells)
 		{
 			const auto& entities = cellEntry.second;
@@ -2217,30 +2254,26 @@ namespace MyEngine
 			{
 				for (size_t j = i + 1; j < entities.size(); ++j)
 				{
-					const auto& a = entities[i];
-					const auto& b = entities[j];
-
-					// Build a stable pair key from the entities' addresses.
-					auto pa = reinterpret_cast<std::uintptr_t>(a.get());
-					auto pb = reinterpret_cast<std::uintptr_t>(b.get());
-					if (pa == pb)
-						continue;
-
-					std::uintptr_t lo = std::min(pa, pb);
-					std::uintptr_t hi = std::max(pa, pb);
-					// Simple mixing hash of the two pointers to form a dedup key.
-					long long key = static_cast<long long>((lo * 2654435761u) ^ (hi * 2246822519u));
-
-					if (seenPairs.find(key) != seenPairs.end())
-						continue;
-					seenPairs[key] = true;
-
-					if (lo == pa)
-						callback(a, b);
-					else
-						callback(b, a);
+					emitPair(entities[i], entities[j]);
 				}
 			}
+		}
+
+		auto overlaps = [](const BoundsEntry& a, const BoundsEntry& b)
+		{
+			return a.min.x <= b.max.x && a.max.x >= b.min.x &&
+				a.min.y <= b.max.y && a.max.y >= b.min.y &&
+				a.min.z <= b.max.z && a.max.z >= b.min.z;
+		};
+		for (size_t i = 0; i < oversizedEntries.size(); ++i)
+		{
+			const auto& large = oversizedEntries[i];
+			for (const auto& small : smallEntries)
+				if (overlaps(large, small))
+					emitPair(large.entity, small.entity);
+			for (size_t j = i + 1; j < oversizedEntries.size(); ++j)
+				if (overlaps(large, oversizedEntries[j]))
+					emitPair(large.entity, oversizedEntries[j].entity);
 		}
 	}
 

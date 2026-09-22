@@ -2862,10 +2862,27 @@ int main(int argc, char** argv)
     // If configured, load startup scene now (once on engine boot).
     if (!startupScenePath.empty() && std::filesystem::exists(startupScenePath))
     {
-        MyEngine::Serialization::LoadScene(scene, startupScenePath, litShader, &globalScripts);
-        selectedEntity = nullptr;
-        currentScenePath = startupScenePath;
-        AddRecentScene(recentScenes, startupScenePath);
+        if (MyEngine::Serialization::LoadScene(scene, startupScenePath, litShader, &globalScripts))
+        {
+            playerEntity.reset();
+            cubes.clear();
+            for (const auto& entity : scene.GetEntities())
+            {
+                if (!entity)
+                    continue;
+                if (entity->GetName() == "Player")
+                    playerEntity = entity;
+                else if (!playerEntity && entity->HasComponent<CharacterControllerComponent>())
+                    playerEntity = entity;
+            }
+            selectedEntity = nullptr;
+            currentScenePath = startupScenePath;
+            AddRecentScene(recentScenes, startupScenePath);
+        }
+        else
+        {
+            std::cout << "[main] Failed to load startup scene: " << startupScenePath << std::endl;
+        }
     }
     else if (!startupScenePath.empty() && !std::filesystem::exists(startupScenePath))
     {

@@ -188,6 +188,8 @@ set(SOURCES
         src/systems/ScriptSystem.cpp
         src/systems/ParticleSystem.cpp
         src/systems/BossBattleSystem.cpp
+        src/systems/BossBattleAI.cpp
+        src/core/AttackPattern.cpp
         src/serialization/SceneSerializer.cpp
     )
 
@@ -445,6 +447,10 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
 
     add_executable(MyEngineSmokeTests
         tests/SmokeTests.cpp
+        tests/StartupArenaSmokeTests.cpp
+        tests/ArenaBroadphaseSmokeTests.cpp
+        tests/ArenaDistrictSmokeTests.cpp
+        tests/SceneVisibilitySmokeTests.cpp
         ${SOURCES_NO_MAIN}
     )
 
@@ -521,6 +527,7 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
 
     target_compile_definitions(MyEngineSmokeTests PRIVATE
         GLM_ENABLE_EXPERIMENTAL
+        MYENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     )
 
     add_test(NAME MyEngineSmokeTests COMMAND $<TARGET_FILE:MyEngineSmokeTests>)

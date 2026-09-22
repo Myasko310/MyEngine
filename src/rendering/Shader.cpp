@@ -161,6 +161,11 @@ namespace MyEngine
 
     bool Shader::TryHotReloadFromDisk()
     {
+        const auto now = std::chrono::steady_clock::now();
+        if (now < m_NextHotReloadCheck)
+            return false;
+        // Poll per shader, not per draw; failed compiles are throttled too.
+        m_NextHotReloadCheck = now + std::chrono::milliseconds(250);
         if (!ShouldHotReload())
             return false;
         return ReloadFromDisk();

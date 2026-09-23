@@ -352,6 +352,7 @@ namespace MyEngine
 
 			writer.StartObject();
 			writer.Key("sceneVersion"); writer.Int(3);
+			writer.Key("sunsetSkyboxEnabled"); writer.Bool(scene.sunsetSkyboxEnabled);
 
 			// Layer name registry
 				writer.Key("layerNames"); writer.StartArray();
@@ -743,6 +744,12 @@ namespace MyEngine
 					writer.Key("CharacterController");
 					writer.StartObject();
 					writer.Key("moveSpeed"); writer.Double(controller.moveSpeed);
+					writer.Key("enableSprintSlide"); writer.Bool(controller.enableSprintSlide);
+					writer.Key("sprintMultiplier"); writer.Double(controller.sprintMultiplier);
+					writer.Key("slideSpeedMultiplier"); writer.Double(controller.slideSpeedMultiplier);
+					writer.Key("slideDuration"); writer.Double(controller.slideDuration);
+					writer.Key("slideCooldown"); writer.Double(controller.slideCooldown);
+					writer.Key("turnSpeed"); writer.Double(controller.turnSpeed);
 					writer.Key("airControl"); writer.Double(controller.airControl);
 					writer.Key("jumpSpeed"); writer.Double(controller.jumpSpeed);
 					writer.Key("gravityScale"); writer.Double(controller.gravityScale);
@@ -1049,6 +1056,8 @@ namespace MyEngine
 
 			// Full scene load replaces current scene content.
 			scene.Clear();
+			if (doc.HasMember("sunsetSkyboxEnabled") && doc["sunsetSkyboxEnabled"].IsBool())
+				scene.sunsetSkyboxEnabled = doc["sunsetSkyboxEnabled"].GetBool();
 
 			// Restore layer name registry if present
 			if (doc.HasMember("layerNames") && doc["layerNames"].IsArray())
@@ -1697,6 +1706,12 @@ namespace MyEngine
 					auto& controller = ent->AddComponent<MyEngine::CharacterControllerComponent>();
 					const auto& cco = v["CharacterController"];
 					if (cco.HasMember("moveSpeed")) controller.moveSpeed = static_cast<float>(cco["moveSpeed"].GetDouble());
+					if (cco.HasMember("enableSprintSlide")) controller.enableSprintSlide = cco["enableSprintSlide"].GetBool();
+					if (cco.HasMember("sprintMultiplier")) controller.sprintMultiplier = static_cast<float>(cco["sprintMultiplier"].GetDouble());
+					if (cco.HasMember("slideSpeedMultiplier")) controller.slideSpeedMultiplier = static_cast<float>(cco["slideSpeedMultiplier"].GetDouble());
+					if (cco.HasMember("slideDuration")) controller.slideDuration = static_cast<float>(cco["slideDuration"].GetDouble());
+					if (cco.HasMember("slideCooldown")) controller.slideCooldown = static_cast<float>(cco["slideCooldown"].GetDouble());
+					if (cco.HasMember("turnSpeed")) controller.turnSpeed = static_cast<float>(cco["turnSpeed"].GetDouble());
 					if (cco.HasMember("airControl")) controller.airControl = static_cast<float>(cco["airControl"].GetDouble());
 					if (cco.HasMember("jumpSpeed")) controller.jumpSpeed = static_cast<float>(cco["jumpSpeed"].GetDouble());
 					if (cco.HasMember("gravityScale")) controller.gravityScale = static_cast<float>(cco["gravityScale"].GetDouble());

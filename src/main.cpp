@@ -511,6 +511,8 @@ int main(int argc, char** argv)
     // then Skybox::IsLoaded() is false and Render() is a no-op, leaving the
     // plain clear color visible as before.
     MyEngine::Skybox skybox;
+    MyEngine::Skybox sunsetSkybox;
+    bool sunsetBakeAttempted = false;
     bool skyboxEnabled = true;
     std::string skyboxFacePaths[6]; // +X,-X,+Y,-Y,+Z,-Z
 
@@ -3588,6 +3590,9 @@ int main(int argc, char** argv)
                         MyEngine::InputActions::GetAxis("MoveRight"),
                         MyEngine::InputActions::GetAxis("MoveForward"));
                     localInput.jumpPressed = MyEngine::InputActions::IsActionPressed("Jump");
+                    localInput.sprintPressed = MyEngine::InputActions::IsActionPressed("Sprint");
+                    localInput.slidePressed = MyEngine::InputActions::IsActionPressed("Crouch");
+                    localInput.crouchHeld = MyEngine::InputActions::IsAction("Crouch");
 
                     clientReconciliationState.RecordPredictedInput(localInput);
                     pendingInputByTick[localInput.tick] = localInput;
@@ -6405,6 +6410,9 @@ int main(int argc, char** argv)
 
                 InspectorGroupLabel("General");
                 ImGui::Checkbox("Enabled", &skyboxEnabled);
+                ImGui::Checkbox("Sunset environment (saved with scene)", &scene.sunsetSkyboxEnabled);
+                if (scene.sunsetSkyboxEnabled)
+                    ImGui::TextWrapped("HDR sunset: amber sun, rose clouds, violet sky and distant mountain silhouettes.");
                 ImGui::TextWrapped(skybox.IsLoaded()
                     ? "Cubemap loaded."
                     : "No cubemap loaded - assign all 6 face images below.");
@@ -6857,7 +6865,17 @@ int main(int argc, char** argv)
             // is currently bound - the HDR post-process target or the default
             // framebuffer) so only far-depth pixels are filled, minimizing the
             // chance of pass state impacting scene object rendering.
-            if (skyboxEnabled && skybox.IsLoaded())
+            if (skyboxEnabled && scene.sunsetSkyboxEnabled)
+            {
+                if (!sunsetBakeAttempted)
+                {
+                    sunsetBakeAttempted = true;
+                    if (!sunsetSkybox.LoadSunset())
+                        std::cerr << "[Skybox] Sunset bake failed; check shader compilation and framebuffer support." << std::endl;
+                }
+                sunsetSkybox.Render(view, projection);
+            }
+            else if (skyboxEnabled && skybox.IsLoaded())
             {
                 skybox.Render(view, projection);
             }

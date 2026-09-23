@@ -161,6 +161,9 @@ namespace MyEngine::Net
 			writer.Write(message.command.moveAxis.x);
 			writer.Write(message.command.moveAxis.y);
 			writer.Write(message.command.jumpPressed);
+			writer.Write(message.command.sprintPressed);
+			writer.Write(message.command.slidePressed);
+			writer.Write(message.command.crouchHeld);
 		}
 
 		bool DeserializeInput(ByteReader& reader, InputMessage& outMessage)
@@ -173,7 +176,10 @@ namespace MyEngine::Net
 				return false;
 			if (!reader.Read(outMessage.command.moveAxis.y))
 				return false;
-			return reader.Read(outMessage.command.jumpPressed);
+			return reader.Read(outMessage.command.jumpPressed)
+				&& reader.Read(outMessage.command.sprintPressed)
+				&& reader.Read(outMessage.command.slidePressed)
+				&& reader.Read(outMessage.command.crouchHeld);
 		}
 
 		void SerializeSnapshot(ByteWriter& writer, const SnapshotMessage& message)

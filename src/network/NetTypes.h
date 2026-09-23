@@ -16,6 +16,9 @@ namespace MyEngine::Net
 		NetTick tick = 0;
 		glm::vec2 moveAxis = glm::vec2(0.0f);
 		bool jumpPressed = false;
+		bool sprintPressed = false;
+		bool slidePressed = false;
+		bool crouchHeld = false;
 	};
 
 	struct ReplicatedEntityState

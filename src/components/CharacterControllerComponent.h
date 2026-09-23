@@ -25,6 +25,24 @@ namespace MyEngine
 		float braking = 24.0f;
 		float slideGravityScale = 1.25f;
 		float jumpUngroundedDuration = 0.30f;
+		bool enableSprintSlide = false;
+		float sprintMultiplier = 1.5f;
+		float slideSpeedMultiplier = 1.12f;
+		float slideDuration = 0.75f;
+		float slideCooldown = 0.5f;
+		float turnSpeed = 12.0f;
+		bool sprintRequested = false;
+		bool slideRequested = false;
+		bool crouchHeld = false;
+		bool sprintLatched = false;
+		bool isSprinting = false;
+		bool isSliding = false;
+		float slideTimer = 0.0f;
+		float slideCooldownTimer = 0.0f;
+		float slideEntrySpeed = 0.0f;
+		glm::vec3 slideDirection = glm::vec3(0.0f);
+		bool hasMovementInputTick = false;
+		unsigned int lastMovementInputTick = 0;
 
 		std::string animationSpeedParameter;
 		std::string animationGroundedParameter;
@@ -49,6 +67,9 @@ namespace MyEngine
 			moveInput = glm::vec3(0.0f);
 			jumpRequested = false;
 			jumpHeld = false;
+			sprintRequested = false;
+			slideRequested = false;
+			crouchHeld = false;
 			attack1Requested = false;
 			attack2Requested = false;
 			attack3Requested = false;

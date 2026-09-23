@@ -70,6 +70,8 @@ struct AnimationComponent
 	float previousTime = 0.0f;
 	float blendElapsed = 0.0f;
 	float blendDuration = 0.0f;
+	std::vector<glm::mat4> localPose;
+	std::vector<glm::mat4> blendSourcePose;
 
 	// Final bone matrices (bone-space -> mesh-space), computed each frame by
 	// AnimationSystem and consumed by MeshRendererSystem when drawing.
@@ -85,6 +87,10 @@ struct AnimationComponent
 		if (clipIndex == activeClipIndex && !blending)
 			return;
 
+		if (blending)
+			blendSourcePose = localPose;
+		else
+			blendSourcePose.clear();
 		previousClipIndex = activeClipIndex;
 		previousTime = time;
 		activeClipIndex = clipIndex;

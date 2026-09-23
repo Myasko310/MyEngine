@@ -309,6 +309,16 @@ namespace MyEngine
 			controller.jumpHeld = jumpDown;
 			// Latch jump input until the next fixed-step character update consumes it.
 			controller.jumpRequested = controller.jumpRequested || jumpPressed;
+			const bool newMovementCommand = !authoritativeInput || !controller.hasMovementInputTick ||
+				controller.lastMovementInputTick != authoritativeInput->tick;
+			controller.sprintRequested |= newMovementCommand && (authoritativeInput
+				? authoritativeInput->sprintPressed : InputActions::IsActionPressed("Sprint"));
+			controller.slideRequested |= newMovementCommand && (authoritativeInput
+				? authoritativeInput->slidePressed : InputActions::IsActionPressed("Crouch"));
+			controller.crouchHeld = authoritativeInput ? authoritativeInput->crouchHeld : InputActions::IsAction("Crouch");
+			controller.hasMovementInputTick = authoritativeInput != nullptr;
+			if (authoritativeInput)
+				controller.lastMovementInputTick = authoritativeInput->tick;
 
 			bool queueAttack1 = attack1Pressed;
 			bool queueAttack2 = attack2Pressed;
@@ -762,15 +772,21 @@ namespace MyEngine
 			}
 		});
 
-		// Update Crouch/Slide parameter from action bindings
+		setParameterByName("IsCrouching", [&](const auto& parameter, auto& value)
 		{
-			const bool crouchOrSlide = InputActions::IsAction("Crouch") || InputActions::IsAction("Slide");
-			int crouchIdx = sm.stateMachine->FindParameterIndex("IsCrouching");
-			if (crouchIdx >= 0 && static_cast<size_t>(crouchIdx) < sm.parameterValues.size())
-			{
-				sm.parameterValues[crouchIdx].boolValue = crouchOrSlide;
-			}
-		}
+			if (parameter.type == AnimationStateMachineParameterType::Bool)
+				value.boolValue = controller.crouchHeld && !controller.isSliding;
+		});
+		setParameterByName("IsSprinting", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Bool)
+				value.boolValue = controller.isSprinting;
+		});
+		setParameterByName("IsSliding", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Bool)
+				value.boolValue = controller.isSliding;
+		});
 
 		// Update Fight/Attack parameter from action bindings
 		{
@@ -850,8 +866,44 @@ namespace MyEngine
 				moveInput = glm::normalize(moveInput);
 
 			glm::vec3 horizontalVelocity(rb.velocity.x, 0.0f, rb.velocity.z);
-			glm::vec3 targetHorizontalVelocity = moveInput * controller.moveSpeed;
-			if (glm::length(moveInput) > 0.0001f)
+			controller.slideCooldownTimer = std::max(0.0f, controller.slideCooldownTimer - dt);
+			if (controller.enableSprintSlide && controller.sprintRequested)
+				controller.sprintLatched = !controller.sprintLatched;
+			controller.sprintRequested = false;
+			if (!controller.enableSprintSlide || (glm::length(moveInput) < 0.1f && !controller.isSliding))
+				controller.sprintLatched = false;
+			if (controller.isSliding)
+			{
+				controller.slideTimer = std::max(0.0f, controller.slideTimer - dt);
+				if (!controller.enableSprintSlide || !controller.isGrounded || controller.jumpRequested || controller.slideTimer <= 0.0f)
+				{
+					controller.isSliding = false;
+					controller.slideCooldownTimer = std::max(controller.slideCooldown, 0.0f);
+				}
+			}
+			if (controller.enableSprintSlide && controller.isSprinting && controller.sprintLatched &&
+				glm::length(moveInput) >= 0.1f && controller.slideRequested && !controller.isSliding &&
+				controller.isGrounded && !controller.jumpRequested && controller.slideCooldownTimer <= 0.0f &&
+				glm::length(horizontalVelocity) >= controller.moveSpeed * 0.8f && controller.slideDuration > 0.0f)
+			{
+				controller.isSliding = true;
+				controller.slideTimer = controller.slideDuration;
+				controller.slideDirection = glm::normalize(horizontalVelocity);
+				controller.slideEntrySpeed = std::min(glm::length(horizontalVelocity),
+					controller.moveSpeed * std::max(controller.sprintMultiplier, 1.0f));
+			}
+			controller.slideRequested = false;
+			controller.isSprinting = controller.enableSprintSlide && controller.sprintLatched &&
+				controller.isGrounded && !controller.isSliding && !controller.crouchHeld;
+			const float speedMultiplier = controller.isSprinting ? std::max(controller.sprintMultiplier, 1.0f) : 1.0f;
+			glm::vec3 targetHorizontalVelocity = moveInput * controller.moveSpeed * speedMultiplier;
+			if (controller.isSliding)
+			{
+				const float slideSpeed = controller.slideEntrySpeed * std::clamp(controller.slideSpeedMultiplier, 1.0f, 1.25f);
+				horizontalVelocity = MoveTowards(horizontalVelocity, controller.slideDirection * slideSpeed,
+					std::max(controller.acceleration, 0.0f) * dt);
+			}
+			else if (glm::length(moveInput) > 0.0001f)
 			{
 				float accel = controller.isGrounded
 					? controller.acceleration
@@ -974,9 +1026,24 @@ namespace MyEngine
 				facing = glm::normalize(facing);
 				// TransformComponent rotation uses radians; use +Z-forward yaw convention
 				// so character-facing aligns better with imported humanoid animation sets.
-				transform.rotation.y = std::atan2(facing.x, facing.z);
+				const float targetYaw = std::atan2(facing.x, facing.z);
+				if (controller.enableSprintSlide)
+				{
+					const float yawDelta = std::atan2(std::sin(targetYaw - transform.rotation.y), std::cos(targetYaw - transform.rotation.y));
+					const float maxTurn = std::max(controller.turnSpeed, 0.0f) * dt;
+					transform.rotation.y += std::clamp(yawDelta, -maxTurn, maxTurn);
+				}
+				else
+					transform.rotation.y = targetYaw;
 			}
 
+			if (!controller.isGrounded)
+			{
+				controller.isSprinting = false;
+				if (controller.isSliding)
+					controller.slideCooldownTimer = std::max(controller.slideCooldown, 0.0f);
+				controller.isSliding = false;
+			}
 			UpdateControllerAnimationState(entity, controller);
 		}
 	}

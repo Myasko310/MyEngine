@@ -1,5 +1,6 @@
 {
     "sceneVersion": 3,
+    "sunsetSkyboxEnabled": true,
     "layerNames": [
         "Default",
         "TransparentFX",
@@ -76,9 +77,9 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -1.6027826070785522,
-                    1.8462181091308594,
-                    7.76152229309082
+                    -1.3480769395828247,
+                    2.3744664192199707,
+                    7.751226425170898
                 ],
                 "rotation": [
                     0.0,
@@ -270,6 +271,18 @@
                             "type": "Trigger",
                             "defaultFloatValue": 0.0,
                             "defaultBoolValue": false
+                        },
+                        {
+                            "name": "IsSprinting",
+                            "type": "Bool",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
+                        },
+                        {
+                            "name": "IsSliding",
+                            "type": "Bool",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
                         }
                     ],
                     "states": [
@@ -281,6 +294,34 @@
                             "trimStartNormalized": 0.0,
                             "trimEndNormalized": 1.0,
                             "transitions": [
+                                {
+                                    "targetStateIndex": 17,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 16,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSprinting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
                                 {
                                     "targetStateIndex": 6,
                                     "blendDuration": 0.10000000149011612,
@@ -375,6 +416,34 @@
                             "trimStartNormalized": 0.0,
                             "trimEndNormalized": 1.0,
                             "transitions": [
+                                {
+                                    "targetStateIndex": 17,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 16,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSprinting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
                                 {
                                     "targetStateIndex": 6,
                                     "blendDuration": 0.10000000149011612,
@@ -489,6 +558,34 @@
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
+                                    "targetStateIndex": 17,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 16,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSprinting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
                                     "targetStateIndex": 6,
                                     "blendDuration": 0.10000000149011612,
                                     "requiresExitTime": false,
@@ -588,6 +685,34 @@
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
+                                    "targetStateIndex": 17,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 16,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSprinting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
                                     "targetStateIndex": 6,
                                     "blendDuration": 0.10000000149011612,
                                     "requiresExitTime": false,
@@ -682,6 +807,34 @@
                             "trimEndNormalized": 1.0,
                             "transitions": [
                                 {
+                                    "targetStateIndex": 17,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 16,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSprinting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
                                     "targetStateIndex": 6,
                                     "blendDuration": 0.10000000149011612,
                                     "requiresExitTime": false,
@@ -775,6 +928,34 @@
                             "trimStartNormalized": 0.0,
                             "trimEndNormalized": 1.0,
                             "transitions": [
+                                {
+                                    "targetStateIndex": 17,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 16,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSprinting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
                                 {
                                     "targetStateIndex": 6,
                                     "blendDuration": 0.10000000149011612,
@@ -1164,6 +1345,238 @@
                                     ]
                                 }
                             ]
+                        },
+                        {
+                            "name": "Sprint",
+                            "clipName": "Sprint",
+                            "loop": true,
+                            "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 17,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 15,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Jump",
+                                            "op": "Trigger",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 6,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Attack1",
+                                            "op": "Trigger",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 9,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Attack2",
+                                            "op": "Trigger",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 13,
+                                    "blendDuration": 0.11999999731779099,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Attack3",
+                                            "op": "Trigger",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 0,
+                                    "blendDuration": 0.14000000059604645,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 0.9200000166893005,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSprinting",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Slide",
+                            "clipName": "Running Slide",
+                            "loop": false,
+                            "playbackSpeed": 1.0,
+                            "trimStartNormalized": 0.0,
+                            "trimEndNormalized": 1.0,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 15,
+                                    "blendDuration": 0.18000000715255737,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Jump",
+                                            "op": "Trigger",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 16,
+                                    "blendDuration": 0.4000000059604645,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "IsSprinting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 4,
+                                    "blendDuration": 0.4000000059604645,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "IsCrouching",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 3,
+                                    "blendDuration": 0.4000000059604645,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "IsCrouching",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 2,
+                                    "blendDuration": 0.4000000059604645,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 2.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 1,
+                                    "blendDuration": 0.4000000059604645,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 0,
+                                    "blendDuration": 0.4000000059604645,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsSliding",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                }
+                            ]
                         }
                     ]
                 },
@@ -1176,6 +1589,16 @@
                     {
                         "floatValue": 0.0,
                         "boolValue": true,
+                        "triggerValue": false
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
+                        "triggerValue": false
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
                         "triggerValue": false
                     },
                     {
@@ -1261,6 +1684,12 @@
             },
             "CharacterController": {
                 "moveSpeed": 4.5,
+                "enableSprintSlide": true,
+                "sprintMultiplier": 1.5,
+                "slideSpeedMultiplier": 1.1200000047683716,
+                "slideDuration": 0.75,
+                "slideCooldown": 0.5,
+                "turnSpeed": 12.0,
                 "airControl": 0.3499999940395355,
                 "jumpSpeed": 6.0,
                 "gravityScale": 1.0,
@@ -1305,9 +1734,9 @@
                 ],
                 "intensity": 1.0,
                 "direction": [
-                    -4.10752676316406e-8,
+                    0.45502957701683044,
                     -0.3420201241970062,
-                    -0.9396926164627075
+                    0.8221741318702698
                 ],
                 "position": [
                     0.0,

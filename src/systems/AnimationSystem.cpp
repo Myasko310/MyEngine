@@ -550,6 +550,8 @@ namespace MyEngine
 		float toTimeTicks,
 		float blendT,
 		int rootMotionBoneIndex,
+		const std::vector<glm::mat4>& sourcePose,
+		std::vector<glm::mat4>& localPose,
 		std::vector<glm::mat4>& outMatrices)
 	{
 		const auto& bones = skeleton.GetBones();
@@ -557,14 +559,17 @@ namespace MyEngine
 
 		outMatrices.assign(bones.size(), glm::mat4(1.0f));
 
+		localPose.resize(bones.size());
 		for (size_t i = 0; i < bones.size(); ++i)
 		{
 			const Bone& bone = bones[i];
 			const bool removeRootTranslation = static_cast<int>(i) == rootMotionBoneIndex;
 
-			glm::mat4 fromLocal = SampleLocalTransform(bone, fromClip, fromTimeTicks, removeRootTranslation, true);
+			glm::mat4 fromLocal = sourcePose.size() == bones.size() ? sourcePose[i]
+				: SampleLocalTransform(bone, fromClip, fromTimeTicks, removeRootTranslation, true);
 			glm::mat4 toLocal = SampleLocalTransform(bone, toClip, toTimeTicks, removeRootTranslation, true);
 			glm::mat4 localTransform = BlendLocalTransforms(fromLocal, toLocal, blendT);
+			localPose[i] = localTransform;
 
 			glm::mat4 parentTransform = bone.parentIndex >= 0
 				? accumulated[bone.parentIndex]
@@ -687,6 +692,15 @@ namespace MyEngine
 					const auto& controller = entity->GetComponent<CharacterControllerComponent>();
 					if (!controller.isGrounded)
 						applyRootMotion = false;
+					// Sprint/slide displacement is collision-resolved by the controller;
+					// never add the clip's complete root displacement again at its end.
+					if (controller.enableSprintSlide && stateMachineComponent && stateMachineComponent->stateMachine &&
+						stateMachineComponent->stateMachine->IsValidStateIndex(stateMachineComponent->currentStateIndex))
+					{
+						const auto& stateName = stateMachineComponent->stateMachine->states[stateMachineComponent->currentStateIndex].name;
+						if (stateName == "Slide" || stateName == "Sprint")
+							applyRootMotion = false;
+					}
 				}
 
 				const bool reachedEndThisFrame =
@@ -762,12 +776,14 @@ namespace MyEngine
 				anim.blendElapsed += deltaTime;
 				float blendT = std::clamp(anim.blendElapsed / anim.blendDuration, 0.0f, 1.0f);
 
-				ComputeBlendedBoneMatrices(*skel.skeleton, prevClip, prevTimeTicks, &clip, timeTicks, blendT, rootMotionBoneIndex, anim.boneMatrices);
+				ComputeBlendedBoneMatrices(*skel.skeleton, prevClip, prevTimeTicks, &clip, timeTicks, blendT,
+					rootMotionBoneIndex, anim.blendSourcePose, anim.localPose, anim.boneMatrices);
 
 				if (blendT >= 1.0f)
 				{
 					anim.blending = false;
 					anim.previousClipIndex = -1;
+					anim.blendSourcePose.clear();
 				}
 			}
 			else

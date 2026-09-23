@@ -13,6 +13,8 @@ class Scene
 public:
     Scene() = default;
 
+    bool sunsetSkyboxEnabled = false;
+
     std::shared_ptr<Entity> CreateEntity(const std::string& name = "")
     {
         return CreateEntityWithID(m_NextEntityID++, name);
@@ -54,6 +56,7 @@ public:
     {
         m_Entities.clear();
         m_NextEntityID = 1;
+        sunsetSkyboxEnabled = false;
     }
 
     Entity* GetEntityByID(uint32_t entityID)

@@ -451,6 +451,8 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
         tests/ArenaBroadphaseSmokeTests.cpp
         tests/ArenaDistrictSmokeTests.cpp
         tests/SceneVisibilitySmokeTests.cpp
+        tests/SunsetSkyboxSmokeTests.cpp
+        tests/CharacterMovementSmokeTests.cpp
         ${SOURCES_NO_MAIN}
     )
 

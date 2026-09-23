@@ -34,6 +34,9 @@ namespace MyEngine
 		// leaving nothing initialized).
 		bool Load(const std::array<std::string, 6>& facePaths);
 
+		// Bakes a deterministic HDR sunset once; subsequent draws sample the cubemap.
+		bool LoadSunset();
+
 		// True once a cubemap texture has been successfully created via Load().
 		bool IsLoaded() const { return m_CubemapTexture != 0; }
 

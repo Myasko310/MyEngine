@@ -83,6 +83,10 @@ public:
     void SetPointShadowPCFRadius(float radius);
     float GetPointShadowPCFRadius() const;
 
+    // Compute each entity's world matrix once per frame and reuse it in every pass
+    void SetWorldMatrixCacheEnabled(bool enabled);
+    bool GetWorldMatrixCacheEnabled() const;
+
     // Spot light shadows
     void SetSpotShadowsEnabled(bool enabled);
     bool GetSpotShadowsEnabled() const;
@@ -118,6 +122,10 @@ public:
     // SSAO (Screen-Space Ambient Occlusion)
     void SetSSAOEnabled(bool enabled);
     bool GetSSAOEnabled() const;
+    void SetSSAOHalfResolution(bool enabled);
+    bool GetSSAOHalfResolution() const;
+    void SetSSAOSampleCount(int count);
+    int GetSSAOSampleCount() const;
     void SetSSAORadius(float r);
     float GetSSAORadius() const;
     void SetSSAOBias(float b);

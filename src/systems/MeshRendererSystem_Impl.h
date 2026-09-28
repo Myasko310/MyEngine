@@ -30,14 +30,18 @@ struct MeshRendererSystem::Impl
 	float cascadeBlendFactor = 0.15f;
 
 	std::array<MyEngine::PointShadowMap, 4> pointShadowMaps;
-	unsigned int pointShadowSize = 1024;
+	unsigned int pointShadowSize = 512;
 	// Global multiplier anchor for point-light shadow bias. 0.005f is neutral
 	// (matches LightComponent::shadowBias default).
 	float pointShadowBias = 0.005f;
 	bool pointShadowsEnabled = true;
 	int pointShadowPCFSamples = 20;
 	float pointShadowPCFRadius = 0.02f;
-	int pointShadowLightBudget = 4;
+	int pointShadowLightBudget = 1;
+
+	// Per-frame world matrix cache (reused across SSAO/shadow/main passes)
+	bool worldMatrixCacheEnabled = false;
+	std::unordered_map<const Entity*, glm::mat4> worldMatrixCache;
 
 	// Spot light shadow maps (one 2D depth map per shadow-casting spot light)
 	std::array<MyEngine::ShadowMap, 4> spotShadowMaps;

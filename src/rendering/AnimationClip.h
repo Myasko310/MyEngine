@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <unordered_map>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -135,6 +136,28 @@ namespace MyEngine
 		// Normalized lookup: matches bones by canonical name (leaf part, lowercased, alphanumeric only).
 		// Falls back to exact match if normalized match not found.
 		const BoneAnimationTrack* FindTrackNormalized(const std::string& boneName) const
+		{
+			// Results are cached per bone name; the cache is invalidated if the
+			// track list changes size (tracks are only rebuilt on import).
+			if (m_LookupCacheTrackCount != tracks.size())
+			{
+				m_LookupCache.clear();
+				m_LookupCacheTrackCount = tracks.size();
+			}
+			auto cached = m_LookupCache.find(boneName);
+			if (cached != m_LookupCache.end())
+				return cached->second >= 0 ? &tracks[static_cast<size_t>(cached->second)] : nullptr;
+
+			const BoneAnimationTrack* found = FindTrackNormalizedUncached(boneName);
+			m_LookupCache.emplace(boneName, found ? static_cast<int>(found - tracks.data()) : -1);
+			return found;
+		}
+
+	private:
+		mutable std::unordered_map<std::string, int> m_LookupCache;
+		mutable size_t m_LookupCacheTrackCount = 0;
+
+		const BoneAnimationTrack* FindTrackNormalizedUncached(const std::string& boneName) const
 		{
 			// First try exact match for performance
 			const BoneAnimationTrack* exactMatch = FindTrack(boneName);

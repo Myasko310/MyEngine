@@ -1,5 +1,6 @@
 #include "rendering/SSAOPass.h"
 #include "rendering/Shader.h"
+#include "rendering/GpuProfiler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -55,6 +56,15 @@ namespace MyEngine
 		CreateResources(width, height);
 	}
 
+	void SSAOPass::SetHalfResolutionGBuffer(bool enabled)
+	{
+		if (m_HalfResGBuffer == enabled)
+			return;
+		m_HalfResGBuffer = enabled;
+		if (m_Width > 0 && m_Height > 0)
+			CreateResources(m_Width, m_Height);
+	}
+
 	void SSAOPass::GenerateKernel()
 	{
 		std::uniform_real_distribution<float> randFloat(0.0f, 1.0f);
@@ -105,6 +115,10 @@ namespace MyEngine
 
 		const unsigned int halfW = std::max(1u, width  / 2);
 		const unsigned int halfH = std::max(1u, height / 2);
+		m_GBufferWidth  = m_HalfResGBuffer ? halfW : width;
+		m_GBufferHeight = m_HalfResGBuffer ? halfH : height;
+		const unsigned int gW = m_GBufferWidth;
+		const unsigned int gH = m_GBufferHeight;
 
 		// --- G-buffer at full resolution ---
 		glGenFramebuffers(1, &m_GBufferFBO);
@@ -113,7 +127,7 @@ namespace MyEngine
 		// Attachment 0: view-space position
 		glGenTextures(1, &m_GPositionTexture);
 		glBindTexture(GL_TEXTURE_2D, m_GPositionTexture);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, (GLsizei)width, (GLsizei)height, 0, GL_RGB, GL_FLOAT, nullptr);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, (GLsizei)gW, (GLsizei)gH, 0, GL_RGB, GL_FLOAT, nullptr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -123,7 +137,7 @@ namespace MyEngine
 		// Attachment 1: view-space normal
 		glGenTextures(1, &m_GNormalTexture);
 		glBindTexture(GL_TEXTURE_2D, m_GNormalTexture);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, (GLsizei)width, (GLsizei)height, 0, GL_RGB, GL_FLOAT, nullptr);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, (GLsizei)gW, (GLsizei)gH, 0, GL_RGB, GL_FLOAT, nullptr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -135,7 +149,7 @@ namespace MyEngine
 
 		glGenRenderbuffers(1, &m_GDepthRBO);
 		glBindRenderbuffer(GL_RENDERBUFFER, m_GDepthRBO);
-		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, (GLsizei)width, (GLsizei)height);
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, (GLsizei)gW, (GLsizei)gH);
 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_GDepthRBO);
 
 		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
@@ -187,7 +201,7 @@ namespace MyEngine
 	void SSAOPass::BeginGeometryPass() const
 	{
 		glBindFramebuffer(GL_FRAMEBUFFER, m_GBufferFBO);
-		glViewport(0, 0, (GLsizei)m_Width, (GLsizei)m_Height);
+		glViewport(0, 0, (GLsizei)m_GBufferWidth, (GLsizei)m_GBufferHeight);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	}
 
@@ -204,6 +218,7 @@ namespace MyEngine
 		glDisable(GL_DEPTH_TEST);
 
 		// --- SSAO occlusion pass (half-res) ---
+		GpuProfiler::Get().Begin("SSAO: Occlusion");
 		glBindFramebuffer(GL_FRAMEBUFFER, m_SSAOFBO);
 		glViewport(0, 0, (GLsizei)halfW, (GLsizei)halfH);
 		glClear(GL_COLOR_BUFFER_BIT);
@@ -222,20 +237,30 @@ namespace MyEngine
 		glBindTexture(GL_TEXTURE_2D, m_NoiseTexture);
 		m_SSAOShader->SetInt("u_Noise", 2);
 
-		for (int i = 0; i < static_cast<int>(m_Kernel.size()); ++i)
-			m_SSAOShader->SetVec3("u_Samples[" + std::to_string(i) + "]", m_Kernel[i]);
+		static const std::vector<std::string> kSampleNames = []()
+		{
+			std::vector<std::string> names;
+			for (int i = 0; i < 64; ++i)
+				names.push_back("u_Samples[" + std::to_string(i) + "]");
+			return names;
+		}();
+		for (int i = 0; i < static_cast<int>(m_Kernel.size()) && i < 64; ++i)
+			m_SSAOShader->SetVec3(kSampleNames[i], m_Kernel[i]);
 
 		m_SSAOShader->SetMat4("u_Projection", projection);
 		m_SSAOShader->SetMat4("u_View", view);
 		m_SSAOShader->SetFloat("u_Radius", m_Radius);
 		m_SSAOShader->SetFloat("u_Bias",   m_Bias);
 		m_SSAOShader->SetFloat("u_Power",  m_Power);
+		m_SSAOShader->SetInt("u_SampleCount", m_SampleCount);
 		m_SSAOShader->SetVec2("u_NoiseScale",
 			glm::vec2(static_cast<float>(halfW) / 4.0f, static_cast<float>(halfH) / 4.0f));
 
 		RenderFullscreenQuad();
 
 		// --- Blur pass (half-res) ---
+		GpuProfiler::Get().End("SSAO: Occlusion");
+		GpuProfiler::Get().Begin("SSAO: Blur");
 		glBindFramebuffer(GL_FRAMEBUFFER, m_SSAOBlurFBO);
 		glClear(GL_COLOR_BUFFER_BIT);
 
@@ -245,6 +270,7 @@ namespace MyEngine
 		m_BlurShader->SetInt("u_SSAOInput", 0);
 
 		RenderFullscreenQuad();
+		GpuProfiler::Get().End("SSAO: Blur");
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glEnable(GL_DEPTH_TEST);

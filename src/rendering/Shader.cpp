@@ -10,6 +10,7 @@
 #include <utility>
 
 bool MyEngine::Shader::s_AutoHotReloadEnabled = true;
+bool MyEngine::Shader::s_UniformLocationCacheEnabled = false;
 
 namespace MyEngine
 {
@@ -38,6 +39,8 @@ namespace MyEngine
     {
         m_ID = other.m_ID;
         other.m_ID = 0;
+        m_UniformLocationCache = std::move(other.m_UniformLocationCache);
+        other.m_UniformLocationCache.clear();
         m_VertexPath = std::move(other.m_VertexPath);
         m_GeometryPath = std::move(other.m_GeometryPath);
         m_FragmentPath = std::move(other.m_FragmentPath);
@@ -54,6 +57,8 @@ namespace MyEngine
 
             m_ID = other.m_ID;
             other.m_ID = 0;
+            m_UniformLocationCache = std::move(other.m_UniformLocationCache);
+            other.m_UniformLocationCache.clear();
             m_VertexPath = std::move(other.m_VertexPath);
             m_GeometryPath = std::move(other.m_GeometryPath);
             m_FragmentPath = std::move(other.m_FragmentPath);
@@ -153,6 +158,7 @@ namespace MyEngine
         if (m_ID != 0)
             glDeleteProgram(m_ID);
         m_ID = newProgram;
+        m_UniformLocationCache.clear();
         m_VertexWriteTime = vertWrite;
         m_FragmentWriteTime = fragWrite;
         m_GeometryWriteTime = hasGeometry ? geomWrite : std::filesystem::file_time_type{};
@@ -186,9 +192,31 @@ namespace MyEngine
         return s_AutoHotReloadEnabled;
     }
 
+    void Shader::SetUniformLocationCacheEnabled(bool enabled)
+    {
+        s_UniformLocationCacheEnabled = enabled;
+    }
+
+    bool Shader::GetUniformLocationCacheEnabled()
+    {
+        return s_UniformLocationCacheEnabled;
+    }
+
+    int Shader::GetUniformLocation(const std::string& name) const
+    {
+        if (!s_UniformLocationCacheEnabled)
+            return glGetUniformLocation(m_ID, name.c_str());
+        auto it = m_UniformLocationCache.find(name);
+        if (it != m_UniformLocationCache.end())
+            return it->second;
+        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        m_UniformLocationCache.emplace(name, location);
+        return location;
+    }
+
     void Shader::SetBool(const std::string& name, bool value) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniform1i(location, static_cast<int>(value));
@@ -196,7 +224,7 @@ namespace MyEngine
 
     void Shader::SetInt(const std::string& name, int value) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniform1i(location, value);
@@ -204,7 +232,7 @@ namespace MyEngine
 
     void Shader::SetFloat(const std::string& name, float value) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniform1f(location, value);
@@ -212,7 +240,7 @@ namespace MyEngine
 
     void Shader::SetVec2(const std::string& name, float x, float y) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniform2f(location, x, y);
@@ -220,7 +248,7 @@ namespace MyEngine
 
     void Shader::SetVec3(const std::string& name, float x, float y, float z) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniform3f(location, x, y, z);
@@ -228,7 +256,7 @@ namespace MyEngine
 
     void Shader::SetVec4(const std::string& name, float x, float y, float z, float w) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniform4f(location, x, y, z, w);
@@ -236,7 +264,7 @@ namespace MyEngine
 
     void Shader::SetVec2(const std::string& name, const glm::vec2& value) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniform2fv(location, 1, glm::value_ptr(value));
@@ -244,7 +272,7 @@ namespace MyEngine
 
     void Shader::SetVec3(const std::string& name, const glm::vec3& value) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniform3fv(location, 1, glm::value_ptr(value));
@@ -252,7 +280,7 @@ namespace MyEngine
 
     void Shader::SetVec4(const std::string& name, const glm::vec4& value) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniform4fv(location, 1, glm::value_ptr(value));
@@ -260,7 +288,7 @@ namespace MyEngine
 
     void Shader::SetMat4(const std::string& name, const glm::mat4& mat) const
     {
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(mat));
@@ -270,7 +298,7 @@ namespace MyEngine
     {
         if (!values || count <= 0)
             return;
-        GLint location = glGetUniformLocation(m_ID, name.c_str());
+        GLint location = GetUniformLocation(name);
         if (location == -1)
             return;
         glUniformMatrix4fv(location, count, GL_FALSE, glm::value_ptr(values[0]));

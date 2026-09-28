@@ -8,6 +8,7 @@
 
 #include "components/TransformComponent.h"
 #include "editor/EditorStyle.h"
+#include "editor/PanelDockManager.h"
 #include "editor/SceneHierarchyIndex.h"
 #include "ecs/TransformHierarchy.h"
 
@@ -24,9 +25,10 @@ namespace MyEngine::Editor::Panels
 		if (!ui.showSceneHierarchy)
 			return;
 
-		ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(300, 400), ImGuiCond_FirstUseEver);
-		if (!ImGui::Begin("Scene Hierarchy", &ui.showSceneHierarchy))
+		// Use panel dock manager to position this panel in the left sidebar
+		PanelDockManager::Instance().SnapPanel("Scene Hierarchy");
+
+		if (!ImGui::Begin("Scene Hierarchy", &ui.showSceneHierarchy, MyEngine::Editor::DockablePanelFlags))
 		{
 			ImGui::End();
 			return;
@@ -53,13 +55,28 @@ namespace MyEngine::Editor::Panels
 				++hierarchyEntityCount;
 		}
 
-		ImGui::TextDisabled("Entities: %zu", hierarchyEntityCount);
+		// Panel header with statistics
+		SectionHeader("Hierarchy Statistics", "🌳");
+		StatusIndicator("Total Entities", GetThemeColor("info"));
+		ImGui::SameLine();
+		ImGui::Text("%zu", hierarchyEntityCount);
+
 		if (selectedEntity)
-			ImGui::TextDisabled("Selected: %s", selectedEntity->GetName().c_str());
+		{
+			StatusIndicator("Selected", GetThemeColor("accent"));
+			ImGui::SameLine();
+			ImGui::Text("%s", selectedEntity->GetName().c_str());
+		}
 		else
-			ImGui::TextDisabled("Selected: none");
+		{
+			StatusIndicator("Selected", ImVec4(1.0f, 1.0f, 1.0f, 0.4f), false);
+			ImGui::SameLine();
+			ImGui::TextDisabled("none");
+		}
+
+		ImGui::Spacing();
 		ImGui::SetNextItemWidth(-1.0f);
-		ImGui::InputTextWithHint("##hierarchyFilter", "Filter entities or tags", hierarchyFilter, sizeof(hierarchyFilter));
+		ImGui::InputTextWithHint("##hierarchyFilter", "Search entities or tags...", hierarchyFilter, sizeof(hierarchyFilter));
 
 		if (InspectorActionButton("Create Empty Entity##hierarchy"))
 		{

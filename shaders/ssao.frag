@@ -9,6 +9,7 @@ uniform sampler2D u_Noise;      // 4×4 random rotation  (RGB16F, tiled)
 
 #define KERNEL_SIZE 64
 uniform vec3  u_Samples[KERNEL_SIZE];
+uniform int u_SampleCount = 64;
 uniform mat4  u_Projection;
 uniform mat4  u_View;
 uniform float u_Radius;
@@ -35,10 +36,13 @@ void main()
 	mat3 TBN       = mat3(tangent, bitangent, normal);
 
 	float occlusion = 0.0;
-	for (int i = 0; i < KERNEL_SIZE; ++i)
+	int sampleCount = u_SampleCount == 32 ? 32 : 64;
+	for (int i = 0; i < sampleCount; ++i)
 	{
 		// Sample position in view space
-		vec3 samplePos = TBN * u_Samples[i];
+		// Stride across the full radial distribution instead of taking its inner half.
+		int sampleIndex = i * (KERNEL_SIZE / sampleCount);
+		vec3 samplePos = TBN * u_Samples[sampleIndex];
 		samplePos = fragPos + samplePos * u_Radius;
 
 		// Project sample to get its texture coordinates
@@ -54,6 +58,6 @@ void main()
 		occlusion += (sampleDepth >= samplePos.z + u_Bias ? 1.0 : 0.0) * rangeCheck;
 	}
 
-	occlusion = 1.0 - (occlusion / float(KERNEL_SIZE));
+	occlusion = 1.0 - (occlusion / float(sampleCount));
 	FragOcclusion = pow(occlusion, u_Power);
 }

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 
 #include <glm/glm.hpp>
 
@@ -31,6 +32,10 @@ namespace MyEngine
         const std::string& GetLastError() const;
         static void SetAutoHotReloadEnabled(bool enabled);
         static bool GetAutoHotReloadEnabled();
+
+        // Cache glGetUniformLocation results per program (cleared on reload)
+        static void SetUniformLocationCacheEnabled(bool enabled);
+        static bool GetUniformLocationCacheEnabled();
 
         void SetBool(const std::string& name, bool value) const;
         void SetInt(const std::string& name, int value) const;
@@ -61,8 +66,10 @@ namespace MyEngine
         std::filesystem::file_time_type m_GeometryWriteTime{};
         std::filesystem::file_time_type m_FragmentWriteTime{};
         std::chrono::steady_clock::time_point m_NextHotReloadCheck{};
+        mutable std::unordered_map<std::string, int> m_UniformLocationCache;
 
     private:
+        int GetUniformLocation(const std::string& name) const;
         bool LoadFileAndTimestamp(const std::string& path, std::string& outSource, std::filesystem::file_time_type& outWriteTime);
         std::string LoadFile(const std::string& path);
         unsigned int CompileShader(unsigned int type, const std::string& src);
@@ -71,5 +78,6 @@ namespace MyEngine
 
     private:
         static bool s_AutoHotReloadEnabled;
+        static bool s_UniformLocationCacheEnabled;
     };
 }

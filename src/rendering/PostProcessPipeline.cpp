@@ -51,10 +51,20 @@ namespace MyEngine
 
 	void PostProcessPipeline::Resize(unsigned int width, unsigned int height)
 	{
-		if (width == m_Width && height == m_Height)
+		if (width == m_OutputWidth && height == m_OutputHeight)
 			return;
 
 		CreateFramebuffers(width, height);
+	}
+
+	void PostProcessPipeline::SetRenderScale(float scale)
+	{
+		scale = std::clamp(scale, 0.5f, 1.0f);
+		if (scale == m_RenderScale)
+			return;
+		m_RenderScale = scale;
+		if (m_OutputWidth > 0 && m_OutputHeight > 0)
+			CreateFramebuffers(m_OutputWidth, m_OutputHeight);
 	}
 
 	void PostProcessPipeline::DestroyFramebuffers()
@@ -97,6 +107,10 @@ namespace MyEngine
 
 		DestroyFramebuffers();
 
+		m_OutputWidth = width;
+		m_OutputHeight = height;
+		width = std::max(1u, static_cast<unsigned int>(static_cast<float>(width) * m_RenderScale));
+		height = std::max(1u, static_cast<unsigned int>(static_cast<float>(height) * m_RenderScale));
 		m_Width = width;
 		m_Height = height;
 
@@ -202,8 +216,8 @@ namespace MyEngine
 			// Last written target holds the final blurred bloom result.
 			bloomResultTexture = m_PingPongTextures[horizontal ? 0 : 1];
 
-			// Restore full-resolution viewport for the final composite pass.
-			glViewport(0, 0, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
+			// Restore output-resolution viewport for the final composite pass.
+			glViewport(0, 0, static_cast<GLsizei>(m_OutputWidth), static_cast<GLsizei>(m_OutputHeight));
 		}
 
 		// 3) Final composite: tone mapping + gamma correction (+ bloom add)

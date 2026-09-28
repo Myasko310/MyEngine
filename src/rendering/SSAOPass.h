@@ -53,6 +53,13 @@ namespace MyEngine
 		void  SetPower(float p)   { m_Power   = p; }
 		float GetPower()    const { return m_Power; }
 
+		// Render the g-buffer geometry pre-pass at half resolution
+		void SetHalfResolutionGBuffer(bool enabled);
+		bool GetHalfResolutionGBuffer() const { return m_HalfResGBuffer; }
+
+		void SetSampleCount(int count) { m_SampleCount = count == 32 ? 32 : 64; }
+		int GetSampleCount() const { return m_SampleCount; }
+
 		// Returns the g-buffer shader so MeshRendererSystem can render geometry
 		// into the g-buffer with the correct shader.
 		Shader* GetGBufferShader() const { return m_GBufferShader.get(); }
@@ -67,6 +74,9 @@ namespace MyEngine
 	private:
 		unsigned int m_Width  = 0;
 		unsigned int m_Height = 0;
+		unsigned int m_GBufferWidth  = 0;
+		unsigned int m_GBufferHeight = 0;
+		bool m_HalfResGBuffer = false;
 
 		// G-buffer: view-space position (RGB16F) + view-space normal (RGB16F)
 		unsigned int m_GBufferFBO       = 0;
@@ -101,5 +111,6 @@ namespace MyEngine
 		float m_Radius = 0.5f;
 		float m_Bias   = 0.025f;
 		float m_Power  = 1.5f;
+		int m_SampleCount = 64;
 	};
 }

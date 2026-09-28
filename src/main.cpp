@@ -88,6 +88,8 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "editor/EditorStyle.h"
+#include "editor/EditorUILayout.h"
+#include "editor/PanelDockManager.h"
 #endif
 #ifdef USE_IMGUIZMO
 #include "ImGuizmo.h"
@@ -100,6 +102,7 @@
 #include "systems/NavMeshSystem.h"
 #include "components/TerrainComponent.h"
 #include "components/MovingPlatformComponent.h"
+#include "rendering/GpuProfiler.h"
 #include "components/RigidbodyComponent.h"
 #include "components/NavigationAgentComponent.h"
 #include "rendering/PostProcessPipeline.h"
@@ -615,6 +618,12 @@ int main(int argc, char** argv)
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     ApplyEditorTheme();
+
+    // Enable docking support (must be called after CreateContext)
+    SetupDocking();
+
+    // Initialize editor UI layout system
+    MyEngine::Editor::Layout::InitializeLayout(g_WindowWidth, g_WindowHeight);
 
     // Try to make the process per-monitor DPI aware on Windows so framebuffer
     // sizes reported by GLFW reflect the actual DPI scaling.
@@ -2840,6 +2849,19 @@ int main(int argc, char** argv)
             source->RemoveComponent<CollisionEventsComponent>();
         }
 
+        // Sync light positions from their transform components before saving
+        // so that runtime position changes are persisted to the JSON file.
+        for (auto& e : prefabScene.GetEntities())
+            if (e && e->HasComponent<LightComponent>() && e->HasComponent<TransformComponent>())
+            {
+                auto& light = e->GetComponent<LightComponent>();
+                if (light.type == LightComponent::Type::Point || light.type == LightComponent::Type::Spot)
+                {
+                    glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(prefabScene, *e);
+                    light.position = glm::vec3(worldMatrix[3]);
+                }
+            }
+
         if (!MyEngine::Serialization::SaveScene(prefabScene, prefabInfo.sourcePrefabPath))
         {
             outMessage = "Failed to save prefab file.";
@@ -3061,10 +3083,6 @@ int main(int argc, char** argv)
     float memoryWorkingSetMB = 0.0f;
     float memoryPrivateMB = 0.0f;
     FramePacingDiagnostics framePacingDiagnostics{};
-
-    GLuint gpuFrameQueries[2] = { 0, 0 };
-    glGenQueries(2, gpuFrameQueries);
-    int gpuQueryWriteIndex = 0;
 
     // Writes the current performance history buffers to a CSV file.
     auto exportPerformanceCsv = [&]() -> bool
@@ -3354,6 +3372,19 @@ int main(int argc, char** argv)
 
             if (!currentScenePath.empty())
             {
+                // Sync light positions from their transform components before saving
+                // so that runtime position changes are persisted to the JSON file.
+                for (auto& e : scene.GetEntities())
+                    if (e && e->HasComponent<LightComponent>() && e->HasComponent<TransformComponent>())
+                    {
+                        auto& light = e->GetComponent<LightComponent>();
+                        if (light.type == LightComponent::Type::Point || light.type == LightComponent::Type::Spot)
+                        {
+                            glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *e);
+                            light.position = glm::vec3(worldMatrix[3]);
+                        }
+                    }
+
                 MyEngine::Serialization::SaveScene(scene, currentScenePath, globalScripts);
                 AddRecentScene(recentScenes, currentScenePath);
                 UpdateWindowTitle(window, currentScenePath);
@@ -4123,16 +4154,6 @@ int main(int argc, char** argv)
         renderDocCapture.BeginFrameCapture();
 #endif
         auto cpuRenderStart = std::chrono::high_resolution_clock::now();
-        const int gpuQueryReadIndex = (gpuQueryWriteIndex + 1) % 2;
-        GLuint gpuQueryAvailable = 0;
-        glGetQueryObjectuiv(gpuFrameQueries[gpuQueryReadIndex], GL_QUERY_RESULT_AVAILABLE, &gpuQueryAvailable);
-        if (gpuQueryAvailable)
-        {
-            GLuint64 elapsedNanoseconds = 0;
-            glGetQueryObjectui64v(gpuFrameQueries[gpuQueryReadIndex], GL_QUERY_RESULT, &elapsedNanoseconds);
-            gpuFrameMs = static_cast<float>(elapsedNanoseconds / 1000000.0);
-        }
-        glBeginQuery(GL_TIME_ELAPSED, gpuFrameQueries[gpuQueryWriteIndex]);
 
         if (postProcessEnabled)
         {
@@ -4174,6 +4195,10 @@ int main(int argc, char** argv)
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+
+        // Create main editor dockspace (enables panel docking)
+        ImGuiID dockspace_id = CreateEditorDockSpace();
+        (void)dockspace_id; // Suppress unused warning if docking disabled
 
         MyEngine::Editor::StopPlayPromptContext stopPlayPromptContext;
         stopPlayPromptContext.isPlaying = &isPlaying;
@@ -4248,6 +4273,19 @@ int main(int argc, char** argv)
 
                     if (!currentScenePath.empty())
                     {
+                        // Sync light positions from their transform components before saving
+                        // so that runtime position changes are persisted to the JSON file.
+                        for (auto& e : scene.GetEntities())
+                            if (e && e->HasComponent<LightComponent>() && e->HasComponent<TransformComponent>())
+                            {
+                                auto& light = e->GetComponent<LightComponent>();
+                                if (light.type == LightComponent::Type::Point || light.type == LightComponent::Type::Spot)
+                                {
+                                    glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *e);
+                                    light.position = glm::vec3(worldMatrix[3]);
+                                }
+                            }
+
                         MyEngine::Serialization::SaveScene(scene, currentScenePath, globalScripts);
                         AddRecentScene(recentScenes, currentScenePath);
                         UpdateWindowTitle(window, currentScenePath);
@@ -4258,6 +4296,19 @@ int main(int argc, char** argv)
                     std::string path = MyEngine::FileDialog::SaveSceneFile();
                     if (!path.empty())
                     {
+                        // Sync light positions from their transform components before saving
+                        // so that runtime position changes are persisted to the JSON file.
+                        for (auto& e : scene.GetEntities())
+                            if (e && e->HasComponent<LightComponent>() && e->HasComponent<TransformComponent>())
+                            {
+                                auto& light = e->GetComponent<LightComponent>();
+                                if (light.type == LightComponent::Type::Point || light.type == LightComponent::Type::Spot)
+                                {
+                                    glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *e);
+                                    light.position = glm::vec3(worldMatrix[3]);
+                                }
+                            }
+
                         MyEngine::Serialization::SaveScene(scene, path, globalScripts);
                         currentScenePath = path;
                         AddRecentScene(recentScenes, currentScenePath);
@@ -4431,6 +4482,16 @@ int main(int argc, char** argv)
             }
 
             // ============================================================
+            // Update Panel Dock Manager with current viewport size
+            // ============================================================
+            MyEngine::Editor::PanelDockManager::Instance().SetViewportSize(
+                static_cast<float>(g_WindowWidth),
+                static_cast<float>(g_WindowHeight)
+            );
+
+            // ============================================================
+            // Toolbar Panel
+            // ============================================================
             MyEngine::Editor::Panels::DrawToolbarPanel(editorContext);
 
             // ============================================================
@@ -4439,12 +4500,16 @@ int main(int argc, char** argv)
             MyEngine::Editor::Panels::DrawAssetBrowserPanel(editorContext);
 
             // ============================================================
+            // Scene Hierarchy Panel
+            // ============================================================
+            MyEngine::Editor::Panels::DrawSceneHierarchyPanel(editorContext);
+
+            // ============================================================
             // Material Browser Panel
             // ============================================================
             MyEngine::Editor::Panels::DrawMaterialBrowserPanel(editorContext);
 
             MyEngine::Editor::Panels::DrawAnimationStateMachinePanel(editorContext);
-            MyEngine::Editor::Panels::DrawSceneHierarchyPanel(editorContext);
 
             // ============================================================
             // Inspector Panel
@@ -4453,7 +4518,7 @@ int main(int argc, char** argv)
             {
                 ImGui::SetNextWindowPos(ImVec2(g_WindowWidth - 410, 30), ImGuiCond_FirstUseEver);
                 ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
-                ImGui::Begin("Inspector", &showInspector);
+                ImGui::Begin("Inspector", &showInspector, MyEngine::Editor::DockablePanelFlags);
 
                 if (selectedEntity)
                 {
@@ -6046,6 +6111,66 @@ int main(int argc, char** argv)
                 if (ImGui::SliderFloat("Directional Shadow Bias", &shadowBias, 0.0001f, 0.02f, "%.4f"))
                     renderSystem.SetShadowBias(shadowBias);
 
+                ImGui::Text("FPS: %.1f (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / std::max(ImGui::GetIO().Framerate, 0.001f));
+                if (ImGui::TreeNode("GPU Pass Timings"))
+                {
+                    bool gpuTimersEnabled = MyEngine::GpuProfiler::Get().IsEnabled();
+                    if (ImGui::Checkbox("Enable GPU Timers", &gpuTimersEnabled))
+                        MyEngine::GpuProfiler::Get().SetEnabled(gpuTimersEnabled);
+                    const auto& profiler = MyEngine::GpuProfiler::Get();
+                    if (!profiler.IsSupported())
+                        ImGui::TextDisabled("GPU timestamp queries unavailable or not initialized.");
+                    else if (profiler.GetResultFrame() == 0)
+                        ImGui::TextDisabled("Waiting for a complete GPU frame...");
+                    if (!gpuTimersEnabled)
+                        ImGui::TextDisabled("Timers disabled; showing last completed capture.");
+                    ImGui::Text("Scene GPU frame: %.3f ms", profiler.GetFrameMs());
+                    ImGui::Text("Capture %llu, %llu frames old, SSAO %d samples",
+                        static_cast<unsigned long long>(profiler.GetResultFrame()),
+                        static_cast<unsigned long long>(profiler.GetResultAge()),
+                        profiler.GetResultSampleCount());
+                    ImGui::TextWrapped("Unsmoothed, same-frame timings. Excludes UI/present and initial target clear. Keep camera and other settings fixed for comparison.");
+                    float passTotal = 0.0f;
+                    for (const auto& pass : MyEngine::GpuProfiler::Get().GetResults())
+                    {
+                        ImGui::Text("%-30s %7.3f ms", pass.name.c_str(), pass.ms);
+                        passTotal += pass.ms;
+                    }
+                    ImGui::Separator();
+                    ImGui::Text("%-30s %7.3f ms", "Sum of passes", passTotal);
+                    ImGui::TreePop();
+                }
+                static bool performanceMode = false;
+                if (ImGui::Checkbox("Performance Mode", &performanceMode))
+                {
+                    renderSystem.SetNumCascades(performanceMode ? 3 : 4);
+                    renderSystem.SetPointShadowPCFSamples(performanceMode ? 10 : 20);
+                    renderSystem.SetWorldMatrixCacheEnabled(performanceMode);
+                    renderSystem.SetSSAOHalfResolution(performanceMode);
+                    MyEngine::Shader::SetUniformLocationCacheEnabled(performanceMode);
+                    postProcess.SetRenderScale(performanceMode ? 0.85f : 1.0f);
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("3 cascades, 10 point-shadow PCF samples, world matrix cache,\nhalf-res SSAO g-buffer, uniform location cache, 85%% render scale");
+
+                bool ssaoHalfRes = renderSystem.GetSSAOHalfResolution();
+                if (ImGui::Checkbox("SSAO Half Resolution", &ssaoHalfRes))
+                    renderSystem.SetSSAOHalfResolution(ssaoHalfRes);
+
+                int ssaoQuality = renderSystem.GetSSAOSampleCount() == 32 ? 1 : 0;
+                if (ImGui::Combo("SSAO Samples", &ssaoQuality, "64 (Reference)\00032 (Performance)\000"))
+                    renderSystem.SetSSAOSampleCount(ssaoQuality == 1 ? 32 : 64);
+
+                bool uniformCache = MyEngine::Shader::GetUniformLocationCacheEnabled();
+                if (ImGui::Checkbox("Uniform Location Cache", &uniformCache))
+                    MyEngine::Shader::SetUniformLocationCacheEnabled(uniformCache);
+
+                float renderScale = postProcess.GetRenderScale();
+                if (ImGui::SliderFloat("Render Scale", &renderScale, 0.5f, 1.0f, "%.2f"))
+                    postProcess.SetRenderScale(renderScale);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Requires post-processing enabled");
+
                 int numCascades = renderSystem.GetNumCascades();
                 if (ImGui::SliderInt("Cascades", &numCascades, 1, 4))
                     renderSystem.SetNumCascades(numCascades);
@@ -6854,12 +6979,21 @@ int main(int argc, char** argv)
 
         glCommandExecutor.ExecuteWithDrawScaffold(drawCommands, [&]()
         {
+            MyEngine::GpuProfiler::Get().BeginFrame(renderSystem.GetSSAOSampleCount());
+            gpuFrameMs = MyEngine::GpuProfiler::Get().GetFrameMs();
             renderSystem.Render(scene, view, projection);
 
             // Particles are rendered after opaque geometry and before skybox
             // so they alpha-blend correctly over solid surfaces.
-            particleSystem.Render(scene, view, projection);
-            terrainSystem.Render(scene, view, projection, glm::vec3(glm::inverse(view)[3]), litShader);
+            {
+                MyEngine::ScopedGpuTimer gpuTimer("Particles");
+                particleSystem.Render(scene, view, projection);
+            }
+            {
+                MyEngine::ScopedGpuTimer gpuTimer("Terrain");
+                terrainSystem.Render(scene, view, projection, glm::vec3(glm::inverse(view)[3]), litShader);
+            }
+            MyEngine::GpuProfiler::Get().Begin("Skybox");
 
             // Skybox is drawn after opaque geometry
             // is currently bound - the HDR post-process target or the default
@@ -6879,17 +7013,18 @@ int main(int argc, char** argv)
             {
                 skybox.Render(view, projection);
             }
+            MyEngine::GpuProfiler::Get().End("Skybox");
 
             if (postProcessEnabled)
             {
+                MyEngine::ScopedGpuTimer gpuTimer("Post-Process (Bloom/Tonemap)");
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 glViewport(0, 0, g_WindowWidth, g_WindowHeight);
                 postProcess.Composite();
             }
         });
 
-        glEndQuery(GL_TIME_ELAPSED);
-        gpuQueryWriteIndex = (gpuQueryWriteIndex + 1) % 2;
+        MyEngine::GpuProfiler::Get().EndFrame();
         cpuRenderMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuRenderStart).count();
 
 #ifdef _WIN32
@@ -7113,8 +7248,7 @@ int main(int argc, char** argv)
     ImGui::DestroyContext();
 #endif
 
-    if (gpuFrameQueries[0] != 0 || gpuFrameQueries[1] != 0)
-        glDeleteQueries(2, gpuFrameQueries);
+    MyEngine::GpuProfiler::Get().Shutdown();
 
     pluginManager.UnloadAll();
     MyEngine::Net::NetPluginRegistry::Clear();

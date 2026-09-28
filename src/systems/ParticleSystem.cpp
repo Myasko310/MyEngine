@@ -5,6 +5,7 @@
 #include "ecs/Scene.h"
 #include "rendering/Shader.h"
 #include "rendering/Texture.h"
+#include "renderer/FrustumCuller.h"
 
 #include <glad/glad.h>
 #include <glm/glm.hpp>
@@ -310,6 +311,12 @@ namespace MyEngine
 		glm::vec3 camRight(view[0][0], view[1][0], view[2][0]);
 		glm::vec3 camUp   (view[0][1], view[1][1], view[2][1]);
 
+		FrustumCuller frustum;
+		frustum.Update(projection * view);
+		// Enclose all four corners using the same basis and offsets as particle.vert.
+		const float billboardRadius = 0.5f * std::max(
+			glm::length(camRight + camUp), glm::length(camRight - camUp));
+
 		m_Impl->shader->Use();
 		m_Impl->shader->SetMat4("u_View",       view);
 		m_Impl->shader->SetMat4("u_Projection", projection);
@@ -328,6 +335,27 @@ namespace MyEngine
 			if (!entityPtr->HasComponent<ParticleEmitterComponent>()) continue;
 
 			auto& emitter = entityPtr->GetComponent<ParticleEmitterComponent>();
+
+			// Cull rendering only; offscreen particles continue simulating normally.
+			m_Impl->instanceBuffer.clear();
+			for (const auto& p : emitter.particles)
+			{
+				if (!p.alive) continue;
+
+				float t = p.lifetime > 0.0f ? (p.age / p.lifetime) : 1.0f;
+				t = std::clamp(t, 0.0f, 1.0f);
+				float size = glm::mix(p.sizeStart, p.sizeEnd, t);
+				if (!frustum.IsSphereVisible(p.position, std::abs(size) * billboardRadius))
+					continue;
+
+				InstanceData inst;
+				inst.position = p.position;
+				inst.size = size;
+				inst.color = glm::mix(p.colorStart, p.colorEnd, t);
+				m_Impl->instanceBuffer.push_back(inst);
+			}
+
+			if (m_Impl->instanceBuffer.empty()) continue;
 
 			// Load texture if not yet done
 			if (!emitter.texturePath.empty() && emitter.textureID == 0)
@@ -362,24 +390,6 @@ namespace MyEngine
 				glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 			else
 				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-			// Build instance buffer for alive particles
-			m_Impl->instanceBuffer.clear();
-			for (const auto& p : emitter.particles)
-			{
-				if (!p.alive) continue;
-
-				float t = p.lifetime > 0.0f ? (p.age / p.lifetime) : 1.0f;
-				t = std::clamp(t, 0.0f, 1.0f);
-
-				InstanceData inst;
-				inst.position = p.position;
-				inst.size     = glm::mix(p.sizeStart, p.sizeEnd, t);
-				inst.color    = glm::mix(p.colorStart, p.colorEnd, t);
-				m_Impl->instanceBuffer.push_back(inst);
-			}
-
-			if (m_Impl->instanceBuffer.empty()) continue;
 
 			// Upload instance data
 			glBindBuffer(GL_ARRAY_BUFFER, m_Impl->instanceVBO);

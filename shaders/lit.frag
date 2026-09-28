@@ -306,7 +306,11 @@ void main()
 	for (int i = 0; i < u_NumPointLights; ++i)
 	{
 		vec3 toLight = u_PointLightPos[i] - v_Position;
-		float dist = length(toLight);
+		float distanceSquared = dot(toLight, toLight);
+		float lightRange = max(u_PointLightRange[i], 0.001);
+		if (distanceSquared >= lightRange * lightRange)
+			continue;
+		float dist = sqrt(distanceSquared);
 		vec3 Lp = toLight / max(dist, 0.0001);
 		float atten = AttenuationFromRange(dist, u_PointLightRange[i]);
 

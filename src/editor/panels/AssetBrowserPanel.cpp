@@ -17,6 +17,7 @@
 #include "core/AssetManager.h"
 #include "core/AssetPipeline.h"
 #include "editor/EditorStyle.h"
+#include "editor/PanelDockManager.h"
 #include "rendering/Skeleton.h"
 #include "serialization/SceneSerializer.h"
 
@@ -34,9 +35,10 @@ namespace MyEngine::Editor::Panels
 		if (!ui.showAssetBrowser)
 			return;
 
-		ImGui::SetNextWindowPos(ImVec2(10, 440), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
-		ImGui::Begin("Asset Browser", &ui.showAssetBrowser);
+		// Use panel dock manager to position this panel in the left sidebar
+		PanelDockManager::Instance().SnapPanel("Asset Browser");
+
+		ImGui::Begin("Asset Browser", &ui.showAssetBrowser, MyEngine::Editor::DockablePanelFlags);
 
 		auto& pipeline = MyEngine::AssetPipeline::Get();
 		pipeline.Tick();
@@ -56,8 +58,13 @@ namespace MyEngine::Editor::Panels
 		};
 
 		ImGui::TextDisabled("Browse project assets and double-click to open or apply supported files.");
+		ImGui::Spacing();
+
+		SectionHeader("Asset Search", "🔍");
 		ImGui::SetNextItemWidth(-1.0f);
-		ImGui::InputTextWithHint("##assetBrowserFilter", "Filter assets or folders", assetFilter, sizeof(assetFilter));
+		ImGui::InputTextWithHint("##assetBrowserFilter", "Filter assets or folders...", assetFilter, sizeof(assetFilter));
+
+		ImGui::Spacing();
 		if (InspectorActionButton("Scan Asset Metadata##assetPipelineScan"))
 			pipeline.ScanAssets("assets");
 		if (InspectorActionButton("Queue Folder Imports##assetPipelineQueueFolder") &&
@@ -70,12 +77,34 @@ namespace MyEngine::Editor::Panels
 			}
 		}
 
-		ImGui::TextDisabled("Jobs - Pending: %d  Completed: %d  Failed: %d  Duplicates: %d",
-			pipeline.GetPendingJobCount(),
-			pipeline.GetCompletedJobCount(),
-			pipeline.GetFailedJobCount(),
-			pipeline.GetDeduplicatedJobCount());
-		if (InspectorActionButton("Cancel Queued Imports##assetPipelineCancel"))
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::Spacing();
+
+		// Pipeline Statistics
+		SectionHeader("Import Pipeline", "⚙️");
+		int pendingJobs = pipeline.GetPendingJobCount();
+		int completedJobs = pipeline.GetCompletedJobCount();
+		int failedJobs = pipeline.GetFailedJobCount();
+
+		StatusIndicator("Pending", GetThemeColor("info"));
+		ImGui::SameLine();
+		ImGui::Text("%d", pendingJobs);
+
+		StatusIndicator("Completed", GetThemeColor("success"));
+		ImGui::SameLine();
+		ImGui::Text("%d", completedJobs);
+
+		if (failedJobs > 0)
+		{
+			StatusIndicator("Failed", GetThemeColor("error"));
+			ImGui::SameLine();
+			ImGui::Text("%d", failedJobs);
+		}
+
+		ImGui::Text("Duplicates: %d", pipeline.GetDeduplicatedJobCount());
+
+		if (ImGui::Button("Cancel Queued Imports"))
 			pipeline.ClearQueuedImports();
 
 		if (ImGui::CollapsingHeader("Asset Pipeline##assetPipelineStatus"))

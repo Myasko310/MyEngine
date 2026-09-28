@@ -48,6 +48,11 @@ namespace MyEngine
 		unsigned int GetSceneTexture() const { return m_SceneColorTexture; }
 		unsigned int GetBloomTexture() const { return m_PingPongTextures[0]; }
 
+		// Internal 3D render resolution as a fraction of the output size (0.5 - 1.0).
+		// The composite pass upscales to the full output with bilinear filtering.
+		void SetRenderScale(float scale);
+		float GetRenderScale() const { return m_RenderScale; }
+
 	private:
 		void CreateFramebuffers(unsigned int width, unsigned int height);
 		void DestroyFramebuffers();
@@ -56,6 +61,9 @@ namespace MyEngine
 	private:
 		unsigned int m_Width = 0;
 		unsigned int m_Height = 0;
+		unsigned int m_OutputWidth = 0;
+		unsigned int m_OutputHeight = 0;
+		float m_RenderScale = 1.0f;
 
 		// Bloom/blur is done at a reduced resolution to avoid the heavy cost
 		// of running many full-resolution ping-pong blur passes every frame.

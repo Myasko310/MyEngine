@@ -26,6 +26,7 @@
 #include "rendering/ShadowMap.h"
 #include "rendering/PointShadowMap.h"
 #include "rendering/Shader.h"
+#include "rendering/GpuProfiler.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/norm.hpp>
 #include "renderer/FrustumCuller.h"
@@ -136,6 +137,18 @@ void MeshRendererSystem::SetPointShadowPCFSamples(int samples)
 int MeshRendererSystem::GetPointShadowPCFSamples() const
 {
     return m_Impl ? m_Impl->pointShadowPCFSamples : 20;
+}
+
+void MeshRendererSystem::SetWorldMatrixCacheEnabled(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->worldMatrixCacheEnabled = enabled;
+    m_Impl->worldMatrixCache.clear();
+}
+
+bool MeshRendererSystem::GetWorldMatrixCacheEnabled() const
+{
+    return m_Impl ? m_Impl->worldMatrixCacheEnabled : false;
 }
 
 void MeshRendererSystem::SetPointShadowPCFRadius(float radius)
@@ -376,6 +389,20 @@ void MeshRendererSystem::SetSSAOEnabled(bool enabled)
 }
 bool MeshRendererSystem::GetSSAOEnabled() const { return m_Impl ? m_Impl->ssaoEnabled : false; }
 
+void MeshRendererSystem::SetSSAOHalfResolution(bool enabled)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->ssaoPass.SetHalfResolutionGBuffer(enabled);
+}
+bool MeshRendererSystem::GetSSAOHalfResolution() const { return m_Impl ? m_Impl->ssaoPass.GetHalfResolutionGBuffer() : false; }
+
+void MeshRendererSystem::SetSSAOSampleCount(int count)
+{
+    if (!m_Impl) m_Impl = std::make_unique<Impl>();
+    m_Impl->ssaoPass.SetSampleCount(count);
+}
+int MeshRendererSystem::GetSSAOSampleCount() const { return m_Impl ? m_Impl->ssaoPass.GetSampleCount() : 64; }
+
 void MeshRendererSystem::SetSSAORadius(float r)
 {
     if (!m_Impl) m_Impl = std::make_unique<Impl>();
@@ -402,6 +429,19 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 {
     if (!m_Impl)
         m_Impl = std::make_unique<Impl>();
+
+    m_Impl->worldMatrixCache.clear();
+    auto worldOf = [&](const Entity& e) -> glm::mat4
+    {
+        if (!m_Impl->worldMatrixCacheEnabled)
+            return TransformHierarchy::GetWorldMatrix(scene, e);
+        auto it = m_Impl->worldMatrixCache.find(&e);
+        if (it != m_Impl->worldMatrixCache.end())
+            return it->second;
+        glm::mat4 wm = TransformHierarchy::GetWorldMatrix(scene, e);
+        m_Impl->worldMatrixCache.emplace(&e, wm);
+        return wm;
+    };
 
     // Static resources: depth shaders and shadow maps
     static std::shared_ptr<MyEngine::Shader> depthShader = nullptr;
@@ -519,6 +559,12 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     };
     static const std::array<std::string, kMaxPointLights> pointLightShadowMapUniformNames = {
         "u_PointShadowMap[0]", "u_PointShadowMap[1]", "u_PointShadowMap[2]", "u_PointShadowMap[3]"
+    };
+    static const std::array<std::string, kMaxPointLights> pointShadowPCFSamplesUniformNames = {
+        "u_PointShadowPCFSamplesPerLight[0]", "u_PointShadowPCFSamplesPerLight[1]", "u_PointShadowPCFSamplesPerLight[2]", "u_PointShadowPCFSamplesPerLight[3]"
+    };
+    static const std::array<std::string, kMaxPointLights> pointShadowPCFRadiusUniformNames = {
+        "u_PointShadowPCFRadiusPerLight[0]", "u_PointShadowPCFRadiusPerLight[1]", "u_PointShadowPCFRadiusPerLight[2]", "u_PointShadowPCFRadiusPerLight[3]"
     };
     static const std::array<std::string, kMaxSpotLights> spotLightPosUniformNames = {
         "u_SpotLightPos[0]", "u_SpotLightPos[1]", "u_SpotLightPos[2]", "u_SpotLightPos[3]"
@@ -747,6 +793,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         MyEngine::Shader* gbufShader = m_Impl->ssaoPass.GetGBufferShader();
         if (gbufShader)
         {
+            MyEngine::GpuProfiler::Get().Begin("SSAO: Geometry");
             m_Impl->ssaoPass.BeginGeometryPass();
             glEnable(GL_DEPTH_TEST);
             gbufShader->Use();
@@ -760,13 +807,14 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 if (!mr.visible) continue;
                 auto& mc = entity->GetComponent<MeshComponent>();
                 if (!mc.mesh) continue;
-                glm::mat4 wm = TransformHierarchy::GetWorldMatrix(scene, *entity);
+                glm::mat4 wm = worldOf(*entity);
                 gbufShader->SetMat4("u_Model",      wm);
                 gbufShader->SetMat4("u_View",       view);
                 gbufShader->SetMat4("u_Projection", projection);
                 mc.mesh->Draw();
             }
             m_Impl->ssaoPass.EndGeometryPass();
+            MyEngine::GpuProfiler::Get().End("SSAO: Geometry");
             // Run the SSAO + blur passes
             m_Impl->ssaoPass.Compute(projection, view);
             // Restore viewport/FBO for subsequent passes
@@ -782,6 +830,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     }
 
     // 1) CSM: Render a depth pass for each cascade from the light's perspective
+    MyEngine::GpuProfiler::Get().Begin("Shadows: Directional");
     auto directionalShadowStart = std::chrono::high_resolution_clock::now();
     if (m_Impl && m_Impl->shadowsEnabled && foundDirectional && directionalCastShadows)
     {
@@ -806,8 +855,10 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                     continue;
                 if (!entity->HasComponent<TransformComponent>())
                     continue;
+                if (!entity->HasComponent<MeshComponent>() || !entity->HasComponent<MeshRendererComponent>())
+                    continue;
 
-                glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
+                glm::mat4 worldMatrix = worldOf(*entity);
                 if (entity->HasComponent<BoundingSphereComponent>())
                 {
                     auto& bs = entity->GetComponent<BoundingSphereComponent>();
@@ -870,7 +921,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 }
 
                 depthShader->SetMat4("u_LightSpace", cascadeLightSpaceMatrices[ci]);
-                depthShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
+                depthShader->SetMat4("u_Model", worldOf(*entity));
                 terrain.mesh->Draw();
                 if (m_Impl)
                     ++m_Impl->shadowDiagnostics.directionalCasters;
@@ -887,7 +938,10 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         m_Impl->shadowDiagnostics.directionalMs = std::chrono::duration<float, std::milli>(directionalShadowEnd - directionalShadowStart).count();
     }
 
+    MyEngine::GpuProfiler::Get().End("Shadows: Directional");
+
     // 2) Render point light depth cubemaps (for point lights that cast shadows)
+    MyEngine::GpuProfiler::Get().Begin("Shadows: Point");
     auto pointShadowStart = std::chrono::high_resolution_clock::now();
     if (m_Impl && m_Impl->pointShadowsEnabled)
     {
@@ -955,7 +1009,19 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 if (!meshComponent.mesh || !renderer.visible)
                     continue;
 
-                glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
+                glm::mat4 worldMatrix = worldOf(*entity);
+                if (entity->HasComponent<BoundingSphereComponent>())
+                {
+                    auto& bs = entity->GetComponent<BoundingSphereComponent>();
+                    glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(bs.center, 1.0f));
+                    float worldRadius = bs.radius * glm::compMax(glm::vec3(
+                        glm::length(glm::vec3(worldMatrix[0])),
+                        glm::length(glm::vec3(worldMatrix[1])),
+                        glm::length(glm::vec3(worldMatrix[2]))));
+                    float reach = pointFarPlane + worldRadius;
+                    if (glm::length2(worldCenter - pointLights[i].pos) > reach * reach)
+                        continue;
+                }
                 pointDepthShader->SetMat4("u_Model", worldMatrix);
                 meshComponent.mesh->Draw();
                 if (m_Impl)
@@ -972,7 +1038,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 if (!terrain.mesh)
                     continue;
 
-                pointDepthShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
+                pointDepthShader->SetMat4("u_Model", worldOf(*entity));
                 terrain.mesh->Draw();
                 if (m_Impl)
                     ++m_Impl->shadowDiagnostics.pointCasters;
@@ -993,7 +1059,10 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         m_Impl->shadowDiagnostics.pointMs = std::chrono::duration<float, std::milli>(pointShadowEnd - pointShadowStart).count();
     }
 
+    MyEngine::GpuProfiler::Get().End("Shadows: Point");
+
     // 2b) Render spot light shadow maps (2D depth map per shadow-casting spot)
+    MyEngine::GpuProfiler::Get().Begin("Shadows: Spot");
     auto spotShadowStart = std::chrono::high_resolution_clock::now();
     if (m_Impl && m_Impl->spotShadowsEnabled)
     {
@@ -1061,7 +1130,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 if (!meshComponent.mesh || !renderer.visible)
                     continue;
 
-                glm::mat4 worldMatrix = TransformHierarchy::GetWorldMatrix(scene, *entity);
+                glm::mat4 worldMatrix = worldOf(*entity);
                 if (entity->HasComponent<BoundingSphereComponent>())
                 {
                     auto& bs = entity->GetComponent<BoundingSphereComponent>();
@@ -1115,7 +1184,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 }
 
                 depthShader->SetMat4("u_LightSpace", spotLightSpace);
-                depthShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
+                depthShader->SetMat4("u_Model", worldOf(*entity));
                 terrain.mesh->Draw();
                 if (m_Impl)
                     ++m_Impl->shadowDiagnostics.spotCasters;
@@ -1135,9 +1204,12 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         m_Impl->shadowDiagnostics.spotMs = std::chrono::duration<float, std::milli>(spotShadowEnd - spotShadowStart).count();
     }
 
+    MyEngine::GpuProfiler::Get().End("Shadows: Spot");
+
     // Restore the caller's framebuffer binding (may be an offscreen HDR
     // target used by the post-process pipeline, not necessarily 0).
     glBindFramebuffer(GL_FRAMEBUFFER, callerFBO);
+    MyEngine::GpuProfiler::Get().Begin("Main Lighting");
 
     // Restore polygon offset and face culling (enable back-face culling for
     // the main pass)
@@ -1213,7 +1285,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
             const auto& bs = entity->GetComponent<BoundingSphereComponent>();
             const auto bounds = MyEngine::TransformSphereBounds(
-                TransformHierarchy::GetWorldMatrix(scene, *entity), bs.center, std::max(bs.radius, 0.001f));
+                worldOf(*entity), bs.center, std::max(bs.radius, 0.001f));
             float dist = glm::length(viewPos - bounds.center);
             float radius = bounds.radius;
             bool frustumVisible = cameraCuller.IsSphereVisible(bounds.center, radius);
@@ -1381,7 +1453,7 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
         activeShader->Use();
 
-        activeShader->SetMat4("u_Model", TransformHierarchy::GetWorldMatrix(scene, *entity));
+        activeShader->SetMat4("u_Model", worldOf(*entity));
         activeShader->SetMat4("u_View", view);
         activeShader->SetMat4("u_Projection", projection);
 
@@ -1504,8 +1576,8 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             float effectiveRadius = (pointLights[i].pcfRadiusOverride > 0.0f)
                 ? pointLights[i].pcfRadiusOverride
                 : (m_Impl ? m_Impl->pointShadowPCFRadius : 0.02f);
-            activeShader->SetInt(("u_PointShadowPCFSamplesPerLight[" + std::to_string(i) + "]").c_str(), effectiveSamples);
-            activeShader->SetFloat(("u_PointShadowPCFRadiusPerLight[" + std::to_string(i) + "]").c_str(), effectiveRadius);
+            activeShader->SetInt(pointShadowPCFSamplesUniformNames[i], effectiveSamples);
+            activeShader->SetFloat(pointShadowPCFRadiusUniformNames[i], effectiveRadius);
 
             int pointShadowUnit = std::max(nextTextureUnit, 1);
             activeShader->SetInt(pointLightShadowMapUniformNames[i], pointShadowUnit);
@@ -1667,4 +1739,5 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
     }
+    MyEngine::GpuProfiler::Get().End("Main Lighting");
 }

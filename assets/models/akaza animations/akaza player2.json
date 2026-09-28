@@ -77,9 +77,9 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -1.3480769395828247,
-                    2.3744664192199707,
-                    7.751226425170898
+                    6.673463821411133,
+                    2.311225175857544,
+                    6.280725955963135
                 ],
                 "rotation": [
                     0.0,
@@ -1734,9 +1734,9 @@
                 ],
                 "intensity": 1.0,
                 "direction": [
-                    0.45502957701683044,
-                    -0.3420201241970062,
-                    0.8221741318702698
+                    0.47637733817100525,
+                    -0.11793331056833267,
+                    0.8712958097457886
                 ],
                 "position": [
                     0.0,
@@ -9973,6 +9973,1458 @@
                 ],
                 "radius": 0.8660253882408142,
                 "isTrigger": false
+            }
+        },
+        {
+            "id": 260,
+            "name": "Mech_WestElevator",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -12.0,
+                    0.15000000596046448,
+                    -40.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    3.0,
+                    0.30000001192092896,
+                    3.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MovingPlatformComponent": {
+                "type": 2,
+                "active": true,
+                "pingPong": true,
+                "autoReturn": true,
+                "startPosition": [
+                    -12.0,
+                    0.15000000596046448,
+                    -40.0
+                ],
+                "endPosition": [
+                    -12.0,
+                    4.0,
+                    -40.0
+                ],
+                "speed": 1.600000023841858,
+                "waitTime": 1.5
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.3499999940395355,
+                    0.41999998688697815,
+                    0.5
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    0.5,
+                    0.5,
+                    0.5
+                ],
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 261,
+            "name": "Mech_EastElevator",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    12.0,
+                    4.0,
+                    -40.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    3.0,
+                    0.30000001192092896,
+                    3.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MovingPlatformComponent": {
+                "type": 2,
+                "active": true,
+                "pingPong": true,
+                "autoReturn": true,
+                "startPosition": [
+                    12.0,
+                    4.0,
+                    -40.0
+                ],
+                "endPosition": [
+                    12.0,
+                    0.15000000596046448,
+                    -40.0
+                ],
+                "speed": 1.600000023841858,
+                "waitTime": 1.5
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.3499999940395355,
+                    0.41999998688697815,
+                    0.5
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    0.5,
+                    0.5,
+                    0.5
+                ],
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 262,
+            "name": "Mech_WestElevatorShaftA",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -13.699999809265137,
+                    2.5,
+                    -40.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.30000001192092896,
+                    5.0,
+                    0.30000001192092896
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.25,
+                    0.2199999988079071,
+                    0.20000000298023224
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    0.5,
+                    0.5,
+                    0.5
+                ],
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 263,
+            "name": "Mech_EastElevatorShaftA",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    13.699999809265137,
+                    2.5,
+                    -40.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.30000001192092896,
+                    5.0,
+                    0.30000001192092896
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.25,
+                    0.2199999988079071,
+                    0.20000000298023224
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    0.5,
+                    0.5,
+                    0.5
+                ],
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 264,
+            "name": "Mech_SkyBridge",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -8.5,
+                    4.0,
+                    -40.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    3.5,
+                    0.30000001192092896,
+                    3.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MovingPlatformComponent": {
+                "type": 0,
+                "active": true,
+                "pingPong": true,
+                "autoReturn": true,
+                "startPosition": [
+                    -8.5,
+                    4.0,
+                    -40.0
+                ],
+                "endPosition": [
+                    8.5,
+                    4.0,
+                    -40.0
+                ],
+                "speed": 2.200000047683716,
+                "waitTime": 1.0
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.550000011920929,
+                    0.4000000059604645,
+                    0.25
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    0.5,
+                    0.5,
+                    0.5
+                ],
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 265,
+            "name": "Mech_CrusherWest",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -16.0,
+                    3.5999999046325684,
+                    -8.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    2.4000000953674316,
+                    1.2000000476837158,
+                    2.4000000953674316
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MovingPlatformComponent": {
+                "type": 1,
+                "active": true,
+                "pingPong": true,
+                "autoReturn": true,
+                "startPosition": [
+                    -16.0,
+                    3.5999999046325684,
+                    -8.0
+                ],
+                "endPosition": [
+                    -16.0,
+                    0.6000000238418579,
+                    -8.0
+                ],
+                "speed": 5.0,
+                "waitTime": 1.2000000476837158
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.44999998807907104,
+                    0.11999999731779099,
+                    0.10000000149011612
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    0.5,
+                    0.5,
+                    0.5
+                ],
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 266,
+            "name": "Mech_CrusherEast",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    16.0,
+                    0.6000000238418579,
+                    -8.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    2.4000000953674316,
+                    1.2000000476837158,
+                    2.4000000953674316
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MovingPlatformComponent": {
+                "type": 1,
+                "active": true,
+                "pingPong": true,
+                "autoReturn": true,
+                "startPosition": [
+                    16.0,
+                    0.6000000238418579,
+                    -8.0
+                ],
+                "endPosition": [
+                    16.0,
+                    3.5999999046325684,
+                    -8.0
+                ],
+                "speed": 5.0,
+                "waitTime": 1.2000000476837158
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.44999998807907104,
+                    0.11999999731779099,
+                    0.10000000149011612
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    0.5,
+                    0.5,
+                    0.5
+                ],
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 267,
+            "name": "Mech_SweeperHub",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    0.8999999761581421,
+                    -22.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.399999976158142,
+                    1.7999999523162842,
+                    1.399999976158142
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.30000001192092896,
+                    0.2800000011920929,
+                    0.3199999928474426
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    0.5,
+                    0.5,
+                    0.5
+                ],
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": false
+            }
+        },
+        {
+            "id": 268,
+            "name": "Mech_SweeperArmLow",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    0.3499999940395355,
+                    -22.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.5132007002830505,
+                    0.0
+                ],
+                "scale": [
+                    14.0,
+                    0.30000001192092896,
+                    0.4000000059604645
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.8500000238418579,
+                    0.550000011920929,
+                    0.10000000149011612
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": true
+            },
+            "CollisionEvents": {
+                "enabled": true
+            },
+            "Script": {
+                "scriptPath": "assets/scripts/arena_sweeper.lua",
+                "enabled": true,
+                "autoStart": true
+            }
+        },
+        {
+            "id": 269,
+            "name": "Mech_SweeperArmHigh",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    1.5,
+                    -22.0
+                ],
+                "rotation": [
+                    0.0,
+                    5.513373374938965,
+                    0.0
+                ],
+                "scale": [
+                    10.0,
+                    0.25,
+                    0.30000001192092896
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.8500000238418579,
+                    0.20000000298023224,
+                    0.10000000149011612
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": true
+            },
+            "CollisionEvents": {
+                "enabled": true
+            },
+            "Script": {
+                "scriptPath": "assets/scripts/arena_sweeper_reverse.lua",
+                "enabled": true,
+                "autoStart": true
+            }
+        },
+        {
+            "id": 270,
+            "name": "Mech_FireVent1",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -14.0,
+                    0.029999999329447746,
+                    -18.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.600000023841858,
+                    0.05999999865889549,
+                    1.600000023841858
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.07999999821186066,
+                    0.07000000029802322,
+                    0.07000000029802322
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": true
+            },
+            "ParticleEmitter": {
+                "maxParticles": 220,
+                "spawnRate": 70.0,
+                "emitting": true,
+                "shape": 2,
+                "shapeRadius": 0.5,
+                "shapeExtents": [
+                    0.6000000238418579,
+                    0.05000000074505806,
+                    0.6000000238418579
+                ],
+                "shapeHeight": 1.0,
+                "colorStart": [
+                    1.0,
+                    0.6499999761581421,
+                    0.15000000596046448,
+                    1.0
+                ],
+                "colorEnd": [
+                    0.8999999761581421,
+                    0.10000000149011612,
+                    0.0,
+                    0.0
+                ],
+                "sizeStart": 0.3499999940395355,
+                "sizeEnd": 0.05000000074505806,
+                "lifetime": 1.100000023841858,
+                "lifetimeVariance": 0.4000000059604645,
+                "emitDirection": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "emitSpeed": 3.200000047683716,
+                "emitSpeedVariance": 1.0,
+                "spreadAngle": 14.0,
+                "gravity": [
+                    0.0,
+                    0.6000000238418579,
+                    0.0
+                ]
+            }
+        },
+        {
+            "id": 271,
+            "name": "Mech_FireVentLight1",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    -14.0,
+                    1.2000000476837158,
+                    -18.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "Light": {
+                "type": 1,
+                "color": [
+                    1.0,
+                    0.550000011920929,
+                    0.20000000298023224
+                ],
+                "intensity": 2.200000047683716,
+                "direction": [
+                    0.0,
+                    -1.0,
+                    0.0
+                ],
+                "position": [
+                    -14.0,
+                    1.2000000476837158,
+                    -18.0
+                ],
+                "range": 9.0,
+                "innerCone": 12.5,
+                "outerCone": 17.5,
+                "shadowBias": 0.004999999888241291,
+                "castShadows": false,
+                "pointShadowSizeOverride": 0,
+                "pointShadowPCFSamplesOverride": 0,
+                "pointShadowPCFRadiusOverride": -1.0,
+                "spotShadowSizeOverride": 0,
+                "spotShadowPCFRadiusOverride": -1.0
+            }
+        },
+        {
+            "id": 272,
+            "name": "Mech_FireVent2",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    14.0,
+                    0.029999999329447746,
+                    -18.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.600000023841858,
+                    0.05999999865889549,
+                    1.600000023841858
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.07999999821186066,
+                    0.07000000029802322,
+                    0.07000000029802322
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": true
+            },
+            "ParticleEmitter": {
+                "maxParticles": 220,
+                "spawnRate": 70.0,
+                "emitting": true,
+                "shape": 2,
+                "shapeRadius": 0.5,
+                "shapeExtents": [
+                    0.6000000238418579,
+                    0.05000000074505806,
+                    0.6000000238418579
+                ],
+                "shapeHeight": 1.0,
+                "colorStart": [
+                    1.0,
+                    0.6499999761581421,
+                    0.15000000596046448,
+                    1.0
+                ],
+                "colorEnd": [
+                    0.8999999761581421,
+                    0.10000000149011612,
+                    0.0,
+                    0.0
+                ],
+                "sizeStart": 0.3499999940395355,
+                "sizeEnd": 0.05000000074505806,
+                "lifetime": 1.100000023841858,
+                "lifetimeVariance": 0.4000000059604645,
+                "emitDirection": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "emitSpeed": 3.200000047683716,
+                "emitSpeedVariance": 1.0,
+                "spreadAngle": 14.0,
+                "gravity": [
+                    0.0,
+                    0.6000000238418579,
+                    0.0
+                ]
+            }
+        },
+        {
+            "id": 273,
+            "name": "Mech_FireVentLight2",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    14.0,
+                    1.2000000476837158,
+                    -18.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "Light": {
+                "type": 1,
+                "color": [
+                    1.0,
+                    0.550000011920929,
+                    0.20000000298023224
+                ],
+                "intensity": 2.200000047683716,
+                "direction": [
+                    0.0,
+                    -1.0,
+                    0.0
+                ],
+                "position": [
+                    14.0,
+                    1.2000000476837158,
+                    -18.0
+                ],
+                "range": 9.0,
+                "innerCone": 12.5,
+                "outerCone": 17.5,
+                "shadowBias": 0.004999999888241291,
+                "castShadows": false,
+                "pointShadowSizeOverride": 0,
+                "pointShadowPCFSamplesOverride": 0,
+                "pointShadowPCFRadiusOverride": -1.0,
+                "spotShadowSizeOverride": 0,
+                "spotShadowPCFRadiusOverride": -1.0
+            }
+        },
+        {
+            "id": 274,
+            "name": "Mech_FireVent3",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    0.029999999329447746,
+                    -4.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.600000023841858,
+                    0.05999999865889549,
+                    1.600000023841858
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.07999999821186066,
+                    0.07000000029802322,
+                    0.07000000029802322
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": true
+            },
+            "ParticleEmitter": {
+                "maxParticles": 220,
+                "spawnRate": 70.0,
+                "emitting": true,
+                "shape": 2,
+                "shapeRadius": 0.5,
+                "shapeExtents": [
+                    0.6000000238418579,
+                    0.05000000074505806,
+                    0.6000000238418579
+                ],
+                "shapeHeight": 1.0,
+                "colorStart": [
+                    1.0,
+                    0.6499999761581421,
+                    0.15000000596046448,
+                    1.0
+                ],
+                "colorEnd": [
+                    0.8999999761581421,
+                    0.10000000149011612,
+                    0.0,
+                    0.0
+                ],
+                "sizeStart": 0.3499999940395355,
+                "sizeEnd": 0.05000000074505806,
+                "lifetime": 1.100000023841858,
+                "lifetimeVariance": 0.4000000059604645,
+                "emitDirection": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "emitSpeed": 3.200000047683716,
+                "emitSpeedVariance": 1.0,
+                "spreadAngle": 14.0,
+                "gravity": [
+                    0.0,
+                    0.6000000238418579,
+                    0.0
+                ]
+            }
+        },
+        {
+            "id": 275,
+            "name": "Mech_FireVentLight3",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    1.2000000476837158,
+                    -4.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "Light": {
+                "type": 1,
+                "color": [
+                    1.0,
+                    0.550000011920929,
+                    0.20000000298023224
+                ],
+                "intensity": 2.200000047683716,
+                "direction": [
+                    0.0,
+                    -1.0,
+                    0.0
+                ],
+                "position": [
+                    0.0,
+                    1.2000000476837158,
+                    -4.0
+                ],
+                "range": 9.0,
+                "innerCone": 12.5,
+                "outerCone": 17.5,
+                "shadowBias": 0.004999999888241291,
+                "castShadows": false,
+                "pointShadowSizeOverride": 0,
+                "pointShadowPCFSamplesOverride": 0,
+                "pointShadowPCFRadiusOverride": -1.0,
+                "spotShadowSizeOverride": 0,
+                "spotShadowPCFRadiusOverride": -1.0
+            }
+        },
+        {
+            "id": 276,
+            "name": "Mech_FireVent4",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    0.029999999329447746,
+                    -34.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.600000023841858,
+                    0.05999999865889549,
+                    1.600000023841858
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.07999999821186066,
+                    0.07000000029802322,
+                    0.07000000029802322
+                ],
+                "shininess": 32.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 0.8660253882408142,
+                "isTrigger": true
+            },
+            "ParticleEmitter": {
+                "maxParticles": 220,
+                "spawnRate": 70.0,
+                "emitting": true,
+                "shape": 2,
+                "shapeRadius": 0.5,
+                "shapeExtents": [
+                    0.6000000238418579,
+                    0.05000000074505806,
+                    0.6000000238418579
+                ],
+                "shapeHeight": 1.0,
+                "colorStart": [
+                    1.0,
+                    0.6499999761581421,
+                    0.15000000596046448,
+                    1.0
+                ],
+                "colorEnd": [
+                    0.8999999761581421,
+                    0.10000000149011612,
+                    0.0,
+                    0.0
+                ],
+                "sizeStart": 0.3499999940395355,
+                "sizeEnd": 0.05000000074505806,
+                "lifetime": 1.100000023841858,
+                "lifetimeVariance": 0.4000000059604645,
+                "emitDirection": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "emitSpeed": 3.200000047683716,
+                "emitSpeedVariance": 1.0,
+                "spreadAngle": 14.0,
+                "gravity": [
+                    0.0,
+                    0.6000000238418579,
+                    0.0
+                ]
+            }
+        },
+        {
+            "id": 277,
+            "name": "Mech_FireVentLight4",
+            "tag": "ArenaMechanics",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    0.0,
+                    1.2000000476837158,
+                    -34.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "parentID": 0
+            },
+            "Light": {
+                "type": 1,
+                "color": [
+                    1.0,
+                    0.550000011920929,
+                    0.20000000298023224
+                ],
+                "intensity": 2.200000047683716,
+                "direction": [
+                    0.0,
+                    -1.0,
+                    0.0
+                ],
+                "position": [
+                    0.0,
+                    1.2000000476837158,
+                    -34.0
+                ],
+                "range": 9.0,
+                "innerCone": 12.5,
+                "outerCone": 17.5,
+                "shadowBias": 0.004999999888241291,
+                "castShadows": false,
+                "pointShadowSizeOverride": 0,
+                "pointShadowPCFSamplesOverride": 0,
+                "pointShadowPCFRadiusOverride": -1.0,
+                "spotShadowSizeOverride": 0,
+                "spotShadowPCFRadiusOverride": -1.0
             }
         }
     ],

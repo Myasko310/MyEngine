@@ -159,6 +159,8 @@ set(SOURCES
     src/network/ServerNetworkSystem.cpp
     src/plugins/PluginManager.cpp
     src/editor/EditorStyle.cpp
+    src/editor/EditorUILayout.cpp
+    src/editor/PanelDockManager.cpp
     src/editor/PlayModeSession.cpp
     src/editor/FrameTimingDisplay.cpp
     src/editor/panels/AnimationStateMachinePanel.cpp
@@ -305,7 +307,11 @@ endif()
 target_include_directories(MyEngine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vendor/imgui
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vendor/imgui/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+# Enable ImGui docking feature
+target_compile_definitions(MyEngine PRIVATE IMGUI_USER_CONFIG="imgui_config.h")
 
 # ============================================================
 # Link Libraries

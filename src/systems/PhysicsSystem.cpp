@@ -272,6 +272,8 @@ namespace MyEngine
 		bool attack2Pressed = false;
 		bool attack3Pressed = false;
 		bool genericAttackPressed = false;
+		bool dodgePressed = false;
+		bool vaultPressed = false;
 
 		if (authoritativeInput)
 		{
@@ -279,6 +281,8 @@ namespace MyEngine
 			moveRight = authoritativeInput->moveAxis.x;
 			jumpDown = authoritativeInput->jumpPressed;
 			jumpPressed = authoritativeInput->jumpPressed;
+			dodgePressed = authoritativeInput->dodgePressed;
+			vaultPressed = authoritativeInput->vaultPressed;
 		}
 		else
 		{
@@ -286,6 +290,8 @@ namespace MyEngine
 			moveRight = InputActions::GetAxis("MoveRight");
 			jumpDown = InputActions::IsAction("Jump");
 			jumpPressed = InputActions::IsActionPressed("Jump");
+			dodgePressed = InputActions::IsActionPressed("Dodge");
+			vaultPressed = InputActions::IsActionPressed("Vault");
 		}
 
 		// Attack inputs are polled locally for now so combat remains responsive in
@@ -315,6 +321,8 @@ namespace MyEngine
 				? authoritativeInput->sprintPressed : InputActions::IsActionPressed("Sprint"));
 			controller.slideRequested |= newMovementCommand && (authoritativeInput
 				? authoritativeInput->slidePressed : InputActions::IsActionPressed("Crouch"));
+			controller.dodgeRequested |= newMovementCommand && dodgePressed;
+			controller.vaultRequested |= newMovementCommand && vaultPressed;
 			controller.crouchHeld = authoritativeInput ? authoritativeInput->crouchHeld : InputActions::IsAction("Crouch");
 			controller.hasMovementInputTick = authoritativeInput != nullptr;
 			if (authoritativeInput)
@@ -446,6 +454,18 @@ namespace MyEngine
 		bool foundHit = false;
 		outPenetration = 0.0f;
 		glm::vec3 bestSupportVelocity(0.0f);
+		// Shared contact ranking logic (also suitable for future vault contact checks).
+		auto considerContact = [&](const glm::vec3& normal, float penetration, const glm::vec3& supportVelocity)
+		{
+			if (!foundHit || penetration > outPenetration ||
+				(std::abs(penetration - outPenetration) < 0.0001f && glm::dot(normal, glm::vec3(0.0f, 1.0f, 0.0f)) > glm::dot(outNormal, glm::vec3(0.0f, 1.0f, 0.0f))))
+			{
+				foundHit = true;
+				outNormal = normal;
+				outPenetration = penetration;
+				bestSupportVelocity = supportVelocity;
+			}
+		};
 		for (const auto& other : scene.GetEntities())
 		{
 			if (!other || other.get() == entity.get() || !other->HasComponent<TransformComponent>())
@@ -491,20 +511,36 @@ namespace MyEngine
 					sphere.radius * glm::compMax(otherScale),
 					normal, penetration);
 			}
+			else if (other->HasComponent<MeshColliderComponent>())
+			{
+				const auto& mesh = other->GetComponent<MeshColliderComponent>();
+				if (mesh.isTrigger)
+					continue;
+				const glm::mat4 world = TransformHierarchy::GetWorldMatrix(scene, *other);
+				for (const auto& triangle : mesh.triangles)
+				{
+					glm::vec3 candidateNormal;
+					float candidatePenetration = 0.0f;
+					if (CheckCapsuleMeshCollision(segA, segB, radius,
+						glm::vec3(world * glm::vec4(triangle[0], 1.0f)),
+						glm::vec3(world * glm::vec4(triangle[1], 1.0f)),
+						glm::vec3(world * glm::vec4(triangle[2], 1.0f)), candidateNormal, candidatePenetration) &&
+						(!hit || candidatePenetration > penetration))
+					{
+						hit = true;
+						normal = candidateNormal;
+						penetration = candidatePenetration;
+					}
+				}
+			}
 
 			if (!hit)
 				continue;
 
-			if (!foundHit || penetration > outPenetration ||
-				(std::abs(penetration - outPenetration) < 0.0001f && glm::dot(normal, glm::vec3(0.0f, 1.0f, 0.0f)) > glm::dot(outNormal, glm::vec3(0.0f, 1.0f, 0.0f))))
-			{
-				foundHit = true;
-				outNormal = normal;
-				outPenetration = penetration;
-				bestSupportVelocity = glm::vec3(0.0f);
-				if (other->HasComponent<RigidbodyComponent>())
-					bestSupportVelocity = other->GetComponent<RigidbodyComponent>().velocity;
-			}
+			glm::vec3 supportVelocity(0.0f);
+			if (other->HasComponent<RigidbodyComponent>())
+				supportVelocity = other->GetComponent<RigidbodyComponent>().velocity;
+			considerContact(normal, penetration, supportVelocity);
 		}
 
 		if (outSupportVelocity)
@@ -548,6 +584,9 @@ namespace MyEngine
 				if (other->HasComponent<TransformComponent>())
 					terrainWorldPos = other->GetComponent<TransformComponent>().position;
 
+				if (std::abs(supportWorldX - terrainWorldPos.x) > terrain.width * 0.5f ||
+					std::abs(supportWorldZ - terrainWorldPos.z) > terrain.depth * 0.5f)
+					continue;
 				const float sampledHeight = TerrainSystem::SampleHeight(terrain, supportWorldX, supportWorldZ, terrainWorldPos);
 				const float penetration = sampledHeight - supportFootY;
 				if (penetration < -0.05f)
@@ -608,10 +647,11 @@ namespace MyEngine
 			}
 		}
 
-		if (!hitPair && hitTerrain && !hitPlane)
+		if (!hitPlane && hitPair && hitTerrain && preferCandidate(terrainNormal, terrainPenetration))
 		{
 			outNormal = terrainNormal;
 			outPenetration = terrainPenetration;
+			chosenSupportVelocity = glm::vec3(0.0f);
 		}
 
 		if (outSupportVelocity)
@@ -684,6 +724,249 @@ namespace MyEngine
 		controller.isOnSteepSlope = originalSteep;
 		rb.velocity.y = originalVerticalVelocity;
 		return false;
+	}
+
+	bool PhysicsSystem::QueryVaultContact(Scene& scene, const std::shared_ptr<Entity>& entity, const glm::vec3& position, glm::vec3& normal, float& penetration) const
+	{
+		auto& transform = entity->GetComponent<TransformComponent>();
+		const glm::vec3 savedPosition = transform.position;
+		transform.position = position;
+		const bool hit = QueryCharacterSupport(scene, entity, normal, penetration);
+		transform.position = savedPosition;
+		return hit;
+	}
+
+	bool PhysicsSystem::FindVaultLanding(Scene& scene, const std::shared_ptr<Entity>& entity, const CharacterControllerComponent& controller, glm::vec3& position, float minimumY) const
+	{
+		const float step = std::max(entity->GetComponent<CapsuleColliderComponent>().radius * 0.2f, 0.001f);
+		const float startY = position.y;
+		const int samples = static_cast<int>(std::ceil((startY - minimumY) / step));
+		if (samples < 0 || samples > 4096)
+			return false;
+		for (int i = 0; i <= samples; ++i)
+		{
+			position.y = std::max(minimumY, startY - i * step);
+			glm::vec3 normal;
+			float penetration = 0.0f;
+			if (!QueryVaultContact(scene, entity, position, normal, penetration) || penetration < 0.0f)
+				continue;
+			if (!IsWalkableSlope(normal, controller.maxSlopeAngleDegrees))
+				return false;
+			position += normal * (penetration + std::max(controller.skinWidth, 0.005f));
+			return !QueryVaultContact(scene, entity, position, normal, penetration) || penetration <= 0.001f;
+		}
+		return false;
+	}
+
+	glm::vec3 PhysicsSystem::SampleVaultPosition(const CharacterControllerComponent& controller, float t)
+	{
+		if (controller.vaultPath.empty())
+			return controller.vaultStartPosition;
+		const float distance = std::clamp(t, 0.0f, 1.0f) * controller.vaultPath.back().w;
+		const auto next = std::lower_bound(controller.vaultPath.begin(), controller.vaultPath.end(), distance,
+			[](const glm::vec4& point, float value) { return point.w < value; });
+		if (next == controller.vaultPath.begin())
+			return glm::vec3(*next);
+		if (next == controller.vaultPath.end())
+			return controller.vaultEndPosition;
+		const auto& previous = *(next - 1);
+		return glm::mix(glm::vec3(previous), glm::vec3(*next),
+			(distance - previous.w) / std::max(next->w - previous.w, 0.000001f));
+	}
+
+	glm::vec3 PhysicsSystem::GetCharacterRenderPosition(const Entity& entity) const
+	{
+		const auto& position = entity.GetComponent<TransformComponent>().position;
+		if (!entity.HasComponent<CharacterControllerComponent>())
+			return position;
+		const auto& controller = entity.GetComponent<CharacterControllerComponent>();
+		if (!controller.hasPhysicsPosition || fixedTimestep <= 0.0f)
+			return position;
+		return glm::mix(controller.previousPhysicsPosition, position, std::clamp(accumulator / fixedTimestep, 0.0f, 1.0f));
+	}
+
+	bool PhysicsSystem::TryBeginVault(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, const glm::vec3& moveInput) const
+	{
+		if (!controller.enableVault || controller.isVaulting || !controller.vaultRequested || !controller.isGrounded ||
+			controller.jumpRequested || controller.vaultCooldownTimer > 0.0f || controller.vaultDuration <= 0.0f || controller.vaultForwardDistance <= 0.0f)
+			return false;
+		if (!entity || !entity->HasComponent<TransformComponent>() || !entity->HasComponent<CapsuleColliderComponent>())
+			return false;
+
+		glm::vec3 forward = FlattenToPlane(moveInput, glm::vec3(0.0f, 1.0f, 0.0f));
+		if (glm::length(forward) < 0.1f)
+			return false;
+		forward = glm::normalize(forward);
+
+		auto& transform = entity->GetComponent<TransformComponent>();
+		const auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
+		const float radius = std::max(capsule.radius, 0.001f);
+		const float footOffset = std::max(capsule.pointA.y, radius) - radius;
+		const float footY = transform.position.y + footOffset;
+		const float margin = std::max(controller.skinWidth, 0.005f) + 0.02f;
+		float nearest = controller.vaultForwardDistance;
+		float farEdge = 0.0f;
+		float bestTopY = 0.0f;
+		bool foundObstacle = false;
+		for (const auto& other : scene.GetEntities())
+		{
+			if (!other || other.get() == entity.get() || !other->HasComponent<BoxColliderComponent>() || !other->HasComponent<TransformComponent>())
+				continue;
+			const auto& box = other->GetComponent<BoxColliderComponent>();
+			if (box.isTrigger)
+				continue;
+
+			glm::vec3 boundsMin, boundsMax;
+			if (!ComputeColliderAABB(scene, other, boundsMin, boundsMax))
+				continue;
+			if (boundsMax.y - footY < controller.vaultMinHeight)
+				continue;
+			float entry = 0.0f;
+			float exit = std::numeric_limits<float>::max();
+			for (int axis : { 0, 2 })
+			{
+				const float lower = boundsMin[axis] - radius - margin;
+				const float upper = boundsMax[axis] + radius + margin;
+				if (std::abs(forward[axis]) < 0.0001f)
+				{
+					if (transform.position[axis] < lower || transform.position[axis] > upper)
+						exit = -1.0f;
+					continue;
+				}
+				const float a = (lower - transform.position[axis]) / forward[axis];
+				const float b = (upper - transform.position[axis]) / forward[axis];
+				entry = std::max(entry, std::min(a, b));
+				exit = std::min(exit, std::max(a, b));
+			}
+			if (entry <= exit && exit > 0.0f && entry <= nearest)
+			{
+				foundObstacle = true;
+				nearest = entry;
+				farEdge = exit;
+				bestTopY = boundsMax.y;
+			}
+		}
+
+		// Bound the traversal separately from the approach probe; do not vault across entire buildings.
+		if (!foundObstacle || bestTopY - footY > controller.vaultMaxHeight ||
+			farEdge > std::max(controller.vaultForwardDistance * 4.0f, radius * 4.0f))
+			return false;
+
+		CharacterControllerComponent path = controller;
+		path.vaultStartPosition = transform.position;
+		path.vaultHeight = bestTopY - footY + std::max(controller.vaultArcHeight, margin);
+		path.vaultEndPosition = transform.position + forward * (farEdge + margin);
+		path.vaultEndPosition.y += path.vaultHeight;
+		if (!FindVaultLanding(scene, entity, controller, path.vaultEndPosition, transform.position.y - controller.vaultMaxHeight))
+			return false;
+		const float travel = glm::length(glm::vec2(path.vaultEndPosition.x - transform.position.x, path.vaultEndPosition.z - transform.position.z));
+		const float lift = std::max(path.vaultHeight, path.vaultStartPosition.y + path.vaultHeight - path.vaultEndPosition.y);
+		const float sampleStep = std::max(radius * 0.2f, 0.001f);
+		// Round the lift/traverse/landing joins inside the clearance envelope. Store
+		// cumulative distance so neither the joins nor the endpoints introduce a dwell.
+		path.vaultPath.clear();
+		path.vaultPath.reserve(66);
+		auto appendPoint = [&](const glm::vec3& point)
+		{
+			const float distance = path.vaultPath.empty() ? 0.0f :
+				path.vaultPath.back().w + glm::length(point - glm::vec3(path.vaultPath.back()));
+			path.vaultPath.emplace_back(point, distance);
+		};
+		const glm::vec3 raisedStart = path.vaultStartPosition + glm::vec3(0.0f, path.vaultHeight, 0.0f);
+		const glm::vec3 liftEnd = raisedStart + forward * (nearest + margin * 0.5f);
+		glm::vec3 raisedEnd = path.vaultEndPosition;
+		raisedEnd.y = raisedStart.y;
+		const glm::vec3 landStart = raisedEnd - forward * margin;
+		for (int i = 0; i <= 32; ++i)
+		{
+			const float u = static_cast<float>(i) / 32;
+			appendPoint(glm::mix(glm::mix(path.vaultStartPosition, raisedStart, u), glm::mix(raisedStart, liftEnd, u), u));
+		}
+		appendPoint(landStart);
+		for (int i = 1; i <= 32; ++i)
+		{
+			const float u = static_cast<float>(i) / 32;
+			appendPoint(glm::mix(glm::mix(landStart, raisedEnd, u), glm::mix(raisedEnd, path.vaultEndPosition, u), u));
+		}
+		const int samples = std::max(1, static_cast<int>(std::ceil(path.vaultPath.back().w / sampleStep)));
+		if (samples > 4096)
+			return false;
+		for (int i = 0; i <= samples; ++i)
+		{
+			glm::vec3 normal;
+			float penetration = 0.0f;
+			if (QueryVaultContact(scene, entity, SampleVaultPosition(path, static_cast<float>(i) / samples), normal, penetration) && penetration > 0.001f)
+				return false;
+		}
+		controller.vaultStartPosition = path.vaultStartPosition;
+		controller.vaultEndPosition = path.vaultEndPosition;
+		controller.vaultHeight = path.vaultHeight;
+		controller.vaultPath = std::move(path.vaultPath);
+		controller.vaultMotionDuration = std::max(controller.vaultDuration,
+			(travel + 2.0f * lift) / std::max(controller.moveSpeed * 2.0f, 1.0f));
+		controller.isVaulting = true;
+		controller.vaultTimer = controller.vaultMotionDuration;
+		controller.vaultElapsed = 0.0f;
+		controller.isSliding = false;
+		controller.isDodging = false;
+		controller.isSprinting = false;
+		controller.sprintLatched = false;
+		controller.slideTimer = 0.0f;
+		controller.dodgeTimer = 0.0f;
+		return true;
+	}
+
+	void PhysicsSystem::UpdateVaultMotion(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb, float dt) const
+	{
+		if (!controller.isVaulting || dt <= 0.0f)
+			return;
+		auto& transform = entity->GetComponent<TransformComponent>();
+		const float duration = std::max(controller.vaultMotionDuration, 0.0001f);
+		const glm::vec3 previousPosition = transform.position;
+		const float previousT = controller.vaultElapsed / duration;
+		controller.vaultElapsed = std::min(controller.vaultElapsed + dt, duration);
+		controller.vaultTimer = std::max(0.0f, duration - controller.vaultElapsed);
+		const float t = std::clamp(controller.vaultElapsed / duration, 0.0f, 1.0f);
+		const float distanceBound = controller.vaultPath.empty() ? 0.0f : controller.vaultPath.back().w;
+		const float sampleStep = std::max(entity->GetComponent<CapsuleColliderComponent>().radius * 0.2f, 0.001f);
+		const int samples = std::max(1, static_cast<int>(std::ceil(distanceBound * (t - previousT) / sampleStep)));
+		bool blocked = false;
+		for (int i = 1; i <= samples; ++i)
+		{
+			const glm::vec3 candidate = SampleVaultPosition(controller, glm::mix(previousT, t, static_cast<float>(i) / samples));
+			glm::vec3 normal;
+			float penetration = 0.0f;
+			if (QueryVaultContact(scene, entity, candidate, normal, penetration) && penetration > 0.001f)
+			{
+				blocked = true;
+				break;
+			}
+			transform.position = candidate;
+		}
+		rb.velocity = (transform.position - previousPosition) / dt;
+		if (blocked || t >= 1.0f)
+		{
+			controller.isVaulting = false;
+			controller.vaultTimer = 0.0f;
+			controller.vaultCooldownTimer = std::max(controller.vaultCooldown, 0.0f);
+			rb.velocity = glm::vec3(0.0f);
+			glm::vec3 normal;
+			float penetration = 0.0f;
+			controller.isGrounded = QueryVaultContact(scene, entity,
+				transform.position - glm::vec3(0.0f, std::max(controller.skinWidth, 0.005f) + 0.002f, 0.0f), normal, penetration) &&
+				IsWalkableSlope(normal, controller.maxSlopeAngleDegrees);
+			if (controller.isGrounded)
+				controller.groundNormal = normal;
+			if (!blocked && controller.isGrounded)
+			{
+				glm::vec3 exitDirection = FlattenToPlane(controller.vaultEndPosition - controller.vaultStartPosition, glm::vec3(0, 1, 0));
+				if (glm::length(exitDirection) > 0.0001f)
+				{
+					exitDirection = glm::normalize(exitDirection);
+					rb.velocity = exitDirection * controller.moveSpeed * std::clamp(glm::dot(controller.moveInput, exitDirection), 0.0f, 1.0f);
+				}
+			}
+		}
 	}
 
 	void PhysicsSystem::UpdateControllerAnimationState(const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller) const
@@ -787,6 +1070,16 @@ namespace MyEngine
 			if (parameter.type == AnimationStateMachineParameterType::Bool)
 				value.boolValue = controller.isSliding;
 		});
+		setParameterByName("IsDodging", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Bool)
+				value.boolValue = controller.isDodging;
+		});
+		setParameterByName("IsVaulting", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Bool)
+				value.boolValue = controller.isVaulting;
+		});
 
 		// Update Fight/Attack parameter from action bindings
 		{
@@ -813,6 +1106,8 @@ namespace MyEngine
 			auto& transform = entity->GetComponent<TransformComponent>();
 			auto& rb = entity->GetComponent<RigidbodyComponent>();
 			rb.isKinematic = true;
+			controller.previousPhysicsPosition = transform.position;
+			controller.hasPhysicsPosition = true;
 
 			controller.wasGrounded = controller.isGrounded;
 			const bool wasGroundedLastFrame = controller.wasGrounded;
@@ -867,6 +1162,8 @@ namespace MyEngine
 
 			glm::vec3 horizontalVelocity(rb.velocity.x, 0.0f, rb.velocity.z);
 			controller.slideCooldownTimer = std::max(0.0f, controller.slideCooldownTimer - dt);
+			controller.dodgeCooldownTimer = std::max(0.0f, controller.dodgeCooldownTimer - dt);
+			controller.vaultCooldownTimer = std::max(0.0f, controller.vaultCooldownTimer - dt);
 			if (controller.enableSprintSlide && controller.sprintRequested)
 				controller.sprintLatched = !controller.sprintLatched;
 			controller.sprintRequested = false;
@@ -881,8 +1178,52 @@ namespace MyEngine
 					controller.slideCooldownTimer = std::max(controller.slideCooldown, 0.0f);
 				}
 			}
+			if (controller.isDodging)
+			{
+				controller.dodgeTimer = std::max(0.0f, controller.dodgeTimer - dt);
+				if (!controller.enableDodge || !controller.isGrounded || controller.jumpRequested || controller.dodgeTimer <= 0.0f)
+				{
+					controller.isDodging = false;
+					controller.dodgeCooldownTimer = std::max(controller.dodgeCooldown, 0.0f);
+				}
+			}
+			if (controller.enableDodge && controller.dodgeRequested && !controller.isDodging && !controller.isSliding && !controller.isVaulting &&
+				controller.isGrounded && !controller.jumpRequested && controller.dodgeCooldownTimer <= 0.0f && controller.dodgeDuration > 0.0f)
+			{
+				glm::vec3 dodgeDirection = moveInput;
+				if (glm::length(dodgeDirection) < 0.1f)
+					dodgeDirection = glm::vec3(std::sin(transform.rotation.y), 0.0f, std::cos(transform.rotation.y));
+				if (glm::length(dodgeDirection) > 0.0001f)
+					dodgeDirection = glm::normalize(dodgeDirection);
+				controller.isDodging = true;
+				controller.dodgeTimer = controller.dodgeDuration;
+				controller.dodgeDirection = dodgeDirection;
+				controller.dodgeEntrySpeed = std::max(glm::length(horizontalVelocity), controller.moveSpeed) *
+					std::clamp(controller.dodgeSpeedMultiplier, 1.2f, 3.5f);
+				controller.isSliding = false;
+				controller.slideTimer = 0.0f;
+				controller.sprintLatched = false;
+				controller.isSprinting = false;
+			}
+			if (!controller.isDodging && !controller.isSliding)
+				TryBeginVault(scene, entity, controller, moveInput);
+			if (controller.isVaulting)
+			{
+				controller.isGrounded = false;
+				controller.isSprinting = false;
+				controller.isSliding = false;
+				controller.isDodging = false;
+				controller.slideRequested = false;
+				controller.dodgeRequested = false;
+				controller.vaultRequested = false;
+				controller.jumpRequested = false;
+				UpdateVaultMotion(scene, entity, controller, rb, dt);
+				controller.currentSpeed = glm::length(glm::vec2(rb.velocity.x, rb.velocity.z));
+				UpdateControllerAnimationState(entity, controller);
+				continue;
+			}
 			if (controller.enableSprintSlide && controller.isSprinting && controller.sprintLatched &&
-				glm::length(moveInput) >= 0.1f && controller.slideRequested && !controller.isSliding &&
+				glm::length(moveInput) >= 0.1f && controller.slideRequested && !controller.isSliding && !controller.isDodging &&
 				controller.isGrounded && !controller.jumpRequested && controller.slideCooldownTimer <= 0.0f &&
 				glm::length(horizontalVelocity) >= controller.moveSpeed * 0.8f && controller.slideDuration > 0.0f)
 			{
@@ -893,11 +1234,18 @@ namespace MyEngine
 					controller.moveSpeed * std::max(controller.sprintMultiplier, 1.0f));
 			}
 			controller.slideRequested = false;
+			controller.dodgeRequested = false;
+			controller.vaultRequested = false;
 			controller.isSprinting = controller.enableSprintSlide && controller.sprintLatched &&
-				controller.isGrounded && !controller.isSliding && !controller.crouchHeld;
+				controller.isGrounded && !controller.isSliding && !controller.isDodging && !controller.isVaulting && !controller.crouchHeld;
 			const float speedMultiplier = controller.isSprinting ? std::max(controller.sprintMultiplier, 1.0f) : 1.0f;
 			glm::vec3 targetHorizontalVelocity = moveInput * controller.moveSpeed * speedMultiplier;
-			if (controller.isSliding)
+			if (controller.isDodging)
+			{
+				horizontalVelocity = MoveTowards(horizontalVelocity, controller.dodgeDirection * controller.dodgeEntrySpeed,
+					std::max(controller.acceleration, 0.0f) * 2.0f * dt);
+			}
+			else if (controller.isSliding)
 			{
 				const float slideSpeed = controller.slideEntrySpeed * std::clamp(controller.slideSpeedMultiplier, 1.0f, 1.25f);
 				horizontalVelocity = MoveTowards(horizontalVelocity, controller.slideDirection * slideSpeed,
@@ -918,7 +1266,7 @@ namespace MyEngine
 			rb.velocity.z = horizontalVelocity.z;
 			controller.currentSpeed = glm::length(glm::vec2(rb.velocity.x, rb.velocity.z));
 
-			if (controller.jumpRequested)
+			if (controller.jumpRequested && !controller.isDodging && !controller.isVaulting)
 			{
 				if (controller.isGrounded)
 				{
@@ -1043,6 +1391,12 @@ namespace MyEngine
 				if (controller.isSliding)
 					controller.slideCooldownTimer = std::max(controller.slideCooldown, 0.0f);
 				controller.isSliding = false;
+				if (controller.isDodging)
+					controller.dodgeCooldownTimer = std::max(controller.dodgeCooldown, 0.0f);
+				controller.isDodging = false;
+				if (controller.isVaulting)
+					controller.vaultCooldownTimer = std::max(controller.vaultCooldown, 0.0f);
+				controller.isVaulting = false;
 			}
 			UpdateControllerAnimationState(entity, controller);
 		}

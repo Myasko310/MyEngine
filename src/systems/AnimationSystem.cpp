@@ -692,13 +692,15 @@ namespace MyEngine
 					const auto& controller = entity->GetComponent<CharacterControllerComponent>();
 					if (!controller.isGrounded)
 						applyRootMotion = false;
-					// Sprint/slide displacement is collision-resolved by the controller;
-					// never add the clip's complete root displacement again at its end.
-					if (controller.enableSprintSlide && stateMachineComponent && stateMachineComponent->stateMachine &&
+					if (controller.isDodging || controller.isVaulting)
+						applyRootMotion = false;
+					// Controller-driven movement resolves displacement and collisions for
+					// sprint/slide/dodge/vault; do not add clip root displacement on top.
+					if (stateMachineComponent && stateMachineComponent->stateMachine &&
 						stateMachineComponent->stateMachine->IsValidStateIndex(stateMachineComponent->currentStateIndex))
 					{
 						const auto& stateName = stateMachineComponent->stateMachine->states[stateMachineComponent->currentStateIndex].name;
-						if (stateName == "Slide" || stateName == "Sprint")
+						if (stateName == "Slide" || stateName == "Sprint" || stateName == "Dodge" || stateName == "Vault")
 							applyRootMotion = false;
 					}
 				}

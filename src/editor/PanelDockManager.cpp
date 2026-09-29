@@ -90,8 +90,8 @@ namespace MyEngine::Editor
 	{
 		ImVec2 pos = const_cast<PanelDockManager*>(this)->GetPanelPos(panelName, viewportW, viewportH);
 		ImVec2 size = const_cast<PanelDockManager*>(this)->GetPanelSize(panelName, viewportW, viewportH);
-		ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
-		ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+		ImGui::SetNextWindowPos(pos, ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);
 	}
 
 	void PanelDockManager::ResetLayout()

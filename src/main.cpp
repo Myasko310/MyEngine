@@ -892,6 +892,12 @@ int main(int argc, char** argv)
             crouchParam.defaultBoolValue = false;
             stateMachine->parameters.push_back(crouchParam);
 
+            MyEngine::AnimationStateMachineParameter dodgeParam;
+            dodgeParam.name = "IsDodging";
+            dodgeParam.type = MyEngine::AnimationStateMachineParameterType::Bool;
+            dodgeParam.defaultBoolValue = false;
+            stateMachine->parameters.push_back(dodgeParam);
+
             MyEngine::AnimationStateMachineParameter fightParam;
             fightParam.name = "IsFighting";
             fightParam.type = MyEngine::AnimationStateMachineParameterType::Bool;
@@ -931,6 +937,17 @@ int main(int argc, char** argv)
             jumpCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
             toJump.conditions.push_back(jumpCond);
             idleState.transitions.push_back(toJump);
+
+            // Transition to Dodge while dodge is active
+            MyEngine::AnimationStateMachineTransition toDodge;
+            toDodge.targetStateIndex = 7;
+            toDodge.blendDuration = 0.06f;
+            toDodge.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition dodgeCond;
+            dodgeCond.parameterName = "IsDodging";
+            dodgeCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+            toDodge.conditions.push_back(dodgeCond);
+            idleState.transitions.push_back(toDodge);
 
             stateMachine->states.push_back(idleState);
         }
@@ -978,6 +995,17 @@ int main(int argc, char** argv)
             toJump.conditions.push_back(jumpCond);
             walkState.transitions.push_back(toJump);
 
+            // Transition to Dodge while dodge is active
+            MyEngine::AnimationStateMachineTransition toDodge;
+            toDodge.targetStateIndex = 7;
+            toDodge.blendDuration = 0.06f;
+            toDodge.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition dodgeCond;
+            dodgeCond.parameterName = "IsDodging";
+            dodgeCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+            toDodge.conditions.push_back(dodgeCond);
+            walkState.transitions.push_back(toDodge);
+
             stateMachine->states.push_back(walkState);
         }
 
@@ -1011,6 +1039,17 @@ int main(int argc, char** argv)
             jumpCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
             toJump.conditions.push_back(jumpCond);
             runState.transitions.push_back(toJump);
+
+            // Transition to Dodge while dodge is active
+            MyEngine::AnimationStateMachineTransition toDodge;
+            toDodge.targetStateIndex = 7;
+            toDodge.blendDuration = 0.06f;
+            toDodge.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition dodgeCond;
+            dodgeCond.parameterName = "IsDodging";
+            dodgeCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+            toDodge.conditions.push_back(dodgeCond);
+            runState.transitions.push_back(toDodge);
 
             stateMachine->states.push_back(runState);
         }
@@ -1046,6 +1085,17 @@ int main(int argc, char** argv)
             toIdle.conditions.push_back(notCrouchCond);
             crouchIdleState.transitions.push_back(toIdle);
 
+            // Transition to Dodge while dodge is active
+            MyEngine::AnimationStateMachineTransition toDodge;
+            toDodge.targetStateIndex = 7;
+            toDodge.blendDuration = 0.06f;
+            toDodge.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition dodgeCond;
+            dodgeCond.parameterName = "IsDodging";
+            dodgeCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+            toDodge.conditions.push_back(dodgeCond);
+            crouchIdleState.transitions.push_back(toDodge);
+
             stateMachine->states.push_back(crouchIdleState);
         }
 
@@ -1079,6 +1129,17 @@ int main(int argc, char** argv)
             notCrouchCond.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
             toWalk.conditions.push_back(notCrouchCond);
             crouchWalkState.transitions.push_back(toWalk);
+
+            // Transition to Dodge while dodge is active
+            MyEngine::AnimationStateMachineTransition toDodge;
+            toDodge.targetStateIndex = 7;
+            toDodge.blendDuration = 0.06f;
+            toDodge.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition dodgeCond;
+            dodgeCond.parameterName = "IsDodging";
+            dodgeCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+            toDodge.conditions.push_back(dodgeCond);
+            crouchWalkState.transitions.push_back(toDodge);
 
             stateMachine->states.push_back(crouchWalkState);
         }
@@ -1164,6 +1225,65 @@ int main(int argc, char** argv)
             stateMachine->states.push_back(jumpState);
         }
 
+        {
+            // Dodge state (non-looping). Assign your dodge clip in inspector/import map.
+            MyEngine::AnimationStateMachineState dodgeState;
+            dodgeState.name = "Dodge";
+            dodgeState.clipName = "Dodge Roll";
+            dodgeState.loop = false;
+            dodgeState.playbackSpeed = 1.0f;
+
+            // Exit to idle after dodge when moving slowly and no longer dodging.
+            MyEngine::AnimationStateMachineTransition toIdle;
+            toIdle.targetStateIndex = 0;
+            toIdle.blendDuration = 0.08f;
+            toIdle.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition notDodgingIdle;
+            notDodgingIdle.parameterName = "IsDodging";
+            notDodgingIdle.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+            toIdle.conditions.push_back(notDodgingIdle);
+            MyEngine::AnimationStateMachineCondition slowCond;
+            slowCond.parameterName = "Speed";
+            slowCond.op = MyEngine::AnimationStateMachineConditionOperator::Less;
+            slowCond.threshold = 0.5f;
+            toIdle.conditions.push_back(slowCond);
+            dodgeState.transitions.push_back(toIdle);
+
+            // Exit to walk after dodge when moving.
+            MyEngine::AnimationStateMachineTransition toWalk;
+            toWalk.targetStateIndex = 1;
+            toWalk.blendDuration = 0.08f;
+            toWalk.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition notDodgingWalk;
+            notDodgingWalk.parameterName = "IsDodging";
+            notDodgingWalk.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+            toWalk.conditions.push_back(notDodgingWalk);
+            MyEngine::AnimationStateMachineCondition walkSpeedCond;
+            walkSpeedCond.parameterName = "Speed";
+            walkSpeedCond.op = MyEngine::AnimationStateMachineConditionOperator::Greater;
+            walkSpeedCond.threshold = 0.5f;
+            toWalk.conditions.push_back(walkSpeedCond);
+            dodgeState.transitions.push_back(toWalk);
+
+            // Exit to run after dodge when moving fast.
+            MyEngine::AnimationStateMachineTransition toRun;
+            toRun.targetStateIndex = 2;
+            toRun.blendDuration = 0.08f;
+            toRun.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition notDodgingRun;
+            notDodgingRun.parameterName = "IsDodging";
+            notDodgingRun.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+            toRun.conditions.push_back(notDodgingRun);
+            MyEngine::AnimationStateMachineCondition runSpeedCond;
+            runSpeedCond.parameterName = "Speed";
+            runSpeedCond.op = MyEngine::AnimationStateMachineConditionOperator::Greater;
+            runSpeedCond.threshold = 2.0f;
+            toRun.conditions.push_back(runSpeedCond);
+            dodgeState.transitions.push_back(toRun);
+
+            stateMachine->states.push_back(dodgeState);
+        }
+
         stateMachineComp.stateMachine = stateMachine;
         stateMachineComp.parameterValues.resize(stateMachine->parameters.size());
         for (size_t i = 0; i < stateMachine->parameters.size(); ++i)
@@ -1189,6 +1309,7 @@ int main(int argc, char** argv)
             { "Crouching Idle", "Crouching Idle.fbx" },
             { "Fighting Idle", "Fighting Idle.fbx" },
             { "Jumping", "Jumping.fbx" },
+            { "Dodge Roll", "Dodge Roll.fbx" },
             { "Punch Combo", "Punch Combo.fbx" }
         };
 
@@ -2116,6 +2237,17 @@ int main(int argc, char** argv)
             if (!nearlyEqual(current.acceleration, original.acceleration)) { addOverride("Character Controller: Acceleration"); hasCharacterControllerOverride = true; }
             if (!nearlyEqual(current.airAcceleration, original.airAcceleration)) { addOverride("Character Controller: Air Acceleration"); hasCharacterControllerOverride = true; }
             if (!nearlyEqual(current.braking, original.braking)) { addOverride("Character Controller: Braking"); hasCharacterControllerOverride = true; }
+            if (current.enableDodge != original.enableDodge) { addOverride("Character Controller: Enable Dodge"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.dodgeSpeedMultiplier, original.dodgeSpeedMultiplier)) { addOverride("Character Controller: Dodge Speed Multiplier"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.dodgeDuration, original.dodgeDuration)) { addOverride("Character Controller: Dodge Duration"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.dodgeCooldown, original.dodgeCooldown)) { addOverride("Character Controller: Dodge Cooldown"); hasCharacterControllerOverride = true; }
+            if (current.enableVault != original.enableVault) { addOverride("Character Controller: Enable Vault"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultMinHeight, original.vaultMinHeight)) { addOverride("Character Controller: Vault Min Height"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultMaxHeight, original.vaultMaxHeight)) { addOverride("Character Controller: Vault Max Height"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultForwardDistance, original.vaultForwardDistance)) { addOverride("Character Controller: Vault Forward Distance"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultDuration, original.vaultDuration)) { addOverride("Character Controller: Vault Duration"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultCooldown, original.vaultCooldown)) { addOverride("Character Controller: Vault Cooldown"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultArcHeight, original.vaultArcHeight)) { addOverride("Character Controller: Vault Arc Height"); hasCharacterControllerOverride = true; }
             if (!nearlyEqual(current.slideGravityScale, original.slideGravityScale)) { addOverride("Character Controller: Slide Gravity Scale"); hasCharacterControllerOverride = true; }
             if (current.enableGroundSnap != original.enableGroundSnap) { addOverride("Character Controller: Enable Ground Snap"); hasCharacterControllerOverride = true; }
             if (current.orientToMovement != original.orientToMovement) { addOverride("Character Controller: Orient To Movement"); hasCharacterControllerOverride = true; }
@@ -2883,11 +3015,155 @@ int main(int argc, char** argv)
     editorContext.undoStack = &undoStack;
     editorContext.currentScenePath = &currentScenePath;
 
+    auto ensureDodgeStateMachineSupport = [](Scene& targetScene)
+    {
+        for (const auto& entity : targetScene.GetEntities())
+        {
+            if (!entity || !entity->HasComponent<AnimationStateMachineComponent>())
+                continue;
+
+            auto& smComponent = entity->GetComponent<AnimationStateMachineComponent>();
+            if (!smComponent.stateMachine)
+                continue;
+
+            auto& machine = *smComponent.stateMachine;
+            if (machine.FindParameterIndex("IsDodging") < 0)
+            {
+                MyEngine::AnimationStateMachineParameter dodgeParam;
+                dodgeParam.name = "IsDodging";
+                dodgeParam.type = MyEngine::AnimationStateMachineParameterType::Bool;
+                dodgeParam.defaultBoolValue = false;
+                machine.parameters.push_back(dodgeParam);
+            }
+            if (machine.FindParameterIndex("IsVaulting") < 0)
+            {
+                MyEngine::AnimationStateMachineParameter vaultParam;
+                vaultParam.name = "IsVaulting";
+                vaultParam.type = MyEngine::AnimationStateMachineParameterType::Bool;
+                vaultParam.defaultBoolValue = false;
+                machine.parameters.push_back(vaultParam);
+            }
+
+            if (smComponent.parameterValues.size() < machine.parameters.size())
+                smComponent.parameterValues.resize(machine.parameters.size());
+
+            int dodgeStateIndex = machine.FindStateIndex("Dodge");
+            if (dodgeStateIndex < 0)
+            {
+                MyEngine::AnimationStateMachineState dodgeState;
+                dodgeState.name = "Dodge";
+                dodgeState.clipName = "Dodge Roll";
+                dodgeState.loop = false;
+                dodgeState.playbackSpeed = 1.0f;
+                machine.states.push_back(dodgeState);
+                dodgeStateIndex = static_cast<int>(machine.states.size()) - 1;
+            }
+
+            int vaultStateIndex = machine.FindStateIndex("Vault");
+            if (vaultStateIndex < 0)
+            {
+                MyEngine::AnimationStateMachineState vaultState;
+                vaultState.name = "Vault";
+                vaultState.clipName = "Vault";
+                vaultState.loop = false;
+                vaultState.playbackSpeed = 1.0f;
+                machine.states.push_back(vaultState);
+                vaultStateIndex = static_cast<int>(machine.states.size()) - 1;
+            }
+
+            auto ensureEntryTransition = [&](const char* fromStateName, int targetStateIndex, const char* parameterName, float blend)
+            {
+                int fromStateIndex = machine.FindStateIndex(fromStateName);
+                if (fromStateIndex < 0 || fromStateIndex >= static_cast<int>(machine.states.size()) || targetStateIndex < 0)
+                    return;
+
+                auto& fromState = machine.states[static_cast<size_t>(fromStateIndex)];
+                const bool hasTransition = std::any_of(fromState.transitions.begin(), fromState.transitions.end(),
+                    [&](const MyEngine::AnimationStateMachineTransition& transition)
+                {
+                    if (transition.targetStateIndex != targetStateIndex)
+                        return false;
+                    return std::any_of(transition.conditions.begin(), transition.conditions.end(),
+                        [&](const MyEngine::AnimationStateMachineCondition& condition)
+                    {
+                        return condition.parameterName == parameterName &&
+                            condition.op == MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+                    });
+                });
+                if (hasTransition)
+                    return;
+
+                MyEngine::AnimationStateMachineTransition transition;
+                transition.targetStateIndex = targetStateIndex;
+                transition.blendDuration = blend;
+                transition.resetTimeOnEnter = true;
+                MyEngine::AnimationStateMachineCondition condition;
+                condition.parameterName = parameterName;
+                condition.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+                transition.conditions.push_back(condition);
+                fromState.transitions.push_back(transition);
+            };
+
+            ensureEntryTransition("Idle", dodgeStateIndex, "IsDodging", 0.06f);
+            ensureEntryTransition("Walk", dodgeStateIndex, "IsDodging", 0.06f);
+            ensureEntryTransition("Run", dodgeStateIndex, "IsDodging", 0.06f);
+            ensureEntryTransition("CrouchIdle", dodgeStateIndex, "IsDodging", 0.06f);
+            ensureEntryTransition("CrouchWalk", dodgeStateIndex, "IsDodging", 0.06f);
+
+            ensureEntryTransition("Idle", vaultStateIndex, "IsVaulting", 0.07f);
+            ensureEntryTransition("Walk", vaultStateIndex, "IsVaulting", 0.07f);
+            ensureEntryTransition("Run", vaultStateIndex, "IsVaulting", 0.07f);
+            ensureEntryTransition("CrouchIdle", vaultStateIndex, "IsVaulting", 0.07f);
+            ensureEntryTransition("CrouchWalk", vaultStateIndex, "IsVaulting", 0.07f);
+
+            auto ensureExitTransition = [&](const char* fromStateName, const char* toStateName, float speedThreshold, bool requireGreater)
+            {
+                int fromStateIndex = machine.FindStateIndex(fromStateName);
+                int toStateIndex = machine.FindStateIndex(toStateName);
+                if (fromStateIndex < 0 || toStateIndex < 0)
+                    return;
+
+                auto& fromState = machine.states[static_cast<size_t>(fromStateIndex)];
+                const bool hasExit = std::any_of(fromState.transitions.begin(), fromState.transitions.end(),
+                    [&](const MyEngine::AnimationStateMachineTransition& transition)
+                {
+                    return transition.targetStateIndex == toStateIndex;
+                });
+                if (hasExit)
+                    return;
+
+                MyEngine::AnimationStateMachineTransition exitTransition;
+                exitTransition.targetStateIndex = toStateIndex;
+                exitTransition.blendDuration = 0.08f;
+                exitTransition.resetTimeOnEnter = true;
+
+                MyEngine::AnimationStateMachineCondition notVaulting;
+                notVaulting.parameterName = "IsVaulting";
+                notVaulting.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+                exitTransition.conditions.push_back(notVaulting);
+
+                MyEngine::AnimationStateMachineCondition speedCond;
+                speedCond.parameterName = "Speed";
+                speedCond.op = requireGreater
+                    ? MyEngine::AnimationStateMachineConditionOperator::Greater
+                    : MyEngine::AnimationStateMachineConditionOperator::Less;
+                speedCond.threshold = speedThreshold;
+                exitTransition.conditions.push_back(speedCond);
+                fromState.transitions.push_back(exitTransition);
+            };
+
+            ensureExitTransition("Vault", "Idle", 0.5f, false);
+            ensureExitTransition("Vault", "Walk", 0.5f, true);
+            ensureExitTransition("Vault", "Run", 2.0f, true);
+        }
+    };
+
     // If configured, load startup scene now (once on engine boot).
     if (!startupScenePath.empty() && std::filesystem::exists(startupScenePath))
     {
         if (MyEngine::Serialization::LoadScene(scene, startupScenePath, litShader, &globalScripts))
         {
+            ensureDodgeStateMachineSupport(scene);
             playerEntity.reset();
             cubes.clear();
             for (const auto& entity : scene.GetEntities())
@@ -3397,6 +3673,7 @@ int main(int argc, char** argv)
             if (!path.empty())
             {
                 MyEngine::Serialization::LoadScene(scene, path, litShader, &globalScripts);
+                ensureDodgeStateMachineSupport(scene);
                 selectedEntity = nullptr;
                 currentScenePath = path;
                 AddRecentScene(recentScenes, path);
@@ -3623,6 +3900,8 @@ int main(int argc, char** argv)
                     localInput.jumpPressed = MyEngine::InputActions::IsActionPressed("Jump");
                     localInput.sprintPressed = MyEngine::InputActions::IsActionPressed("Sprint");
                     localInput.slidePressed = MyEngine::InputActions::IsActionPressed("Crouch");
+                    localInput.dodgePressed = MyEngine::InputActions::IsActionPressed("Dodge");
+                    localInput.vaultPressed = MyEngine::InputActions::IsActionPressed("Vault");
                     localInput.crouchHeld = MyEngine::InputActions::IsAction("Crouch");
 
                     clientReconciliationState.RecordPredictedInput(localInput);
@@ -3750,7 +4029,7 @@ int main(int argc, char** argv)
                         if (authoritativeEntity && authoritativeEntity->HasComponent<TransformComponent>())
                         {
                             const auto& authoritativeTransform = authoritativeEntity->GetComponent<TransformComponent>();
-                            transform.position = authoritativeTransform.position;
+                            transform.position = physicsSystem.GetCharacterRenderPosition(*authoritativeEntity);
                             transform.rotation = authoritativeTransform.rotation;
                         }
                         else
@@ -4230,6 +4509,7 @@ int main(int argc, char** argv)
                     if (!path.empty())
                     {
                         MyEngine::Serialization::LoadScene(scene, path, litShader, &globalScripts);
+                        ensureDodgeStateMachineSupport(scene);
                         selectedEntity = nullptr;
                         currentScenePath = path;
                         AddRecentScene(recentScenes, path);
@@ -4253,6 +4533,7 @@ int main(int argc, char** argv)
                         if (ImGui::MenuItem(recentPath.c_str()))
                         {
                             MyEngine::Serialization::LoadScene(scene, recentPath, litShader, &globalScripts);
+                            ensureDodgeStateMachineSupport(scene);
                             selectedEntity = nullptr;
                             currentScenePath = recentPath;
                             AddRecentScene(recentScenes, recentPath);

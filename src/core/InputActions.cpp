@@ -185,6 +185,18 @@ namespace MyEngine
 		crouch.context = InputContext::Gameplay;
 		BindAction("Crouch", crouch);
 
+		ActionBinding dodge;
+		dodge.keys = { GLFW_KEY_Q };
+		dodge.gamepadButtons = { GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER };
+		dodge.context = InputContext::Gameplay;
+		BindAction("Dodge", dodge);
+
+		ActionBinding vault;
+		vault.keys = { GLFW_KEY_V };
+		vault.gamepadButtons = { GLFW_GAMEPAD_BUTTON_DPAD_UP };
+		vault.context = InputContext::Gameplay;
+		BindAction("Vault", vault);
+
 		ActionBinding fight;
 		fight.keys = { GLFW_KEY_F };
 		fight.mouseButtons = { GLFW_MOUSE_BUTTON_RIGHT };
@@ -1093,6 +1105,22 @@ namespace MyEngine
 			attack3.gamepadButtons = { GLFW_GAMEPAD_BUTTON_LEFT_BUMPER };
 			attack3.context = InputContext::Gameplay;
 			BindAction("Attack3", attack3);
+		}
+		if (!HasAction("Dodge"))
+		{
+			ActionBinding dodge;
+			dodge.keys = { GLFW_KEY_Q };
+			dodge.gamepadButtons = { GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER };
+			dodge.context = InputContext::Gameplay;
+			BindAction("Dodge", dodge);
+		}
+		if (!HasAction("Vault"))
+		{
+			ActionBinding vault;
+			vault.keys = { GLFW_KEY_V };
+			vault.gamepadButtons = { GLFW_GAMEPAD_BUTTON_DPAD_UP };
+			vault.context = InputContext::Gameplay;
+			BindAction("Vault", vault);
 		}
 
 		s_bindingsDirty = false;

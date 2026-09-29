@@ -749,6 +749,17 @@ namespace MyEngine
 					writer.Key("slideSpeedMultiplier"); writer.Double(controller.slideSpeedMultiplier);
 					writer.Key("slideDuration"); writer.Double(controller.slideDuration);
 					writer.Key("slideCooldown"); writer.Double(controller.slideCooldown);
+					writer.Key("enableDodge"); writer.Bool(controller.enableDodge);
+					writer.Key("dodgeSpeedMultiplier"); writer.Double(controller.dodgeSpeedMultiplier);
+					writer.Key("dodgeDuration"); writer.Double(controller.dodgeDuration);
+					writer.Key("dodgeCooldown"); writer.Double(controller.dodgeCooldown);
+					writer.Key("enableVault"); writer.Bool(controller.enableVault);
+					writer.Key("vaultMinHeight"); writer.Double(controller.vaultMinHeight);
+					writer.Key("vaultMaxHeight"); writer.Double(controller.vaultMaxHeight);
+					writer.Key("vaultForwardDistance"); writer.Double(controller.vaultForwardDistance);
+					writer.Key("vaultDuration"); writer.Double(controller.vaultDuration);
+					writer.Key("vaultCooldown"); writer.Double(controller.vaultCooldown);
+					writer.Key("vaultArcHeight"); writer.Double(controller.vaultArcHeight);
 					writer.Key("turnSpeed"); writer.Double(controller.turnSpeed);
 					writer.Key("airControl"); writer.Double(controller.airControl);
 					writer.Key("jumpSpeed"); writer.Double(controller.jumpSpeed);
@@ -1711,6 +1722,17 @@ namespace MyEngine
 					if (cco.HasMember("slideSpeedMultiplier")) controller.slideSpeedMultiplier = static_cast<float>(cco["slideSpeedMultiplier"].GetDouble());
 					if (cco.HasMember("slideDuration")) controller.slideDuration = static_cast<float>(cco["slideDuration"].GetDouble());
 					if (cco.HasMember("slideCooldown")) controller.slideCooldown = static_cast<float>(cco["slideCooldown"].GetDouble());
+					if (cco.HasMember("enableDodge")) controller.enableDodge = cco["enableDodge"].GetBool();
+					if (cco.HasMember("dodgeSpeedMultiplier")) controller.dodgeSpeedMultiplier = static_cast<float>(cco["dodgeSpeedMultiplier"].GetDouble());
+					if (cco.HasMember("dodgeDuration")) controller.dodgeDuration = static_cast<float>(cco["dodgeDuration"].GetDouble());
+					if (cco.HasMember("dodgeCooldown")) controller.dodgeCooldown = static_cast<float>(cco["dodgeCooldown"].GetDouble());
+					if (cco.HasMember("enableVault")) controller.enableVault = cco["enableVault"].GetBool();
+					if (cco.HasMember("vaultMinHeight")) controller.vaultMinHeight = static_cast<float>(cco["vaultMinHeight"].GetDouble());
+					if (cco.HasMember("vaultMaxHeight")) controller.vaultMaxHeight = static_cast<float>(cco["vaultMaxHeight"].GetDouble());
+					if (cco.HasMember("vaultForwardDistance")) controller.vaultForwardDistance = static_cast<float>(cco["vaultForwardDistance"].GetDouble());
+					if (cco.HasMember("vaultDuration")) controller.vaultDuration = static_cast<float>(cco["vaultDuration"].GetDouble());
+					if (cco.HasMember("vaultCooldown")) controller.vaultCooldown = static_cast<float>(cco["vaultCooldown"].GetDouble());
+					if (cco.HasMember("vaultArcHeight")) controller.vaultArcHeight = static_cast<float>(cco["vaultArcHeight"].GetDouble());
 					if (cco.HasMember("turnSpeed")) controller.turnSpeed = static_cast<float>(cco["turnSpeed"].GetDouble());
 					if (cco.HasMember("airControl")) controller.airControl = static_cast<float>(cco["airControl"].GetDouble());
 					if (cco.HasMember("jumpSpeed")) controller.jumpSpeed = static_cast<float>(cco["jumpSpeed"].GetDouble());
@@ -2299,6 +2321,17 @@ namespace MyEngine
 													!nearlyEqual(a.acceleration, b.acceleration) ||
 													!nearlyEqual(a.airAcceleration, b.airAcceleration) ||
 													!nearlyEqual(a.braking, b.braking) ||
+													(a.enableDodge != b.enableDodge) ||
+													!nearlyEqual(a.dodgeSpeedMultiplier, b.dodgeSpeedMultiplier) ||
+													!nearlyEqual(a.dodgeDuration, b.dodgeDuration) ||
+													!nearlyEqual(a.dodgeCooldown, b.dodgeCooldown) ||
+													(a.enableVault != b.enableVault) ||
+													!nearlyEqual(a.vaultMinHeight, b.vaultMinHeight) ||
+													!nearlyEqual(a.vaultMaxHeight, b.vaultMaxHeight) ||
+													!nearlyEqual(a.vaultForwardDistance, b.vaultForwardDistance) ||
+													!nearlyEqual(a.vaultDuration, b.vaultDuration) ||
+													!nearlyEqual(a.vaultCooldown, b.vaultCooldown) ||
+													!nearlyEqual(a.vaultArcHeight, b.vaultArcHeight) ||
 													!nearlyEqual(a.slideGravityScale, b.slideGravityScale) ||
 													(a.enableGroundSnap != b.enableGroundSnap) ||
 													(a.orientToMovement != b.orientToMovement) ||

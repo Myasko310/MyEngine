@@ -3,6 +3,7 @@
 #include "ecs/Component.h"
 #include <glm/glm.hpp>
 #include <string>
+#include <vector>
 
 namespace MyEngine
 {
@@ -30,17 +31,46 @@ namespace MyEngine
 		float slideSpeedMultiplier = 1.12f;
 		float slideDuration = 0.75f;
 		float slideCooldown = 0.5f;
+		bool enableDodge = true;
+		float dodgeSpeedMultiplier = 2.4f;
+		float dodgeDuration = 0.22f;
+		float dodgeCooldown = 0.55f;
+		bool enableVault = true;
+		float vaultMinHeight = 0.6f;
+		float vaultMaxHeight = 1.6f;
+		float vaultForwardDistance = 1.4f;
+		float vaultDuration = 0.34f;
+		float vaultCooldown = 0.45f;
+		float vaultArcHeight = 0.35f;
 		float turnSpeed = 12.0f;
 		bool sprintRequested = false;
 		bool slideRequested = false;
+		bool dodgeRequested = false;
+		bool vaultRequested = false;
 		bool crouchHeld = false;
 		bool sprintLatched = false;
 		bool isSprinting = false;
 		bool isSliding = false;
+		bool isDodging = false;
+		bool isVaulting = false;
 		float slideTimer = 0.0f;
 		float slideCooldownTimer = 0.0f;
+		float dodgeTimer = 0.0f;
+		float dodgeCooldownTimer = 0.0f;
+		float vaultTimer = 0.0f;
+		float vaultCooldownTimer = 0.0f;
+		float vaultElapsed = 0.0f;
+		float vaultHeight = 0.0f;
+		float vaultMotionDuration = 0.0f;
 		float slideEntrySpeed = 0.0f;
+		float dodgeEntrySpeed = 0.0f;
 		glm::vec3 slideDirection = glm::vec3(0.0f);
+		glm::vec3 dodgeDirection = glm::vec3(0.0f);
+		glm::vec3 vaultStartPosition = glm::vec3(0.0f);
+		glm::vec3 vaultEndPosition = glm::vec3(0.0f);
+		std::vector<glm::vec4> vaultPath;
+		glm::vec3 previousPhysicsPosition = glm::vec3(0.0f);
+		bool hasPhysicsPosition = false;
 		bool hasMovementInputTick = false;
 		unsigned int lastMovementInputTick = 0;
 
@@ -69,6 +99,8 @@ namespace MyEngine
 			jumpHeld = false;
 			sprintRequested = false;
 			slideRequested = false;
+			dodgeRequested = false;
+			vaultRequested = false;
 			crouchHeld = false;
 			attack1Requested = false;
 			attack2Requested = false;

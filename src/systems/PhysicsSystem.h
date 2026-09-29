@@ -12,6 +12,7 @@
 
 class Scene;
 class Entity;
+struct TransformComponent;
 
 namespace MyEngine::Net
 {
@@ -31,6 +32,7 @@ namespace MyEngine
 
 		void OnUpdate(Scene& scene, float deltaTime) override;
 		void OnUpdate(Scene& scene, float deltaTime, GLFWwindow* window, const glm::vec3& cameraForward, const glm::vec3& cameraRight, const Net::InputCommand* authoritativeInput = nullptr);
+		glm::vec3 GetCharacterRenderPosition(const Entity& entity) const;
 
 		// Physics settings
 		glm::vec3 gravity = glm::vec3(0.0f, -9.81f, 0.0f);  // Default gravity (m/s²)
@@ -206,6 +208,11 @@ namespace MyEngine
 					bool QueryCharacterSupport(Scene& scene, const std::shared_ptr<Entity>& entity, glm::vec3& outNormal, float& outPenetration, glm::vec3* outSupportVelocity = nullptr) const;
 					bool ResolveCharacterOverlaps(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb) const;
 					bool TryStepUp(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb, const glm::vec3& horizontalDisplacement) const;
+					bool TryBeginVault(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, const glm::vec3& moveInput) const;
+					bool QueryVaultContact(Scene& scene, const std::shared_ptr<Entity>& entity, const glm::vec3& position, glm::vec3& normal, float& penetration) const;
+					bool FindVaultLanding(Scene& scene, const std::shared_ptr<Entity>& entity, const CharacterControllerComponent& controller, glm::vec3& position, float minimumY) const;
+					static glm::vec3 SampleVaultPosition(const CharacterControllerComponent& controller, float t);
+					void UpdateVaultMotion(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb, float dt) const;
 					void UpdateControllerAnimationState(const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller) const;
 					bool IsWalkableSlope(const glm::vec3& normal, float maxSlopeAngleDegrees) const;
 					static glm::vec3 MoveTowards(const glm::vec3& current, const glm::vec3& target, float maxDelta);

@@ -3208,6 +3208,7 @@ bool SceneVisibilitySmokeTest();
 bool SceneHierarchyIndexSmokeTest();
 bool SunsetSkyboxSmokeTest();
 bool CharacterMovementSmokeTest();
+bool VaultContinuitySmokeTest();
 
 int main()
 {
@@ -3253,7 +3254,8 @@ int main()
 	const bool hierarchyIndexOk = runTest("SceneHierarchyIndexSmokeTest", SceneHierarchyIndexSmokeTest);
 	const bool sunsetOk = runTest("SunsetSkyboxSmokeTest", SunsetSkyboxSmokeTest);
 	const bool movementOk = runTest("CharacterMovementSmokeTest", CharacterMovementSmokeTest);
-	if (!startupArenaOk || !shaderPollingOk || !arenaBroadphaseOk || !arenaDistrictOk || !visibilityOk || !hierarchyIndexOk || !sunsetOk || !movementOk)
+	const bool vaultContinuityOk = runTest("VaultContinuitySmokeTest", VaultContinuitySmokeTest);
+	if (!startupArenaOk || !shaderPollingOk || !arenaBroadphaseOk || !arenaDistrictOk || !visibilityOk || !hierarchyIndexOk || !sunsetOk || !movementOk || !vaultContinuityOk)
 		return 1;
 
 	if (!serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !prefabVariantComputeOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !networkingReplicationOk || !pluginSdkManifestOk || !pluginRuntimeIntegrationOk || !pluginRuntimeStressOk || !terrainSculptingOk || !terrainPerfBaselineOk || !terrainPaintAndIoOk || !terrainUndoPaintOk || !terrainNavPhysicsIntegrationOk || !terrainNavSoakOk || !terrainNavCrowdRepathOk || !renderCommandPlumbingOk || !materialInheritanceOk)

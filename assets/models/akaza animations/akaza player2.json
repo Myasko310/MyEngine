@@ -77,9 +77,9 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    6.673463821411133,
-                    2.311225175857544,
-                    6.280725955963135
+                    -6.318689346313477,
+                    2.4939510822296143,
+                    1.4748575687408447
                 ],
                 "rotation": [
                     0.0,
@@ -283,6 +283,18 @@
                             "type": "Bool",
                             "defaultFloatValue": 0.0,
                             "defaultBoolValue": false
+                        },
+                        {
+                            "name": "IsDodging",
+                            "type": "Bool",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
+                        },
+                        {
+                            "name": "IsVaulting",
+                            "type": "Bool",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
                         }
                     ],
                     "states": [
@@ -402,6 +414,34 @@
                                         {
                                             "parameterName": "Jump",
                                             "op": "Trigger",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 18,
+                                    "blendDuration": 0.05999999865889549,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsDodging",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 19,
+                                    "blendDuration": 0.07000000029802322,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsVaulting",
+                                            "op": "IfTrue",
                                             "threshold": 0.0
                                         }
                                     ]
@@ -546,6 +586,34 @@
                                             "threshold": 0.0
                                         }
                                     ]
+                                },
+                                {
+                                    "targetStateIndex": 18,
+                                    "blendDuration": 0.05999999865889549,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsDodging",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 19,
+                                    "blendDuration": 0.07000000029802322,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsVaulting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
                                 }
                             ]
                         },
@@ -673,6 +741,34 @@
                                             "threshold": 0.0
                                         }
                                     ]
+                                },
+                                {
+                                    "targetStateIndex": 18,
+                                    "blendDuration": 0.05999999865889549,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsDodging",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 19,
+                                    "blendDuration": 0.07000000029802322,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsVaulting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
                                 }
                             ]
                         },
@@ -795,6 +891,34 @@
                                             "threshold": 0.0
                                         }
                                     ]
+                                },
+                                {
+                                    "targetStateIndex": 18,
+                                    "blendDuration": 0.05999999865889549,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsDodging",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 19,
+                                    "blendDuration": 0.07000000029802322,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsVaulting",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
                                 }
                             ]
                         },
@@ -914,6 +1038,34 @@
                                         {
                                             "parameterName": "Jump",
                                             "op": "Trigger",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 18,
+                                    "blendDuration": 0.05999999865889549,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsDodging",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 19,
+                                    "blendDuration": 0.07000000029802322,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsVaulting",
+                                            "op": "IfTrue",
                                             "threshold": 0.0
                                         }
                                     ]
@@ -1577,6 +1729,82 @@
                                     ]
                                 }
                             ]
+                        },
+                        {
+                            "name": "Dodge",
+                            "clipName": "Quick Roll To Run",
+                            "loop": false,
+                            "playbackSpeed": 1.190000057220459,
+                            "trimStartNormalized": 0.20000000298023224,
+                            "trimEndNormalized": 1.0,
+                            "transitions": []
+                        },
+                        {
+                            "name": "Vault",
+                            "clipName": "Jumping",
+                            "loop": false,
+                            "playbackSpeed": 1.1100000143051147,
+                            "trimStartNormalized": 0.3400000035762787,
+                            "trimEndNormalized": 1.0,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 0,
+                                    "blendDuration": 0.07999999821186066,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsVaulting",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Less",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 1,
+                                    "blendDuration": 0.07999999821186066,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsVaulting",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 2,
+                                    "blendDuration": 0.07999999821186066,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsVaulting",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 2.0
+                                        }
+                                    ]
+                                }
+                            ]
                         }
                     ]
                 },
@@ -1589,6 +1817,16 @@
                     {
                         "floatValue": 0.0,
                         "boolValue": true,
+                        "triggerValue": false
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
+                        "triggerValue": false
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
                         "triggerValue": false
                     },
                     {
@@ -1689,6 +1927,17 @@
                 "slideSpeedMultiplier": 1.1200000047683716,
                 "slideDuration": 0.75,
                 "slideCooldown": 0.5,
+                "enableDodge": true,
+                "dodgeSpeedMultiplier": 2.4000000953674316,
+                "dodgeDuration": 0.2199999988079071,
+                "dodgeCooldown": 0.550000011920929,
+                "enableVault": true,
+                "vaultMinHeight": 0.6000000238418579,
+                "vaultMaxHeight": 1.600000023841858,
+                "vaultForwardDistance": 1.399999976158142,
+                "vaultDuration": 0.3400000035762787,
+                "vaultCooldown": 0.44999998807907104,
+                "vaultArcHeight": 0.3499999940395355,
                 "turnSpeed": 12.0,
                 "airControl": 0.3499999940395355,
                 "jumpSpeed": 6.0,
@@ -1734,9 +1983,9 @@
                 ],
                 "intensity": 1.0,
                 "direction": [
-                    0.47637733817100525,
-                    -0.11793331056833267,
-                    0.8712958097457886
+                    -4.10752676316406e-8,
+                    -0.3420201241970062,
+                    -0.9396926164627075
                 ],
                 "position": [
                     0.0,
@@ -10750,7 +10999,7 @@
                 ],
                 "rotation": [
                     0.0,
-                    0.5132007002830505,
+                    2.3143603801727295,
                     0.0
                 ],
                 "scale": [
@@ -10807,7 +11056,7 @@
                 ],
                 "rotation": [
                     0.0,
-                    5.513373374938965,
+                    5.953258037567139,
                     0.0
                 ],
                 "scale": [

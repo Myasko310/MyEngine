@@ -1,6 +1,7 @@
 #include "core/PerformanceMetrics.h"
 #include <iostream>
 #include <iomanip>
+#include <cmath>
 
 namespace MyEngine::Performance
 {
@@ -10,9 +11,9 @@ namespace MyEngine::Performance
 		return timingMap;
 	}
 
-	float PerformanceMetrics::GetElapsedMs(std::chrono::high_resolution_clock::time_point start)
+	float PerformanceMetrics::GetElapsedMs(std::chrono::steady_clock::time_point start)
 	{
-		auto end = std::chrono::high_resolution_clock::now();
+		auto end = std::chrono::steady_clock::now();
 		auto duration = std::chrono::duration<float, std::milli>(end - start);
 		return duration.count();
 	}
@@ -24,7 +25,7 @@ namespace MyEngine::Performance
 		{
 			timingMap[name] = TimingEntry{ name, {}, {} };
 		}
-		timingMap[name].startTime = std::chrono::high_resolution_clock::now();
+		timingMap[name].startTime = std::chrono::steady_clock::now();
 	}
 
 	void PerformanceMetrics::EndMeasure(const std::string& name)
@@ -35,9 +36,18 @@ namespace MyEngine::Performance
 			return;
 
 		float elapsedMs = GetElapsedMs(it->second.startTime);
-		auto& samples = it->second.samples;
+		RecordSample(name, elapsedMs);
+	}
 
-		samples.push_back(elapsedMs);
+	void PerformanceMetrics::RecordSample(const std::string& name, float milliseconds)
+	{
+		if (!std::isfinite(milliseconds) || milliseconds < 0.0f)
+			return;
+		auto& entry = GetTimingMap()[name];
+		entry.name = name;
+		auto& samples = entry.samples;
+
+		samples.push_back(milliseconds);
 
 		// Keep only the last MAX_SAMPLES measurements
 		if (samples.size() > TimingEntry::MAX_SAMPLES)
@@ -77,6 +87,10 @@ namespace MyEngine::Performance
 		}
 
 		stat.avgMs = sum / samples.size();
+		auto sorted = samples;
+		std::sort(sorted.begin(), sorted.end());
+		stat.p95Ms = sorted[static_cast<size_t>(std::ceil(sorted.size() * 0.95)) - 1];
+		stat.p99Ms = sorted[static_cast<size_t>(std::ceil(sorted.size() * 0.99)) - 1];
 		return stat;
 	}
 

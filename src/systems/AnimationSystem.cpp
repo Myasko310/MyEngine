@@ -1,5 +1,6 @@
 #include "systems/AnimationSystem.h"
 
+#include "animation/RelaxedFallAnimation.h"
 #include "components/AnimationComponent.h"
 #include "components/AnimationStateMachineComponent.h"
 #include "components/SkeletonComponent.h"
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <unordered_set>
 
 namespace MyEngine
@@ -343,7 +345,10 @@ namespace MyEngine
 		// Safety fallback: if a non-looping state reaches its trim end and no
 		// transition fired (e.g. after editing trim/speed), return to default
 		// state so playback never hard-freezes.
-		if (!tookTransition && currentClip && !currentState.loop)
+		// WallJump is intentionally excluded so it can hold in-air until grounded
+		// without forcing a fallback that may chain into Jump while airborne.
+		const bool allowAutoFallback = (currentState.name != "WallJump");
+		if (!tookTransition && currentClip && !currentState.loop && allowAutoFallback)
 		{
 			float trimStartSeconds = 0.0f;
 			float trimEndSeconds = 0.0f;
@@ -627,11 +632,76 @@ namespace MyEngine
 				? &entity->GetComponent<AnimationStateMachineComponent>()
 				: nullptr;
 
+			if (entity->HasComponent<CharacterControllerComponent>() && skel.skeleton)
+			{
+				bool hasFallClip = anim.clips && std::any_of(anim.clips->begin(), anim.clips->end(),
+					[](const AnimationClip& clip) { return clip.name == RelaxedFallClipName; });
+				if (!hasFallClip)
+				{
+					AnimationClip fallClip;
+					if (CreateRelaxedFallAnimation(*skel.skeleton, fallClip))
+					{
+						if (!anim.clips)
+							anim.clips = std::make_shared<std::vector<AnimationClip>>();
+						else if (!anim.clips.unique())
+							anim.clips = std::make_shared<std::vector<AnimationClip>>(*anim.clips);
+						anim.clips->push_back(std::move(fallClip));
+						hasFallClip = true;
+					}
+				}
+				if (hasFallClip && stateMachineComponent && stateMachineComponent->stateMachine)
+				{
+					const int fallIndex = stateMachineComponent->stateMachine->FindStateIndex("Fall");
+					if (fallIndex >= 0 && stateMachineComponent->stateMachine->states[fallIndex].clipName == "Jumping")
+					{
+						if (!stateMachineComponent->stateMachine.unique())
+							stateMachineComponent->stateMachine = std::make_shared<AnimationStateMachine>(*stateMachineComponent->stateMachine);
+						auto& fall = stateMachineComponent->stateMachine->states[fallIndex];
+						fall.clipName = RelaxedFallClipName;
+						fall.loop = true;
+						fall.trimStartNormalized = 0.0f;
+						fall.trimEndNormalized = 1.0f;
+					}
+				}
+			}
+
 			if (stateMachineComponent)
 			{
+				const int previousStateIndex = stateMachineComponent->currentStateIndex;
 				if (!stateMachineComponent->suppressStateMachineEvaluation)
 					UpdateAnimationStateMachine(anim, *stateMachineComponent);
 				stateMachineComponent->currentStateTime = anim.time;
+
+				if (entity->HasComponent<CharacterControllerComponent>() &&
+					stateMachineComponent->stateMachine &&
+					stateMachineComponent->stateMachine->IsValidStateIndex(stateMachineComponent->currentStateIndex))
+				{
+					auto& controller = entity->GetComponent<CharacterControllerComponent>();
+					const auto& activeState = stateMachineComponent->stateMachine->states[stateMachineComponent->currentStateIndex];
+					const bool enteredFallFromWallJumpSync =
+						(activeState.name == "Fall") &&
+						(previousStateIndex != stateMachineComponent->currentStateIndex) &&
+						controller.wallJumpFallSyncRequested;
+
+					if (enteredFallFromWallJumpSync || (activeState.name == "Fall" && controller.wallJumpFallSyncRequested))
+					{
+						const AnimationClip* currentClip =
+							(anim.activeClipIndex >= 0 && anim.activeClipIndex < static_cast<int>(anim.clips->size()))
+							? &(*anim.clips)[anim.activeClipIndex]
+							: nullptr;
+						float trimStartSeconds = 0.0f;
+						float trimEndSeconds = 0.0f;
+						ComputeTrimmedTimeRangeSeconds(activeState, currentClip, trimStartSeconds, trimEndSeconds);
+						const float clipRemaining = std::max(0.0001f, trimEndSeconds - anim.time);
+						const float airRemaining = controller.wallJumpEstimatedAirTimeRemaining;
+						if (airRemaining > 0.0001f && std::isfinite(airRemaining))
+						{
+							const float targetSpeed = clipRemaining / airRemaining;
+							if (std::isfinite(targetSpeed))
+								anim.playbackSpeed = std::clamp(targetSpeed, 0.01f, 4.0f);
+						}
+					}
+				}
 			}
 
 			if (!skel.skeleton || !anim.clips || anim.clips->empty())

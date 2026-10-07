@@ -77,9 +77,9 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -6.318689346313477,
-                    2.4939510822296143,
-                    1.4748575687408447
+                    0.401064932346344,
+                    3.4143552780151367,
+                    5.553354263305664
                 ],
                 "rotation": [
                     0.0,
@@ -111,13 +111,13 @@
             "layer": 0,
             "Transform": {
                 "position": [
-                    -1.5105359554290771,
+                    -0.15687882900238037,
                     0.030000001192092896,
-                    2.765752077102661
+                    0.7813255786895752
                 ],
                 "rotation": [
                     0.0,
-                    -1.9080913066864014,
+                    53.404701232910156,
                     0.0
                 ],
                 "scale": [
@@ -293,6 +293,18 @@
                         {
                             "name": "IsVaulting",
                             "type": "Bool",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
+                        },
+                        {
+                            "name": "IsWallJumping",
+                            "type": "Bool",
+                            "defaultFloatValue": 0.0,
+                            "defaultBoolValue": false
+                        },
+                        {
+                            "name": "WallJump",
+                            "type": "Trigger",
                             "defaultFloatValue": 0.0,
                             "defaultBoolValue": false
                         }
@@ -1380,8 +1392,8 @@
                             "name": "Attack3_1",
                             "clipName": "Surprise Uppercut",
                             "loop": false,
-                            "playbackSpeed": 1.2000000476837158,
-                            "trimStartNormalized": 0.05000000074505806,
+                            "playbackSpeed": 1.0700000524520874,
+                            "trimStartNormalized": 0.0,
                             "trimEndNormalized": 0.20999999344348907,
                             "transitions": [
                                 {
@@ -1493,6 +1505,20 @@
                                             "parameterName": "Speed",
                                             "op": "Greater",
                                             "threshold": 2.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 20,
+                                    "blendDuration": 0.05000000074505806,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "WallJump",
+                                            "op": "Trigger",
+                                            "threshold": 0.0
                                         }
                                     ]
                                 }
@@ -1737,13 +1763,28 @@
                             "playbackSpeed": 1.190000057220459,
                             "trimStartNormalized": 0.20000000298023224,
                             "trimEndNormalized": 1.0,
-                            "transitions": []
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 15,
+                                    "blendDuration": 0.05999999865889549,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "Jump",
+                                            "op": "Trigger",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                }
+                            ]
                         },
                         {
                             "name": "Vault",
                             "clipName": "Jumping",
                             "loop": false,
-                            "playbackSpeed": 1.1100000143051147,
+                            "playbackSpeed": 1.059999942779541,
                             "trimStartNormalized": 0.3400000035762787,
                             "trimEndNormalized": 1.0,
                             "transitions": [
@@ -1805,6 +1846,192 @@
                                     ]
                                 }
                             ]
+                        },
+                        {
+                            "name": "WallJump",
+                            "clipName": "Flip Kick",
+                            "loop": false,
+                            "playbackSpeed": 0.75,
+                            "trimStartNormalized": 0.20999999344348907,
+                            "trimEndNormalized": 0.5299999713897705,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 20,
+                                    "blendDuration": 0.029999999329447746,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "WallJump",
+                                            "op": "Trigger",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "IsWallJumping",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 21,
+                                    "blendDuration": 0.25,
+                                    "requiresExitTime": true,
+                                    "exitTimeNormalized": 0.9800000190734863,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsGrounded",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "IsWallJumping",
+                                            "op": "IfFalse",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 0,
+                                    "blendDuration": 0.07999999821186066,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsGrounded",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Less",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 1,
+                                    "blendDuration": 0.07999999821186066,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsGrounded",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 2,
+                                    "blendDuration": 0.07999999821186066,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsGrounded",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 2.0
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Fall",
+                            "clipName": "Flip Kick",
+                            "loop": false,
+                            "playbackSpeed": 0.7300000190734863,
+                            "trimStartNormalized": 0.5299999713897705,
+                            "trimEndNormalized": 0.699999988079071,
+                            "transitions": [
+                                {
+                                    "targetStateIndex": 20,
+                                    "blendDuration": 0.03999999910593033,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "WallJump",
+                                            "op": "Trigger",
+                                            "threshold": 0.0
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 0,
+                                    "blendDuration": 0.07999999821186066,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsGrounded",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Less",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 1,
+                                    "blendDuration": 0.07999999821186066,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsGrounded",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 0.5
+                                        }
+                                    ]
+                                },
+                                {
+                                    "targetStateIndex": 2,
+                                    "blendDuration": 0.07999999821186066,
+                                    "requiresExitTime": false,
+                                    "exitTimeNormalized": 1.0,
+                                    "resetTimeOnEnter": true,
+                                    "conditions": [
+                                        {
+                                            "parameterName": "IsGrounded",
+                                            "op": "IfTrue",
+                                            "threshold": 0.0
+                                        },
+                                        {
+                                            "parameterName": "Speed",
+                                            "op": "Greater",
+                                            "threshold": 2.0
+                                        }
+                                    ]
+                                }
+                            ]
                         }
                     ]
                 },
@@ -1817,6 +2044,16 @@
                     {
                         "floatValue": 0.0,
                         "boolValue": true,
+                        "triggerValue": false
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
+                        "triggerValue": false
+                    },
+                    {
+                        "floatValue": 0.0,
+                        "boolValue": false,
                         "triggerValue": false
                     },
                     {
@@ -1938,6 +2175,16 @@
                 "vaultDuration": 0.3400000035762787,
                 "vaultCooldown": 0.44999998807907104,
                 "vaultArcHeight": 0.3499999940395355,
+                "vaultOverheadArcScale": 0.10000000149011612,
+                "vaultOverheadMarginScale": 0.5,
+                "vaultArchArcScale": 0.07999999821186066,
+                "vaultArchHeightScale": 0.03500000014901161,
+                "enableWallJump": true,
+                "wallJumpHorizontalSpeed": 5.5,
+                "wallJumpVerticalSpeed": 6.199999809265137,
+                "wallJumpCooldown": 0.25,
+                "wallJumpFacingDotThreshold": 0.25,
+                "wallJumpStateDuration": 0.25999999046325684,
                 "turnSpeed": 12.0,
                 "airControl": 0.3499999940395355,
                 "jumpSpeed": 6.0,
@@ -10232,7 +10479,7 @@
             "Transform": {
                 "position": [
                     -12.0,
-                    0.15000000596046448,
+                    4.0,
                     -40.0
                 ],
                 "rotation": [
@@ -10334,7 +10581,7 @@
             "Transform": {
                 "position": [
                     12.0,
-                    4.0,
+                    0.15000000596046448,
                     -40.0
                 ],
                 "rotation": [
@@ -10999,7 +11246,7 @@
                 ],
                 "rotation": [
                     0.0,
-                    2.3143603801727295,
+                    2.59272837638855,
                     0.0
                 ],
                 "scale": [
@@ -11056,7 +11303,7 @@
                 ],
                 "rotation": [
                     0.0,
-                    5.953258037567139,
+                    2.3940930366516113,
                     0.0
                 ],
                 "scale": [

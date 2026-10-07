@@ -760,6 +760,16 @@ namespace MyEngine
 					writer.Key("vaultDuration"); writer.Double(controller.vaultDuration);
 					writer.Key("vaultCooldown"); writer.Double(controller.vaultCooldown);
 					writer.Key("vaultArcHeight"); writer.Double(controller.vaultArcHeight);
+					writer.Key("vaultOverheadArcScale"); writer.Double(controller.vaultOverheadArcScale);
+					writer.Key("vaultOverheadMarginScale"); writer.Double(controller.vaultOverheadMarginScale);
+					writer.Key("vaultArchArcScale"); writer.Double(controller.vaultArchArcScale);
+					writer.Key("vaultArchHeightScale"); writer.Double(controller.vaultArchHeightScale);
+					writer.Key("enableWallJump"); writer.Bool(controller.enableWallJump);
+					writer.Key("wallJumpHorizontalSpeed"); writer.Double(controller.wallJumpHorizontalSpeed);
+					writer.Key("wallJumpVerticalSpeed"); writer.Double(controller.wallJumpVerticalSpeed);
+					writer.Key("wallJumpCooldown"); writer.Double(controller.wallJumpCooldown);
+					writer.Key("wallJumpFacingDotThreshold"); writer.Double(controller.wallJumpFacingDotThreshold);
+					writer.Key("wallJumpStateDuration"); writer.Double(controller.wallJumpStateDuration);
 					writer.Key("turnSpeed"); writer.Double(controller.turnSpeed);
 					writer.Key("airControl"); writer.Double(controller.airControl);
 					writer.Key("jumpSpeed"); writer.Double(controller.jumpSpeed);
@@ -1733,6 +1743,16 @@ namespace MyEngine
 					if (cco.HasMember("vaultDuration")) controller.vaultDuration = static_cast<float>(cco["vaultDuration"].GetDouble());
 					if (cco.HasMember("vaultCooldown")) controller.vaultCooldown = static_cast<float>(cco["vaultCooldown"].GetDouble());
 					if (cco.HasMember("vaultArcHeight")) controller.vaultArcHeight = static_cast<float>(cco["vaultArcHeight"].GetDouble());
+					if (cco.HasMember("vaultOverheadArcScale")) controller.vaultOverheadArcScale = static_cast<float>(cco["vaultOverheadArcScale"].GetDouble());
+					if (cco.HasMember("vaultOverheadMarginScale")) controller.vaultOverheadMarginScale = static_cast<float>(cco["vaultOverheadMarginScale"].GetDouble());
+					if (cco.HasMember("vaultArchArcScale")) controller.vaultArchArcScale = static_cast<float>(cco["vaultArchArcScale"].GetDouble());
+					if (cco.HasMember("vaultArchHeightScale")) controller.vaultArchHeightScale = static_cast<float>(cco["vaultArchHeightScale"].GetDouble());
+					if (cco.HasMember("enableWallJump")) controller.enableWallJump = cco["enableWallJump"].GetBool();
+					if (cco.HasMember("wallJumpHorizontalSpeed")) controller.wallJumpHorizontalSpeed = static_cast<float>(cco["wallJumpHorizontalSpeed"].GetDouble());
+					if (cco.HasMember("wallJumpVerticalSpeed")) controller.wallJumpVerticalSpeed = static_cast<float>(cco["wallJumpVerticalSpeed"].GetDouble());
+					if (cco.HasMember("wallJumpCooldown")) controller.wallJumpCooldown = static_cast<float>(cco["wallJumpCooldown"].GetDouble());
+					if (cco.HasMember("wallJumpFacingDotThreshold")) controller.wallJumpFacingDotThreshold = static_cast<float>(cco["wallJumpFacingDotThreshold"].GetDouble());
+					if (cco.HasMember("wallJumpStateDuration")) controller.wallJumpStateDuration = static_cast<float>(cco["wallJumpStateDuration"].GetDouble());
 					if (cco.HasMember("turnSpeed")) controller.turnSpeed = static_cast<float>(cco["turnSpeed"].GetDouble());
 					if (cco.HasMember("airControl")) controller.airControl = static_cast<float>(cco["airControl"].GetDouble());
 					if (cco.HasMember("jumpSpeed")) controller.jumpSpeed = static_cast<float>(cco["jumpSpeed"].GetDouble());
@@ -2332,6 +2352,16 @@ namespace MyEngine
 													!nearlyEqual(a.vaultDuration, b.vaultDuration) ||
 													!nearlyEqual(a.vaultCooldown, b.vaultCooldown) ||
 													!nearlyEqual(a.vaultArcHeight, b.vaultArcHeight) ||
+													!nearlyEqual(a.vaultOverheadArcScale, b.vaultOverheadArcScale) ||
+													!nearlyEqual(a.vaultOverheadMarginScale, b.vaultOverheadMarginScale) ||
+													!nearlyEqual(a.vaultArchArcScale, b.vaultArchArcScale) ||
+													!nearlyEqual(a.vaultArchHeightScale, b.vaultArchHeightScale) ||
+													(a.enableWallJump != b.enableWallJump) ||
+													!nearlyEqual(a.wallJumpHorizontalSpeed, b.wallJumpHorizontalSpeed) ||
+													!nearlyEqual(a.wallJumpVerticalSpeed, b.wallJumpVerticalSpeed) ||
+													!nearlyEqual(a.wallJumpCooldown, b.wallJumpCooldown) ||
+													!nearlyEqual(a.wallJumpFacingDotThreshold, b.wallJumpFacingDotThreshold) ||
+													!nearlyEqual(a.wallJumpStateDuration, b.wallJumpStateDuration) ||
 													!nearlyEqual(a.slideGravityScale, b.slideGravityScale) ||
 													(a.enableGroundSnap != b.enableGroundSnap) ||
 													(a.orientToMovement != b.orientToMovement) ||

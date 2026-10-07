@@ -42,6 +42,16 @@ namespace MyEngine
 		float vaultDuration = 0.34f;
 		float vaultCooldown = 0.45f;
 		float vaultArcHeight = 0.35f;
+		float vaultOverheadArcScale = 0.10f;
+		float vaultOverheadMarginScale = 0.5f;
+		float vaultArchArcScale = 0.08f;
+		float vaultArchHeightScale = 0.035f;
+		bool enableWallJump = true;
+		float wallJumpHorizontalSpeed = 5.5f;
+		float wallJumpVerticalSpeed = 6.2f;
+		float wallJumpCooldown = 0.25f;
+		float wallJumpFacingDotThreshold = 0.25f;
+		float wallJumpStateDuration = 0.26f;
 		float turnSpeed = 12.0f;
 		bool sprintRequested = false;
 		bool slideRequested = false;
@@ -53,12 +63,15 @@ namespace MyEngine
 		bool isSliding = false;
 		bool isDodging = false;
 		bool isVaulting = false;
+		bool isWallJumping = false;
 		float slideTimer = 0.0f;
 		float slideCooldownTimer = 0.0f;
 		float dodgeTimer = 0.0f;
 		float dodgeCooldownTimer = 0.0f;
 		float vaultTimer = 0.0f;
 		float vaultCooldownTimer = 0.0f;
+		float wallJumpTimer = 0.0f;
+		float wallJumpCooldownTimer = 0.0f;
 		float vaultElapsed = 0.0f;
 		float vaultHeight = 0.0f;
 		float vaultMotionDuration = 0.0f;
@@ -80,6 +93,11 @@ namespace MyEngine
 		float currentSpeed = 0.0f;
 		float jumpUngroundedTimer = 0.0f;
 		bool jumpedThisFrame = false;
+		bool wallJumpTriggeredThisFrame = false;
+		bool wallJumpFallSyncRequested = false;
+		float wallJumpEstimatedAirTimeRemaining = 0.0f;
+		float capsuleBottomAnimationLift = 0.0f;
+		float maxCapsuleBottomAnimationLift = 0.24f;
 
 		bool jumpRequested = false;
 		bool jumpHeld = false;
@@ -106,6 +124,7 @@ namespace MyEngine
 			attack2Requested = false;
 			attack3Requested = false;
 			jumpedThisFrame = false;
+			capsuleBottomAnimationLift = 0.0f;
 		}
 	};
 }

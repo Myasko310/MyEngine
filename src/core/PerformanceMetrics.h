@@ -32,6 +32,8 @@ namespace MyEngine::Performance
 			float minMs = 0.0f;
 			float maxMs = 0.0f;
 			float avgMs = 0.0f;
+			float p95Ms = 0.0f;
+			float p99Ms = 0.0f;
 			uint32_t sampleCount = 0;
 		};
 
@@ -40,6 +42,7 @@ namespace MyEngine::Performance
 
 		// End measuring a named section
 		static void EndMeasure(const std::string& name);
+		static void RecordSample(const std::string& name, float milliseconds);
 
 		// Clear all statistics
 		static void Clear();
@@ -57,13 +60,13 @@ namespace MyEngine::Performance
 		struct TimingEntry
 		{
 			std::string name;
-			std::chrono::high_resolution_clock::time_point startTime;
+			std::chrono::steady_clock::time_point startTime;
 			std::vector<float> samples; // milliseconds
 			static const size_t MAX_SAMPLES = 300; // ~5 seconds at 60 FPS
 		};
 
 		static std::map<std::string, TimingEntry>& GetTimingMap();
-		static float GetElapsedMs(std::chrono::high_resolution_clock::time_point start);
+		static float GetElapsedMs(std::chrono::steady_clock::time_point start);
 	};
 
 	// ============================================================

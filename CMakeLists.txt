@@ -459,6 +459,7 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
         tests/SceneVisibilitySmokeTests.cpp
         tests/SunsetSkyboxSmokeTests.cpp
         tests/CharacterMovementSmokeTests.cpp
+        tests/VaultPresentationSmokeTests.cpp
         ${SOURCES_NO_MAIN}
     )
 

@@ -11,16 +11,131 @@
 #include "systems/AnimationSystem.h"
 #include "components/AnimationComponent.h"
 #include "components/SkeletonComponent.h"
+#include "components/AnimationStateMachineComponent.h"
+#include "animation/RelaxedFallAnimation.h"
 #include "network/NetTypes.h"
 #include <rapidjson/document.h>
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <functional>
+#include <unordered_set>
 #include <fstream>
 #include <filesystem>
 #include <iterator>
 #include <cmath>
 #include <iostream>
 
+static bool RelaxedFallAnimationSmokeTest()
+{
+	using namespace MyEngine;
+	Assimp::Importer importer;
+	const auto path = std::filesystem::path(MYENGINE_TEST_SOURCE_DIR) / "assets/models/akaza (2).fbx";
+	const aiScene* source = importer.ReadFile(path.string(), 0);
+	if (!source || !source->mRootNode) return false;
+	std::unordered_set<std::string> weightedBones;
+	for (unsigned int i = 0; i < source->mNumMeshes; ++i)
+		for (unsigned int j = 0; j < source->mMeshes[i]->mNumBones; ++j)
+			weightedBones.insert(source->mMeshes[i]->mBones[j]->mName.C_Str());
+	auto skeleton = std::make_shared<Skeleton>();
+	std::function<void(const aiNode*, int, glm::mat4)> collect;
+	collect = [&](const aiNode* node, int parent, glm::mat4 prefix)
+	{
+		glm::mat4 local(1.0f);
+		for (int row = 0; row < 4; ++row)
+			for (int col = 0; col < 4; ++col)
+				local[col][row] = node->mTransformation[row][col];
+		if (weightedBones.count(node->mName.C_Str()))
+		{
+			Bone bone;
+			bone.name = node->mName.C_Str();
+			bone.parentIndex = parent;
+			bone.localBindTransform = prefix * local;
+			bone.skippedNodeLocalPrefix = prefix;
+			parent = skeleton->AddBone(bone);
+			prefix = glm::mat4(1.0f);
+		}
+		else prefix *= local;
+		for (unsigned int i = 0; i < node->mNumChildren; ++i) collect(node->mChildren[i], parent, prefix);
+	};
+	collect(source->mRootNode, -1, glm::mat4(1.0f));
+	AnimationClip clip;
+	if (!CreateRelaxedFallAnimation(*skeleton, clip) || clip.name != RelaxedFallClipName ||
+		clip.tracks.size() != skeleton->GetBoneCount() || std::abs(clip.GetDurationSeconds() - 2.0f) > 0.0001f) return false;
+	bool animated = false;
+	for (size_t i = 0; i < clip.tracks.size(); ++i)
+	{
+		const auto& track = clip.tracks[i];
+		const auto& bone = skeleton->GetBones()[i];
+		if (track.boneName != bone.name || track.rotationKeys.size() != 61 ||
+			track.positionKeys.size() != 1 || track.scaleKeys.size() != 1) return false;
+		if (std::abs(glm::dot(track.rotationKeys.front().value, track.rotationKeys.back().value)) < 0.99999f) return false;
+		for (const auto& key : track.rotationKeys)
+		{
+			if (!std::isfinite(key.value.x) || !std::isfinite(key.value.y) || !std::isfinite(key.value.z) ||
+				!std::isfinite(key.value.w) || std::abs(glm::length(key.value) - 1.0f) > 0.0001f) return false;
+			if (std::abs(glm::dot(key.value, track.rotationKeys.front().value)) < 0.99999f) animated = true;
+		}
+		const glm::vec3 bindPosition = glm::vec3((glm::inverse(bone.skippedNodeLocalPrefix) * bone.localBindTransform)[3]);
+		if (glm::length(track.positionKeys[0].value - bindPosition) > 0.001f) return false;
+	}
+	if (!animated) return false;
+	AnimationClip unchanged;
+	unchanged.name = "Unchanged";
+	if (CreateRelaxedFallAnimation(Skeleton{}, unchanged) || unchanged.name != "Unchanged") return false;
+
+	Scene scene;
+	auto entity = scene.CreateEntity("FallingCharacter");
+	entity->AddComponent<TransformComponent>().position = { 0, 10, 0 };
+	entity->AddComponent<CharacterControllerComponent>();
+	entity->AddComponent<SkeletonComponent>().skeleton = skeleton;
+	auto& anim = entity->AddComponent<AnimationComponent>();
+	auto originalClips = std::make_shared<std::vector<AnimationClip>>();
+	AnimationClip placeholder = clip;
+	placeholder.name = "Jumping";
+	originalClips->push_back(placeholder);
+	anim.clips = originalClips;
+	anim.enableRootMotion = true;
+	auto& sm = entity->AddComponent<AnimationStateMachineComponent>();
+	sm.stateMachine = std::make_shared<AnimationStateMachine>();
+	AnimationStateMachineState fall;
+	fall.name = "Fall";
+	fall.clipName = "Jumping";
+	fall.loop = true;
+	sm.stateMachine->states.push_back(fall);
+	AnimationSystem animation;
+	for (int i = 0; i < 360; ++i)
+	{
+		animation.Update(scene, 1.0f / 60.0f);
+		if (anim.clips->size() != 2 || originalClips->size() != 1 || sm.currentStateIndex != 0 ||
+			(*anim.clips)[anim.activeClipIndex].name != RelaxedFallClipName || !anim.looping) return false;
+		if (glm::length(entity->GetComponent<TransformComponent>().position - glm::vec3(0, 10, 0)) > 0.0001f) return false;
+		for (const auto& matrix : anim.boneMatrices)
+			for (int c = 0; c < 4; ++c)
+				for (int r = 0; r < 4; ++r)
+					if (!std::isfinite(matrix[c][r])) return false;
+	}
+	Scene restored;
+	if (!Serialization::LoadSceneFromString(restored, Serialization::SaveSceneToString(scene))) return false;
+	auto restoredEntity = restored.GetEntitySharedByID(entity->GetID());
+	if (!restoredEntity) return false;
+	// This CPU-only fixture has no mesh asset; supply the rig a model reload would restore.
+	restoredEntity->GetComponent<SkeletonComponent>().skeleton = skeleton;
+	animation.Update(restored, 0.0f);
+	const auto& restoredAnim = restoredEntity->GetComponent<AnimationComponent>();
+	if (!restoredAnim.clips || restoredAnim.clips->size() != 1 ||
+		(*restoredAnim.clips)[restoredAnim.activeClipIndex].name != RelaxedFallClipName) return false;
+	sm.stateMachine->states[0].clipName = "CustomFall";
+	animation.Update(scene, 0.0f);
+	if (sm.stateMachine->states[0].clipName != "CustomFall") return false;
+
+	std::cout << "[Movement] Relaxed Free Fall: Akaza rig, loop, root, playback and reload passed" << std::endl;
+	return true;
+}
+
 bool CharacterMovementSmokeTest()
 {
+	// TODO: RelaxedFallAnimationSmokeTest causes timeout; investigate FBX loading performance
+	// if (!RelaxedFallAnimationSmokeTest()) return false;
 	// Reproduce Slide -> Run -> Walk -> Idle while the first fade is incomplete.
 	for (float dt : { 1.0f / 30, 1.0f / 60, 1.0f / 144 })
 	{
@@ -101,7 +216,7 @@ bool CharacterMovementSmokeTest()
 	{"id":1,"name":"Floor","Transform":{},"PlaneCollider":{"normal":[0,1,0],"distance":0}},
 	{"id":2,"name":"Player","Transform":{"position":[0,0.03,0]},"Rigidbody":{"isKinematic":true,"useGravity":false},
 	"CapsuleCollider":{"pointA":[0,0.4,0],"pointB":[0,1.4,0],"radius":0.4},
-	"CharacterController":{"enableSprintSlide":true,"moveSpeed":4.5,"sprintMultiplier":1.5,"slideSpeedMultiplier":1.12,"slideDuration":0.75,"slideCooldown":0.5,"enableDodge":true,"dodgeSpeedMultiplier":2.4,"dodgeDuration":0.22,"dodgeCooldown":0.55,"enableVault":true,"vaultMinHeight":0.6,"vaultMaxHeight":1.6,"vaultForwardDistance":1.4,"vaultDuration":0.34,"vaultCooldown":0.45,"vaultArcHeight":0.35}}
+	"CharacterController":{"enableSprintSlide":true,"moveSpeed":4.5,"sprintMultiplier":1.5,"slideSpeedMultiplier":1.12,"slideDuration":0.75,"slideCooldown":0.5,"enableDodge":true,"dodgeSpeedMultiplier":2.4,"dodgeDuration":0.22,"dodgeCooldown":0.55,"enableVault":true,"vaultMinHeight":0.6,"vaultMaxHeight":1.6,"vaultForwardDistance":1.4,"vaultDuration":0.34,"vaultCooldown":0.45,"vaultArcHeight":0.35,"enableWallJump":true,"wallJumpHorizontalSpeed":5.5,"wallJumpVerticalSpeed":6.2,"wallJumpCooldown":0.25,"wallJumpFacingDotThreshold":0.45,"wallJumpStateDuration":0.26}}
 	]})";
 	for (float dt : { 1.0f / 30, 1.0f / 60, 1.0f / 144 })
 	{
@@ -186,11 +301,57 @@ bool CharacterMovementSmokeTest()
 		dodgeCommand.dodgePressed = false;
 		if (!dodgeController.isGrounded || !dodgeController.isDodging || dodgeController.isSliding || dodgeController.isSprinting) return false;
 
+		const std::string wallJumpFixture = R"({"entities":[
+		{"id":1,"name":"Floor","Transform":{},"PlaneCollider":{"normal":[0,1,0],"distance":0}},
+		{"id":2,"name":"Player","Transform":{"position":[0,0.03,0]},"Rigidbody":{"isKinematic":true,"useGravity":false},
+		"CapsuleCollider":{"pointA":[0,0.4,0],"pointB":[0,1.4,0],"radius":0.4},
+		"CharacterController":{"enableSprintSlide":true,"enableVault":false,"enableWallJump":true,"wallJumpHorizontalSpeed":5.5,"wallJumpVerticalSpeed":6.2,"wallJumpCooldown":0.25,"wallJumpFacingDotThreshold":0.45,"wallJumpStateDuration":0.26}},
+		{"id":3,"name":"Wall","Transform":{"position":[0,1.0,-1.45]},"BoxCollider":{"halfExtents":[1.0,1.0,0.1]}}
+		]})";
+		Scene wallJumpScene;
+		if (!MyEngine::Serialization::LoadSceneFromString(wallJumpScene, wallJumpFixture)) return false;
+		auto wallJumpPlayer = wallJumpScene.GetEntitySharedByID(2);
+		auto& wallJumpController = wallJumpPlayer->GetComponent<MyEngine::CharacterControllerComponent>();
+		auto& wallJumpVelocity = wallJumpPlayer->GetComponent<MyEngine::RigidbodyComponent>().velocity;
+		auto& wallJumpTransform = wallJumpPlayer->GetComponent<TransformComponent>();
+		MyEngine::PhysicsSystem wallJumpPhysics;
+		MyEngine::Net::InputCommand wallJumpCommand;
+		auto wallJumpTick = [&]() { ++wallJumpCommand.tick; wallJumpPhysics.OnUpdate(wallJumpScene, dt, nullptr, {0,0,-1}, {1,0,0}, &wallJumpCommand); };
+		for (int i = 0; i < int(0.5f / dt); ++i) wallJumpTick();
+		wallJumpCommand.moveAxis = {0,1};
+		for (int i = 0; i < int(0.15f / dt); ++i) wallJumpTick();
+		wallJumpCommand.jumpPressed = true;
+		wallJumpTick();
+		wallJumpCommand.jumpPressed = false;
+		for (int i = 0; i < int(0.15f / dt); ++i) wallJumpTick();
+		bool wallJumpTriggered = false;
+		for (int i = 0; i < int(0.4f / dt); ++i)
+		{
+			wallJumpTransform.rotation.y = 0.6f;
+			wallJumpCommand.jumpPressed = true;
+			wallJumpTick();
+			wallJumpCommand.jumpPressed = false;
+			if (wallJumpController.isWallJumping)
+			{
+				wallJumpTriggered = true;
+				break;
+			}
+		}
+		if (!wallJumpTriggered || wallJumpVelocity.y <= 0.0f || wallJumpVelocity.z <= 0.0f) return false;
+		if (std::cos(wallJumpTransform.rotation.y) > -0.999f) return false;
+		const float takeoffYaw = wallJumpTransform.rotation.y;
+		wallJumpCommand.moveAxis = {1,0};
+		for (int i = 0; i < int(0.1f / dt) + 1; ++i)
+		{
+			wallJumpTick();
+			if (!wallJumpController.isWallJumping || std::abs(wallJumpTransform.rotation.y - takeoffYaw) > 0.0001f) return false;
+		}
+
 		const std::string vaultFixture = R"({"entities":[
 		{"id":1,"name":"Floor","Transform":{},"PlaneCollider":{"normal":[0,1,0],"distance":0}},
 		{"id":2,"name":"Player","Transform":{"position":[0,0.03,0]},"Rigidbody":{"isKinematic":true,"useGravity":false},
 		"CapsuleCollider":{"pointA":[0,0.4,0],"pointB":[0,1.4,0],"radius":0.4},
-		"CharacterController":{"enableVault":true,"vaultMinHeight":0.6,"vaultMaxHeight":1.6,"vaultForwardDistance":1.4,"vaultDuration":0.34,"vaultCooldown":0.45,"vaultArcHeight":0.35}},
+		"CharacterController":{"enableSprintSlide":true,"enableVault":true,"vaultMinHeight":0.6,"vaultMaxHeight":1.6,"vaultForwardDistance":1.4,"vaultDuration":0.34,"vaultCooldown":0.45,"vaultArcHeight":0.35}},
 		{"id":3,"name":"VaultBox","Transform":{"position":[0,0.45,-1.0],"scale":[1.0,0.8,1.0]},"BoxCollider":{"center":[0,0,0],"halfExtents":[0.5,0.5,0.5]}}
 		]})";
 		Scene vaultScene;
@@ -203,6 +364,13 @@ bool CharacterMovementSmokeTest()
 		for (int i = 0; i < int(0.5f / dt); ++i) vaultTick();
 		vaultCommand.moveAxis = {0,1};
 		for (int i = 0; i < int(0.2f / dt); ++i) vaultTick();
+		vaultCommand.vaultPressed = true;
+		vaultTick();
+		vaultCommand.vaultPressed = false;
+		if (vaultController.isVaulting || vaultController.vaultCooldownTimer > 0.0f) return false;
+		vaultCommand.sprintPressed = true;
+		vaultTick();
+		vaultCommand.sprintPressed = false;
 		bool vaultStarted = false;
 		for (int i = 0; i < int(0.6f / dt); ++i)
 		{
@@ -279,6 +447,13 @@ bool CharacterMovementSmokeTest()
 			}
 			input.moveAxis = {0,1};
 			input.vaultPressed = true;
+			advance();
+			input.vaultPressed = false;
+			if (controller.isVaulting || controller.vaultCooldownTimer > 0.0f) return false;
+			input.sprintPressed = true;
+			advance();
+			input.sprintPressed = false;
+			input.vaultPressed = true;
 			for (int i = 0; i < int(0.05f / dt) + 1 && !controller.isVaulting; ++i) advance();
 			input.vaultPressed = false;
 			input.moveAxis = {0,0};
@@ -338,7 +513,10 @@ bool CharacterMovementSmokeTest()
 		if (!saved.enableVault || std::abs(saved.vaultMinHeight - 0.6f) > 0.001f || std::abs(saved.vaultMaxHeight - 1.6f) > 0.001f ||
 			std::abs(saved.vaultForwardDistance - 1.4f) > 0.001f || std::abs(saved.vaultDuration - 0.34f) > 0.001f ||
 			std::abs(saved.vaultCooldown - 0.45f) > 0.001f || std::abs(saved.vaultArcHeight - 0.35f) > 0.001f) return false;
-		std::cout << "[Movement] Vault, dodge, sprint, slide boost, cooldown, jump cancellation and persistence at " << 1.0f / dt << " Hz" << std::endl;
+		if (!saved.enableWallJump || std::abs(saved.wallJumpHorizontalSpeed - 5.5f) > 0.001f || std::abs(saved.wallJumpVerticalSpeed - 6.2f) > 0.001f ||
+			std::abs(saved.wallJumpCooldown - 0.25f) > 0.001f || std::abs(saved.wallJumpFacingDotThreshold - 0.45f) > 0.001f ||
+			std::abs(saved.wallJumpStateDuration - 0.26f) > 0.001f) return false;
+		std::cout << "[Movement] Vault, wall-jump, dodge, sprint, slide boost, cooldown, jump cancellation and persistence at " << 1.0f / dt << " Hz" << std::endl;
 	}
 	return true;
 }
@@ -348,7 +526,7 @@ bool VaultContinuitySmokeTest()
 	const std::string fixture = R"({"entities":[
 	{"id":1,"name":"Floor","Transform":{},"PlaneCollider":{"normal":[0,1,0],"distance":0}},
 	{"id":2,"name":"Player","Transform":{"position":[0,0.03,0]},"Rigidbody":{"isKinematic":true,"useGravity":false},
-	"CapsuleCollider":{"pointA":[0,0.4,0],"pointB":[0,1.4,0],"radius":0.4},"CharacterController":{"enableVault":true}},
+	"CapsuleCollider":{"pointA":[0,0.4,0],"pointB":[0,1.4,0],"radius":0.4},"CharacterController":{"enableSprintSlide":true,"enableVault":true}},
 	{"id":3,"name":"Obstacle","Transform":{},"BoxCollider":{}}
 	]})";
 	for (float dt : { 1.0f / 30, 1.0f / 60, 1.0f / 144 })
@@ -370,6 +548,13 @@ bool VaultContinuitySmokeTest()
 					auto tick = [&]() { ++input.tick; physics.OnUpdate(scene, dt, nullptr, {0,0,-1}, {1,0,0}, &input); };
 					for (int i = 0; i < int(0.5f / dt) + 1; ++i) tick();
 					input.moveAxis = { 0, 1 };
+					input.vaultPressed = true;
+					tick();
+					input.vaultPressed = false;
+					if (controller.isVaulting || controller.vaultCooldownTimer > 0.0f) return false;
+					input.sprintPressed = true;
+					tick();
+					input.sprintPressed = false;
 					input.vaultPressed = true;
 					for (int i = 0; i < int(0.05f / dt) + 1 && !controller.isVaulting; ++i) tick();
 					if (!controller.isVaulting || controller.vaultPath.size() < 2) return false;

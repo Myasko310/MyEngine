@@ -193,7 +193,8 @@ namespace MyEngine
 
 		ActionBinding vault;
 		vault.keys = { GLFW_KEY_V };
-		vault.gamepadButtons = { GLFW_GAMEPAD_BUTTON_DPAD_UP };
+		vault.gamepadAxes = { GLFW_GAMEPAD_AXIS_LEFT_TRIGGER };
+		vault.axisThreshold = 0.35f;
 		vault.context = InputContext::Gameplay;
 		BindAction("Vault", vault);
 
@@ -776,6 +777,14 @@ namespace MyEngine
 				if (axis < 0 || axis >= 6)
 					continue;
 				float value = ApplyAxisCalibration(axis, s_gamepadAxes[axis]);
+				if (axis == GLFW_GAMEPAD_AXIS_LEFT_TRIGGER || axis == GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER)
+				{
+					// GLFW backends may expose triggers as either [0, 1] or [-1, 1].
+					// Keep native [0, 1] values untouched and normalize negative-range
+					// values into the same space.
+					if (value < 0.0f)
+						value = std::clamp((value + 1.0f) * 0.5f, 0.0f, 1.0f);
+				}
 				if (binding.invertAxis)
 					value = -value;
 				if (std::fabs(value) >= threshold)
@@ -1079,7 +1088,40 @@ namespace MyEngine
 		if (s_profiles.find(s_defaultProfile) == s_profiles.end())
 			s_defaultProfile = s_activeProfile;
 
+		bool migratedBindings = false;
+		auto ensureVaultBinding = [&migratedBindings](Profile& profile)
+		{
+			auto it = profile.actions.find("Vault");
+			if (it == profile.actions.end())
+			{
+				ActionBinding vault;
+				vault.keys = { GLFW_KEY_V };
+				vault.gamepadAxes = { GLFW_GAMEPAD_AXIS_LEFT_TRIGGER };
+				vault.axisThreshold = 0.35f;
+				vault.context = InputContext::Gameplay;
+				profile.actions.emplace("Vault", std::move(vault));
+				migratedBindings = true;
+				return;
+			}
+
+			auto& vault = it->second;
+			const bool hasLegacyButton = std::find(vault.gamepadButtons.begin(), vault.gamepadButtons.end(), GLFW_GAMEPAD_BUTTON_DPAD_UP) != vault.gamepadButtons.end();
+			const bool hasTriggerAxis = std::find(vault.gamepadAxes.begin(), vault.gamepadAxes.end(), GLFW_GAMEPAD_AXIS_LEFT_TRIGGER) != vault.gamepadAxes.end();
+			if (hasLegacyButton || (!hasTriggerAxis && vault.gamepadAxes.empty()))
+			{
+				vault.gamepadButtons.clear();
+				vault.gamepadAxes = { GLFW_GAMEPAD_AXIS_LEFT_TRIGGER };
+				vault.axisThreshold = 0.35f;
+				vault.context = InputContext::Gameplay;
+				migratedBindings = true;
+			}
+		};
+		for (auto& [profileName, profile] : s_profiles)
+			ensureVaultBinding(profile);
+
 		LoadCurrentFromActiveProfile();
+		if (migratedBindings)
+			SaveBindings(path);
 
 		if (!HasAction("Attack1"))
 		{
@@ -1118,7 +1160,8 @@ namespace MyEngine
 		{
 			ActionBinding vault;
 			vault.keys = { GLFW_KEY_V };
-			vault.gamepadButtons = { GLFW_GAMEPAD_BUTTON_DPAD_UP };
+			vault.gamepadAxes = { GLFW_GAMEPAD_AXIS_LEFT_TRIGGER };
+			vault.axisThreshold = 0.35f;
 			vault.context = InputContext::Gameplay;
 			BindAction("Vault", vault);
 		}

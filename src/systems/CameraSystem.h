@@ -1,10 +1,12 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <memory>
 
 struct GLFWwindow;
 
 class Scene;
+class Entity;
 
 namespace MyEngine
 {
@@ -30,6 +32,13 @@ namespace MyEngine
         };
 
         CameraState m_PreviousCameraState;
+
+        std::weak_ptr<Entity> m_FollowCamera;
+        std::weak_ptr<Entity> m_FollowTarget;
+        glm::vec3 m_PreviousFollowPivot = glm::vec3(0.0f);
+        float m_FollowHeight = 0.0f;
+        float m_FollowHeightVelocity = 0.0f;
+        bool m_VaultSettling = false;
 
         glm::mat4 m_ViewMatrix = glm::mat4(1.0f);
         glm::mat4 m_ProjectionMatrix = glm::mat4(1.0f);

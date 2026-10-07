@@ -22,8 +22,10 @@
 #include <unordered_map>
 #include <memory>
 
+#include "animation/RelaxedFallAnimation.h"
 #include "core/Input.h"
 #include "core/InputActions.h"
+#include "core/PerformanceMetrics.h"
 #include "core/FileDialog.h"
 #include "core/AnimationEventBus.h"
 #include "ecs/Scene.h"
@@ -538,7 +540,7 @@ int main(int argc, char** argv)
               << "  Right-click: toggle mouse (camera control / UI interaction)\n"
               << "  WASD + mouse: move/look (when mouse captured)\n"
               << "  SPACE: jump (gameplay)\n"
-              << "  Shift+SPACE: play/pause physics simulation\n"
+              << "  Shift+SPACE or Gamepad START: start/stop play mode\n"
               << "  F1: toggle UI visibility\n"
               << "  F: toggle wireframe\n"
               << "  V: toggle third-person follow camera\n"
@@ -1233,6 +1235,18 @@ int main(int argc, char** argv)
             dodgeState.loop = false;
             dodgeState.playbackSpeed = 1.0f;
 
+            // Jump should interrupt the dodge immediately so the jump animation
+            // starts instead of waiting for the roll to finish.
+            MyEngine::AnimationStateMachineTransition toJump;
+            toJump.targetStateIndex = 6;
+            toJump.blendDuration = 0.06f;
+            toJump.resetTimeOnEnter = true;
+            MyEngine::AnimationStateMachineCondition jumpCond;
+            jumpCond.parameterName = "Jump";
+            jumpCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
+            toJump.conditions.push_back(jumpCond);
+            dodgeState.transitions.push_back(toJump);
+
             // Exit to idle after dodge when moving slowly and no longer dodging.
             MyEngine::AnimationStateMachineTransition toIdle;
             toIdle.targetStateIndex = 0;
@@ -1574,6 +1588,7 @@ int main(int argc, char** argv)
     auto& showPhysicsPanel = editorUI.showPhysicsPanel;
     auto& showCombatPanel = editorUI.showCombatPanel;
     auto& drawCombatShapesOverlay = editorUI.drawCombatShapesOverlay;
+    auto& showColliderDebugOverlay = editorUI.showColliderDebugOverlay;
     auto& showAssetBrowser = editorUI.showAssetBrowser;
     auto& assetBrowserPath = editorUI.assetBrowserPath;
     auto& showMaterialBrowser = editorUI.showMaterialBrowser;
@@ -2248,6 +2263,16 @@ int main(int argc, char** argv)
             if (!nearlyEqual(current.vaultDuration, original.vaultDuration)) { addOverride("Character Controller: Vault Duration"); hasCharacterControllerOverride = true; }
             if (!nearlyEqual(current.vaultCooldown, original.vaultCooldown)) { addOverride("Character Controller: Vault Cooldown"); hasCharacterControllerOverride = true; }
             if (!nearlyEqual(current.vaultArcHeight, original.vaultArcHeight)) { addOverride("Character Controller: Vault Arc Height"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultOverheadArcScale, original.vaultOverheadArcScale)) { addOverride("Character Controller: Vault Overhead Arc Scale"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultOverheadMarginScale, original.vaultOverheadMarginScale)) { addOverride("Character Controller: Vault Overhead Margin Scale"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultArchArcScale, original.vaultArchArcScale)) { addOverride("Character Controller: Vault Arch Arc Scale"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.vaultArchHeightScale, original.vaultArchHeightScale)) { addOverride("Character Controller: Vault Arch Height Scale"); hasCharacterControllerOverride = true; }
+            if (current.enableWallJump != original.enableWallJump) { addOverride("Character Controller: Enable Wall Jump"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.wallJumpHorizontalSpeed, original.wallJumpHorizontalSpeed)) { addOverride("Character Controller: Wall Jump Horizontal Speed"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.wallJumpVerticalSpeed, original.wallJumpVerticalSpeed)) { addOverride("Character Controller: Wall Jump Vertical Speed"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.wallJumpCooldown, original.wallJumpCooldown)) { addOverride("Character Controller: Wall Jump Cooldown"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.wallJumpFacingDotThreshold, original.wallJumpFacingDotThreshold)) { addOverride("Character Controller: Wall Jump Facing Dot Threshold"); hasCharacterControllerOverride = true; }
+            if (!nearlyEqual(current.wallJumpStateDuration, original.wallJumpStateDuration)) { addOverride("Character Controller: Wall Jump State Duration"); hasCharacterControllerOverride = true; }
             if (!nearlyEqual(current.slideGravityScale, original.slideGravityScale)) { addOverride("Character Controller: Slide Gravity Scale"); hasCharacterControllerOverride = true; }
             if (current.enableGroundSnap != original.enableGroundSnap) { addOverride("Character Controller: Enable Ground Snap"); hasCharacterControllerOverride = true; }
             if (current.orientToMovement != original.orientToMovement) { addOverride("Character Controller: Orient To Movement"); hasCharacterControllerOverride = true; }
@@ -3043,10 +3068,26 @@ int main(int argc, char** argv)
                 vaultParam.defaultBoolValue = false;
                 machine.parameters.push_back(vaultParam);
             }
+            if (machine.FindParameterIndex("IsWallJumping") < 0)
+            {
+                MyEngine::AnimationStateMachineParameter wallJumpParam;
+                wallJumpParam.name = "IsWallJumping";
+                wallJumpParam.type = MyEngine::AnimationStateMachineParameterType::Bool;
+                wallJumpParam.defaultBoolValue = false;
+                machine.parameters.push_back(wallJumpParam);
+            }
+            if (machine.FindParameterIndex("WallJump") < 0)
+            {
+                MyEngine::AnimationStateMachineParameter wallJumpTriggerParam;
+                wallJumpTriggerParam.name = "WallJump";
+                wallJumpTriggerParam.type = MyEngine::AnimationStateMachineParameterType::Trigger;
+                machine.parameters.push_back(wallJumpTriggerParam);
+            }
 
             if (smComponent.parameterValues.size() < machine.parameters.size())
                 smComponent.parameterValues.resize(machine.parameters.size());
 
+            int jumpStateIndex = machine.FindStateIndex("Jump");
             int dodgeStateIndex = machine.FindStateIndex("Dodge");
             if (dodgeStateIndex < 0)
             {
@@ -3059,6 +3100,35 @@ int main(int argc, char** argv)
                 dodgeStateIndex = static_cast<int>(machine.states.size()) - 1;
             }
 
+            if (jumpStateIndex >= 0 && dodgeStateIndex >= 0)
+            {
+                auto& dodgeState = machine.states[static_cast<size_t>(dodgeStateIndex)];
+                const bool hasJumpTransition = std::any_of(dodgeState.transitions.begin(), dodgeState.transitions.end(),
+                    [&](const MyEngine::AnimationStateMachineTransition& transition)
+                {
+                    if (transition.targetStateIndex != jumpStateIndex)
+                        return false;
+                    return std::any_of(transition.conditions.begin(), transition.conditions.end(),
+                        [&](const MyEngine::AnimationStateMachineCondition& condition)
+                    {
+                        return condition.parameterName == "Jump" &&
+                            condition.op == MyEngine::AnimationStateMachineConditionOperator::Trigger;
+                    });
+                });
+                if (!hasJumpTransition)
+                {
+                    MyEngine::AnimationStateMachineTransition toJump;
+                    toJump.targetStateIndex = jumpStateIndex;
+                    toJump.blendDuration = 0.06f;
+                    toJump.resetTimeOnEnter = true;
+                    MyEngine::AnimationStateMachineCondition jumpCond;
+                    jumpCond.parameterName = "Jump";
+                    jumpCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
+                    toJump.conditions.push_back(jumpCond);
+                    dodgeState.transitions.insert(dodgeState.transitions.begin(), toJump);
+                }
+            }
+
             int vaultStateIndex = machine.FindStateIndex("Vault");
             if (vaultStateIndex < 0)
             {
@@ -3069,6 +3139,28 @@ int main(int argc, char** argv)
                 vaultState.playbackSpeed = 1.0f;
                 machine.states.push_back(vaultState);
                 vaultStateIndex = static_cast<int>(machine.states.size()) - 1;
+            }
+            int wallJumpStateIndex = machine.FindStateIndex("WallJump");
+            if (wallJumpStateIndex < 0)
+            {
+                MyEngine::AnimationStateMachineState wallJumpState;
+                wallJumpState.name = "WallJump";
+                wallJumpState.clipName = "Flip Kick";
+                wallJumpState.loop = false;
+                wallJumpState.playbackSpeed = 1.0f;
+                machine.states.push_back(wallJumpState);
+                wallJumpStateIndex = static_cast<int>(machine.states.size()) - 1;
+            }
+            int fallStateIndex = machine.FindStateIndex("Fall");
+            if (fallStateIndex < 0)
+            {
+                MyEngine::AnimationStateMachineState fallState;
+                fallState.name = "Fall";
+                fallState.clipName = MyEngine::RelaxedFallClipName;
+                fallState.loop = true;
+                fallState.playbackSpeed = 1.0f;
+                machine.states.push_back(fallState);
+                fallStateIndex = static_cast<int>(machine.states.size()) - 1;
             }
 
             auto ensureEntryTransition = [&](const char* fromStateName, int targetStateIndex, const char* parameterName, float blend)
@@ -3116,6 +3208,40 @@ int main(int argc, char** argv)
             ensureEntryTransition("CrouchIdle", vaultStateIndex, "IsVaulting", 0.07f);
             ensureEntryTransition("CrouchWalk", vaultStateIndex, "IsVaulting", 0.07f);
 
+            if (wallJumpStateIndex >= 0)
+            {
+                int jumpStateForWallJump = machine.FindStateIndex("Jump");
+                if (jumpStateForWallJump >= 0 && jumpStateForWallJump < static_cast<int>(machine.states.size()))
+                {
+                    auto& jumpState = machine.states[static_cast<size_t>(jumpStateForWallJump)];
+                    jumpState.transitions.erase(std::remove_if(jumpState.transitions.begin(), jumpState.transitions.end(),
+                        [&](const MyEngine::AnimationStateMachineTransition& transition)
+                    {
+                        if (transition.targetStateIndex != wallJumpStateIndex)
+                            return false;
+                        for (const auto& condition : transition.conditions)
+                        {
+                            if ((condition.parameterName == "IsWallJumping" &&
+                                 condition.op == MyEngine::AnimationStateMachineConditionOperator::IfTrue) ||
+                                (condition.parameterName == "WallJump" &&
+                                 condition.op == MyEngine::AnimationStateMachineConditionOperator::Trigger))
+                                return true;
+                        }
+                        return false;
+                    }), jumpState.transitions.end());
+
+                    MyEngine::AnimationStateMachineTransition toWallJump;
+                    toWallJump.targetStateIndex = wallJumpStateIndex;
+                    toWallJump.blendDuration = 0.05f;
+                    toWallJump.resetTimeOnEnter = true;
+                    MyEngine::AnimationStateMachineCondition wallJumpCond;
+                    wallJumpCond.parameterName = "WallJump";
+                    wallJumpCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
+                    toWallJump.conditions.push_back(wallJumpCond);
+                    jumpState.transitions.push_back(toWallJump);
+                }
+            }
+
             auto ensureExitTransition = [&](const char* fromStateName, const char* toStateName, float speedThreshold, bool requireGreater)
             {
                 int fromStateIndex = machine.FindStateIndex(fromStateName);
@@ -3155,6 +3281,120 @@ int main(int argc, char** argv)
             ensureExitTransition("Vault", "Idle", 0.5f, false);
             ensureExitTransition("Vault", "Walk", 0.5f, true);
             ensureExitTransition("Vault", "Run", 2.0f, true);
+
+            if (wallJumpStateIndex >= 0)
+            {
+                auto& wallJumpState = machine.states[static_cast<size_t>(wallJumpStateIndex)];
+                wallJumpState.transitions.clear();
+
+                // Allow consecutive wall jumps while airborne to restart the
+                // WallJump clip each time the WallJump trigger fires.
+                MyEngine::AnimationStateMachineTransition wallJumpReplay;
+                wallJumpReplay.targetStateIndex = wallJumpStateIndex;
+                wallJumpReplay.blendDuration = 0.03f;
+                wallJumpReplay.resetTimeOnEnter = true;
+                MyEngine::AnimationStateMachineCondition wallJumpTriggerCond;
+                wallJumpTriggerCond.parameterName = "WallJump";
+                wallJumpTriggerCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
+                wallJumpReplay.conditions.push_back(wallJumpTriggerCond);
+                MyEngine::AnimationStateMachineCondition stillWallJumpingCond;
+                stillWallJumpingCond.parameterName = "IsWallJumping";
+                stillWallJumpingCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+                wallJumpReplay.conditions.push_back(stillWallJumpingCond);
+                wallJumpState.transitions.push_back(wallJumpReplay);
+
+                if (fallStateIndex >= 0)
+                {
+                    MyEngine::AnimationStateMachineTransition toFall;
+                    toFall.targetStateIndex = fallStateIndex;
+                    toFall.blendDuration = 0.25f;
+                    toFall.requiresExitTime = true;
+                    toFall.exitTimeNormalized = 0.98f;
+                    toFall.resetTimeOnEnter = true;
+                    MyEngine::AnimationStateMachineCondition airborneCond;
+                    airborneCond.parameterName = "IsGrounded";
+                    airborneCond.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+                    toFall.conditions.push_back(airborneCond);
+                    MyEngine::AnimationStateMachineCondition wallJumpEndedCond;
+                    wallJumpEndedCond.parameterName = "IsWallJumping";
+                    wallJumpEndedCond.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+                    toFall.conditions.push_back(wallJumpEndedCond);
+                    wallJumpState.transitions.push_back(toFall);
+                }
+
+                auto ensureGroundedExit = [&](MyEngine::AnimationStateMachineState& fromState, const char* toStateName, float speedThreshold, bool requireGreater)
+                {
+                    int toStateIndex = machine.FindStateIndex(toStateName);
+                    if (toStateIndex < 0)
+                        return;
+                    const bool hasExit = std::any_of(fromState.transitions.begin(), fromState.transitions.end(),
+                        [&](const MyEngine::AnimationStateMachineTransition& transition)
+                    {
+                        if (transition.targetStateIndex != toStateIndex)
+                            return false;
+                        bool hasGrounded = false;
+                        bool hasSpeed = false;
+                        for (const auto& condition : transition.conditions)
+                        {
+                            if (condition.parameterName == "IsGrounded" &&
+                                condition.op == MyEngine::AnimationStateMachineConditionOperator::IfTrue)
+                                hasGrounded = true;
+                            if (condition.parameterName == "Speed" &&
+                                condition.op == (requireGreater
+                                    ? MyEngine::AnimationStateMachineConditionOperator::Greater
+                                    : MyEngine::AnimationStateMachineConditionOperator::Less))
+                                hasSpeed = true;
+                        }
+                        return hasGrounded && hasSpeed;
+                    });
+                    if (hasExit)
+                        return;
+
+                    MyEngine::AnimationStateMachineTransition groundedExit;
+                    groundedExit.targetStateIndex = toStateIndex;
+                    groundedExit.blendDuration = 0.08f;
+                    groundedExit.resetTimeOnEnter = true;
+
+                    MyEngine::AnimationStateMachineCondition groundedCond;
+                    groundedCond.parameterName = "IsGrounded";
+                    groundedCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+                    groundedExit.conditions.push_back(groundedCond);
+
+                    MyEngine::AnimationStateMachineCondition speedCond;
+                    speedCond.parameterName = "Speed";
+                    speedCond.op = requireGreater
+                        ? MyEngine::AnimationStateMachineConditionOperator::Greater
+                        : MyEngine::AnimationStateMachineConditionOperator::Less;
+                    speedCond.threshold = speedThreshold;
+                    groundedExit.conditions.push_back(speedCond);
+
+                    fromState.transitions.push_back(groundedExit);
+                };
+
+                ensureGroundedExit(wallJumpState, "Idle", 0.5f, false);
+                ensureGroundedExit(wallJumpState, "Walk", 0.5f, true);
+                ensureGroundedExit(wallJumpState, "Run", 2.0f, true);
+
+                if (fallStateIndex >= 0 && fallStateIndex < static_cast<int>(machine.states.size()))
+                {
+                    auto& fallState = machine.states[static_cast<size_t>(fallStateIndex)];
+                    fallState.transitions.clear();
+
+                    MyEngine::AnimationStateMachineTransition fallToWallJump;
+                    fallToWallJump.targetStateIndex = wallJumpStateIndex;
+                    fallToWallJump.blendDuration = 0.04f;
+                    fallToWallJump.resetTimeOnEnter = true;
+                    MyEngine::AnimationStateMachineCondition fallWallJumpCond;
+                    fallWallJumpCond.parameterName = "WallJump";
+                    fallWallJumpCond.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
+                    fallToWallJump.conditions.push_back(fallWallJumpCond);
+                    fallState.transitions.push_back(fallToWallJump);
+
+                    ensureGroundedExit(fallState, "Idle", 0.5f, false);
+                    ensureGroundedExit(fallState, "Walk", 0.5f, true);
+                    ensureGroundedExit(fallState, "Run", 2.0f, true);
+                }
+            }
         }
     };
 
@@ -3341,6 +3581,8 @@ int main(int argc, char** argv)
     // Timing / profiling
     // ------------------------------------------------------------
     auto previousTime = std::chrono::high_resolution_clock::now();
+    bool previousFrameVaultActive = false;
+    bool previousFrameVaultAttempt = false;
 
     static constexpr int kPerfHistory = 180;
     std::array<float, kPerfHistory> frameMsHistory{};
@@ -3391,6 +3633,13 @@ int main(int argc, char** argv)
         ).count();
 
         previousTime = currentTime;
+
+        // Attribute start-to-start wall time to the preceding frame, before simulation clamping.
+        if (previousFrameVaultActive)
+            MyEngine::Performance::PerformanceMetrics::RecordSample("Vault frame", deltaTime * 1000.0f);
+        if (previousFrameVaultAttempt)
+            MyEngine::Performance::PerformanceMetrics::RecordSample("Vault activation frame", deltaTime * 1000.0f);
+        previousFrameVaultActive = previousFrameVaultAttempt = false;
 
         if (deltaTime > 0.1f)
             deltaTime = 0.1f;
@@ -3501,10 +3750,10 @@ int main(int argc, char** argv)
 #endif
         }
 
-        // Toggle Play/Pause (Shift+Space) so Space remains available for jump.
+        // Toggle Play/Pause with Shift+Space (keyboard) or Gamepad Start.
         if (allowGlobalHotkeys &&
-            Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT) &&
-            Input::IsKeyPressed(GLFW_KEY_SPACE))
+            ((Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT) && Input::IsKeyPressed(GLFW_KEY_SPACE)) ||
+             MyEngine::InputActions::IsGamepadButtonPressed(GLFW_GAMEPAD_BUTTON_START)))
         {
             setPlaying(!isPlaying);
         }
@@ -3935,6 +4184,8 @@ int main(int argc, char** argv)
                 if (isPlaying)
                     combatSystem.OnUpdate(simulationScene, deltaTime);
                 physicsSystem.OnUpdate(simulationScene, deltaTime, window, controllerCameraForward, controllerCameraRight, authoritativeInput);
+                previousFrameVaultActive = physicsSystem.vaultActiveThisFrame;
+                previousFrameVaultAttempt = physicsSystem.vaultAttemptedThisFrame;
                 if (isPlaying)
                     animationSystem.Update(simulationScene, deltaTime);
                 cpuPhysicsMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
@@ -4094,6 +4345,8 @@ int main(int argc, char** argv)
                             auto& controller = entity->GetComponent<CharacterControllerComponent>();
                             controller.wasGrounded = controller.isGrounded;
                             controller.isGrounded = sampledState.isGrounded;
+                            if (authoritativeEntity && authoritativeEntity->HasComponent<CharacterControllerComponent>())
+                                controller.isVaulting = authoritativeEntity->GetComponent<CharacterControllerComponent>().isVaulting;
                             controller.currentSpeed = glm::length(glm::vec2(sampledState.velocity.x, sampledState.velocity.z));
                             if (controller.isGrounded)
                                 controller.jumpUngroundedTimer = 0.0f;
@@ -4641,6 +4894,7 @@ int main(int argc, char** argv)
                     ImGui::MenuItem("Scripting", nullptr, &showScriptingPanel);
                     ImGui::MenuItem("Performance", nullptr, &showPerformancePanel);
                     ImGui::MenuItem("Combat Debug", nullptr, &showCombatPanel);
+                    ImGui::MenuItem("Collider Overlay", nullptr, &showColliderDebugOverlay);
                     ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
                     ImGui::MenuItem("Material Browser", nullptr, &showMaterialBrowser);
                     ImGui::Separator();
@@ -7375,13 +7629,13 @@ int main(int argc, char** argv)
                 drawLabelBox(labelPos, label, color);
             };
 
-            if (selectedEntity->HasComponent<CapsuleColliderComponent>())
+            if (showColliderDebugOverlay && selectedEntity->HasComponent<CapsuleColliderComponent>())
             {
                 const auto& capsule = selectedEntity->GetComponent<CapsuleColliderComponent>();
                 drawCapsuleOverlay(capsule.pointA, capsule.pointB, capsule.radius, IM_COL32(80, 200, 255, 255), "Collider Capsule");
             }
 
-            if (selectedEntity->HasComponent<SkeletonComponent>())
+            if (showColliderDebugOverlay && selectedEntity->HasComponent<SkeletonComponent>())
             {
                 glm::vec3 fitA(0.0f), fitB(0.0f);
                 float fitRadius = 0.0f;
@@ -7523,6 +7777,17 @@ int main(int argc, char** argv)
     // ------------------------------------------------------------
     // Shutdown
     // ------------------------------------------------------------
+    {
+        const auto stats = MyEngine::Performance::PerformanceMetrics::GetAllStats();
+        if (!stats.empty())
+        {
+            std::ofstream timings("vault_timings.csv", std::ios::trunc);
+            timings << "measurement,samples,minMs,avgMs,p95Ms,p99Ms,maxMs\n";
+            for (const auto& stat : stats)
+                timings << stat.name << ',' << stat.sampleCount << ',' << stat.minMs << ',' << stat.avgMs << ','
+                    << stat.p95Ms << ',' << stat.p99Ms << ',' << stat.maxMs << '\n';
+        }
+    }
 #ifdef USE_IMGUI
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

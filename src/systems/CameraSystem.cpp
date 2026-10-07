@@ -1,6 +1,7 @@
 #include "CameraSystem.h"
 
 #include "components/CameraComponent.h"
+#include "components/CharacterControllerComponent.h"
 #include "components/TransformComponent.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
@@ -310,6 +311,48 @@ namespace MyEngine
                 const auto& targetTransform = followTarget->GetComponent<TransformComponent>();
                 glm::vec3 pivot = targetTransform.position + glm::vec3(0.0f, camera.followHeight, 0.0f);
 
+                const bool resetFollow = m_FollowCamera.lock() != entity || m_FollowTarget.lock() != followTarget ||
+                    glm::length(pivot - m_PreviousFollowPivot) > 3.0f;
+                const bool vaulting = followTarget->HasComponent<CharacterControllerComponent>() &&
+                    followTarget->GetComponent<CharacterControllerComponent>().isVaulting;
+                if (resetFollow)
+                {
+                    m_FollowHeight = pivot.y;
+                    m_FollowHeightVelocity = 0.0f;
+                    m_VaultSettling = false;
+                }
+                m_FollowCamera = entity;
+                m_FollowTarget = followTarget;
+                m_PreviousFollowPivot = pivot;
+                m_VaultSettling = m_VaultSettling || vaulting;
+                if (m_VaultSettling)
+                {
+                    // Exact critically damped response for this frame's target. Only
+                    // vertical follow is filtered; orbit input and horizontal follow stay direct.
+                    const float dt = std::max(deltaTime, 0.0f);
+                    const float omega = 30.0f;
+                    const float decay = std::exp(-omega * dt);
+                    const float offset = m_FollowHeight - pivot.y;
+                    const float change = (m_FollowHeightVelocity + omega * offset) * dt;
+                    m_FollowHeight = pivot.y + (offset + change) * decay;
+                    m_FollowHeightVelocity = (m_FollowHeightVelocity - omega * change) * decay;
+                    const float boundedHeight = std::clamp(m_FollowHeight, pivot.y - 0.35f, pivot.y + 0.35f);
+                    if (boundedHeight != m_FollowHeight) m_FollowHeightVelocity = 0.0f;
+                    m_FollowHeight = boundedHeight;
+                    if (!vaulting && std::abs(m_FollowHeight - pivot.y) < 0.001f && std::abs(m_FollowHeightVelocity) < 0.01f)
+                    {
+                        m_VaultSettling = false;
+                        m_FollowHeight = pivot.y;
+                        m_FollowHeightVelocity = 0.0f;
+                    }
+                    pivot.y = m_FollowHeight;
+                }
+                else
+                {
+                    m_FollowHeight = pivot.y;
+                    m_FollowHeightVelocity = 0.0f;
+                }
+
                 if (camera.lockOnEnabled && lockOnTarget && lockOnTarget->HasComponent<TransformComponent>())
                 {
                     const auto& lockTransform = lockOnTarget->GetComponent<TransformComponent>();
@@ -347,6 +390,12 @@ namespace MyEngine
                     lookTarget = pivot;
                 }
             }
+            else
+            {
+                m_FollowCamera.reset();
+                m_FollowTarget.reset();
+                m_VaultSettling = false;
+            }
 
             m_ViewMatrix = glm::lookAt(
                 transform.position,
@@ -363,6 +412,9 @@ namespace MyEngine
 
             return;
         }
+        m_FollowCamera.reset();
+        m_FollowTarget.reset();
+        m_VaultSettling = false;
     }
 
     const glm::mat4& CameraSystem::GetViewMatrix() const

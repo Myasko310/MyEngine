@@ -8,6 +8,7 @@
 
 #include "core/AssetManager.h"
 #include "core/Input.h"
+#include "core/PerformanceMetrics.h"
 #include "components/CameraComponent.h"
 #include "components/LightComponent.h"
 #include "components/MeshRendererComponent.h"
@@ -167,6 +168,19 @@ namespace MyEngine::Editor::Panels
 
 		// Frame Pacing Diagnostics
 		SectionHeader("Frame Pacing Diagnostics", "📈");
+		if (BeginInspectorSection("Vault Timings", false))
+		{
+			ImGui::TextDisabled("Last 300 samples per metric; frame times include present/wait.");
+			for (const char* name : { "Vault activation", "Vault fixed step", "Vault activation frame", "Vault frame" })
+			{
+				const auto stat = MyEngine::Performance::PerformanceMetrics::GetStat(name);
+				ImGui::Text("%s (%u): avg %.2f, p95 %.2f, p99 %.2f, max %.2f ms",
+					name, stat.sampleCount, stat.avgMs, stat.p95Ms, stat.p99Ms, stat.maxMs);
+			}
+			if (ImGui::Button("Reset Vault Timings"))
+				MyEngine::Performance::PerformanceMetrics::Clear();
+			EndInspectorSection();
+		}
 		ImGui::Text("Window: %d frames", framePacingDiagnostics.sampleCount);
 		ImGui::Text("Avg/Min/Max: %.3f / %.3f / %.3f ms",
 			framePacingDiagnostics.averageFrameMs,

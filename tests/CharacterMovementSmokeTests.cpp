@@ -97,6 +97,11 @@ static bool RelaxedFallAnimationSmokeTest()
 	anim.enableRootMotion = true;
 	auto& sm = entity->AddComponent<AnimationStateMachineComponent>();
 	sm.stateMachine = std::make_shared<AnimationStateMachine>();
+	AnimationStateMachineState wallRun;
+	wallRun.name = "WallRun";
+	wallRun.clipName = "Diagonal Wall Run";
+	wallRun.loop = true;
+	sm.stateMachine->states.push_back(wallRun);
 	AnimationStateMachineState fall;
 	fall.name = "Fall";
 	fall.clipName = "Jumping";
@@ -114,6 +119,7 @@ static bool RelaxedFallAnimationSmokeTest()
 				for (int r = 0; r < 4; ++r)
 					if (!std::isfinite(matrix[c][r])) return false;
 	}
+	if (sm.stateMachine->FindStateIndex("WallRun") < 0) return false;
 	Scene restored;
 	if (!Serialization::LoadSceneFromString(restored, Serialization::SaveSceneToString(scene))) return false;
 	auto restoredEntity = restored.GetEntitySharedByID(entity->GetID());

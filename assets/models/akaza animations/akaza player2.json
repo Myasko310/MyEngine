@@ -2218,6 +2218,93 @@
         },
         {
             "id": 12,
+            "name": "WallRunTestWall",
+            "tag": "",
+            "layer": 0,
+            "Transform": {
+                "position": [
+                    1.75,
+                    2.0,
+                    0.9
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    0.5,
+                    4.0,
+                    8.0
+                ],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "primitive_cube",
+                "isSkinned": false
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [
+                    0.25,
+                    0.75,
+                    0.95
+                ],
+                "shininess": 8.0,
+                "useTexture": false,
+                "shaderVertexPath": "shaders/arena_lit.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "Rigidbody": {
+                "velocity": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "acceleration": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "mass": 1.0,
+                "drag": 0.009999999776482582,
+                "bounciness": 0.0,
+                "useGravity": false,
+                "gravityScale": 1.0,
+                "isKinematic": true,
+                "freezePositionX": false,
+                "freezePositionY": false,
+                "freezePositionZ": false,
+                "useCCD": false
+            },
+            "BoxCollider": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "halfExtents": [
+                    0.75,
+                    2.0,
+                    4.0
+                ],
+                "isTrigger": false
+            },
+            "BoundingSphere": {
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "radius": 3.605551242828369,
+                "isTrigger": false
+            },
+            "CollisionEvents": {
+                "enabled": true
+            }
+        },
+        {
+            "id": 13,
             "name": "DirectionalLight",
             "tag": "",
             "layer": 0,

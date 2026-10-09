@@ -678,6 +678,41 @@ namespace MyEngine
 				{
 					auto& controller = entity->GetComponent<CharacterControllerComponent>();
 					const auto& activeState = stateMachineComponent->stateMachine->states[stateMachineComponent->currentStateIndex];
+					const AnimationClip* currentClip =
+						(anim.activeClipIndex >= 0 && anim.activeClipIndex < static_cast<int>(anim.clips->size()))
+						? &(*anim.clips)[anim.activeClipIndex]
+						: nullptr;
+
+					float trimStartSeconds = 0.0f;
+					float trimEndSeconds = 0.0f;
+					ComputeTrimmedTimeRangeSeconds(activeState, currentClip, trimStartSeconds, trimEndSeconds);
+					const float trimmedDurationSeconds = std::max(0.0001f, trimEndSeconds - trimStartSeconds);
+					const float normalizedTime = std::clamp((anim.time - trimStartSeconds) / trimmedDurationSeconds, 0.0f, 1.0f);
+
+					float targetCapsuleLift = 0.0f;
+					if (!controller.isGrounded)
+					{
+						if (activeState.name == "Jump")
+						{
+							targetCapsuleLift = controller.jumpCapsuleLift * std::pow(std::max(0.0f, 1.0f - normalizedTime), 1.35f);
+						}
+						else if (activeState.name == "WallJump")
+						{
+							targetCapsuleLift = controller.wallJumpCapsuleLift * std::pow(std::max(0.0f, 1.0f - normalizedTime), 1.1f);
+						}
+						else if (activeState.name == "WallRun")
+						{
+							targetCapsuleLift = controller.wallJumpCapsuleLift * 0.8f;
+						}
+						else if (activeState.name == "Fall")
+						{
+							targetCapsuleLift = controller.fallCapsuleLift * std::pow(std::max(0.0f, 1.0f - normalizedTime), 1.2f);
+						}
+					}
+
+					const float liftBlend = std::clamp(deltaTime * 18.0f, 0.0f, 1.0f);
+					controller.capsuleBottomAnimationLift = glm::mix(controller.capsuleBottomAnimationLift, targetCapsuleLift, liftBlend);
+
 					const bool enteredFallFromWallJumpSync =
 						(activeState.name == "Fall") &&
 						(previousStateIndex != stateMachineComponent->currentStateIndex) &&
@@ -685,13 +720,6 @@ namespace MyEngine
 
 					if (enteredFallFromWallJumpSync || (activeState.name == "Fall" && controller.wallJumpFallSyncRequested))
 					{
-						const AnimationClip* currentClip =
-							(anim.activeClipIndex >= 0 && anim.activeClipIndex < static_cast<int>(anim.clips->size()))
-							? &(*anim.clips)[anim.activeClipIndex]
-							: nullptr;
-						float trimStartSeconds = 0.0f;
-						float trimEndSeconds = 0.0f;
-						ComputeTrimmedTimeRangeSeconds(activeState, currentClip, trimStartSeconds, trimEndSeconds);
 						const float clipRemaining = std::max(0.0001f, trimEndSeconds - anim.time);
 						const float airRemaining = controller.wallJumpEstimatedAirTimeRemaining;
 						if (airRemaining > 0.0001f && std::isfinite(airRemaining))

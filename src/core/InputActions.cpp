@@ -198,6 +198,13 @@ namespace MyEngine
 		vault.context = InputContext::Gameplay;
 		BindAction("Vault", vault);
 
+		ActionBinding wallRun;
+		wallRun.keys = { GLFW_KEY_R };
+		wallRun.gamepadAxes = { GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER };
+		wallRun.axisThreshold = 0.35f;
+		wallRun.context = InputContext::Gameplay;
+		BindAction("WallRun", wallRun);
+
 		ActionBinding fight;
 		fight.keys = { GLFW_KEY_F };
 		fight.mouseButtons = { GLFW_MOUSE_BUTTON_RIGHT };
@@ -1116,8 +1123,37 @@ namespace MyEngine
 				migratedBindings = true;
 			}
 		};
+
+		auto ensureWallRunBinding = [&migratedBindings](Profile& profile)
+		{
+			auto it = profile.actions.find("WallRun");
+			if (it == profile.actions.end())
+			{
+				ActionBinding wallRun;
+				wallRun.keys = { GLFW_KEY_R };
+				wallRun.gamepadAxes = { GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER };
+				wallRun.axisThreshold = 0.35f;
+				wallRun.context = InputContext::Gameplay;
+				profile.actions.emplace("WallRun", std::move(wallRun));
+				migratedBindings = true;
+				return;
+			}
+
+			auto& wallRun = it->second;
+			const bool hasTriggerAxis = std::find(wallRun.gamepadAxes.begin(), wallRun.gamepadAxes.end(), GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER) != wallRun.gamepadAxes.end();
+			if (!hasTriggerAxis && wallRun.gamepadAxes.empty())
+			{
+				wallRun.gamepadAxes = { GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER };
+				wallRun.axisThreshold = 0.35f;
+				wallRun.context = InputContext::Gameplay;
+				migratedBindings = true;
+			}
+		};
 		for (auto& [profileName, profile] : s_profiles)
+		{
 			ensureVaultBinding(profile);
+			ensureWallRunBinding(profile);
+		}
 
 		LoadCurrentFromActiveProfile();
 		if (migratedBindings)

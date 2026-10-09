@@ -165,6 +165,7 @@ namespace MyEngine::Net
 			writer.Write(message.command.slidePressed);
 			writer.Write(message.command.dodgePressed);
 			writer.Write(message.command.vaultPressed);
+			writer.Write(message.command.wallRunPressed);
 			writer.Write(message.command.crouchHeld);
 		}
 
@@ -183,6 +184,7 @@ namespace MyEngine::Net
 				&& reader.Read(outMessage.command.slidePressed)
 				&& reader.Read(outMessage.command.dodgePressed)
 				&& reader.Read(outMessage.command.vaultPressed)
+				&& reader.Read(outMessage.command.wallRunPressed)
 				&& reader.Read(outMessage.command.crouchHeld);
 		}
 

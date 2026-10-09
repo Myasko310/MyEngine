@@ -285,6 +285,7 @@ namespace MyEngine
 		bool genericAttackPressed = false;
 		bool dodgePressed = false;
 		bool vaultPressed = false;
+		bool wallRunPressed = false;
 
 		if (authoritativeInput)
 		{
@@ -294,6 +295,7 @@ namespace MyEngine
 			jumpPressed = authoritativeInput->jumpPressed;
 			dodgePressed = authoritativeInput->dodgePressed;
 			vaultPressed = authoritativeInput->vaultPressed;
+			wallRunPressed = authoritativeInput->wallRunPressed;
 		}
 		else
 		{
@@ -333,6 +335,7 @@ namespace MyEngine
 			controller.slideRequested |= newMovementCommand && (authoritativeInput
 				? authoritativeInput->slidePressed : InputActions::IsActionPressed("Crouch"));
 			controller.dodgeRequested |= newMovementCommand && dodgePressed;
+			controller.wallRunRequested |= newMovementCommand && (authoritativeInput ? wallRunPressed : InputActions::IsAction("WallRun"));
 			controller.vaultRequested |= newMovementCommand && vaultPressed;
 			controller.crouchHeld = authoritativeInput ? authoritativeInput->crouchHeld : InputActions::IsAction("Crouch");
 			controller.hasMovementInputTick = authoritativeInput != nullptr;
@@ -1241,6 +1244,11 @@ namespace MyEngine
 			if (parameter.type == AnimationStateMachineParameterType::Trigger && controller.wallJumpTriggeredThisFrame)
 				value.triggerValue = true;
 		});
+		setParameterByName("IsWallRunning", [&](const auto& parameter, auto& value)
+		{
+			if (parameter.type == AnimationStateMachineParameterType::Bool)
+				value.boolValue = controller.isWallRunning;
+		});
 
 		// Update Fight/Attack parameter from action bindings
 		{
@@ -1266,13 +1274,6 @@ namespace MyEngine
 			auto& controller = entity->GetComponent<CharacterControllerComponent>();
 			auto& transform = entity->GetComponent<TransformComponent>();
 			auto& rb = entity->GetComponent<RigidbodyComponent>();
-			const bool shouldLiftCapsule = !controller.isGrounded &&
-				(rb.velocity.y > -0.25f || controller.isWallJumping || controller.wallJumpFallSyncRequested);
-			const float targetCapsuleLift = shouldLiftCapsule
-				? std::max(controller.maxCapsuleBottomAnimationLift, 0.0f)
-				: 0.0f;
-			const float liftBlend = std::clamp(dt * (targetCapsuleLift > controller.capsuleBottomAnimationLift ? 18.0f : 20.0f), 0.0f, 1.0f);
-			controller.capsuleBottomAnimationLift = glm::mix(controller.capsuleBottomAnimationLift, targetCapsuleLift, liftBlend);
 			rb.isKinematic = true;
 			controller.previousPhysicsPosition = transform.position;
 			controller.hasPhysicsPosition = true;
@@ -1496,91 +1497,180 @@ namespace MyEngine
 					// before overlap/snap logic runs again.
 					transform.position += controller.groundNormal * (controller.skinWidth * 2.0f + 0.05f);
 					controller.capsuleBottomAnimationLift = std::max(controller.capsuleBottomAnimationLift,
-						std::max(controller.maxCapsuleBottomAnimationLift, 0.0f) * 0.9f);
+						std::max(controller.maxCapsuleBottomAnimationLift, 0.0f));
 					controller.isGrounded = false;
 					controller.wasGrounded = false;
 					controller.jumpedThisFrame = true;
 					controller.jumpUngroundedTimer = std::max(controller.jumpUngroundedDuration, 0.0f);
 					controller.jumpRequested = false;
 				}
-				else
-				{
-					glm::vec3 wallNormal(0.0f);
-					bool hasWallContact = false;
-					if (hasSupport && !IsWalkableSlope(probeNormal, controller.maxSlopeAngleDegrees) && probePenetration > 0.0001f)
-					{
-						wallNormal = glm::normalize(probeNormal);
-						hasWallContact = glm::length(wallNormal) > 0.0001f;
-					}
-					glm::vec3 facingDirection = glm::vec3(std::sin(transform.rotation.y), 0.0f, std::cos(transform.rotation.y));
-					if (glm::length(moveInput) > 0.1f)
-						facingDirection = glm::normalize(FlattenToPlane(moveInput, glm::vec3(0.0f, 1.0f, 0.0f)));
-					else if (glm::length(horizontalVelocity) > 0.1f)
-						facingDirection = glm::normalize(FlattenToPlane(horizontalVelocity, glm::vec3(0.0f, 1.0f, 0.0f)));
+			}
 
-					if (!hasWallContact && controller.enableWallJump)
+			glm::vec3 wallNormal(0.0f);
+			bool hasWallContact = false;
+			if (hasSupport && !IsWalkableSlope(probeNormal, controller.maxSlopeAngleDegrees) && probePenetration > 0.0001f)
+			{
+				wallNormal = glm::normalize(probeNormal);
+				hasWallContact = glm::length(wallNormal) > 0.0001f;
+			}
+			glm::vec3 facingDirection = glm::vec3(std::sin(transform.rotation.y), 0.0f, std::cos(transform.rotation.y));
+			if (glm::length(moveInput) > 0.1f)
+				facingDirection = glm::normalize(FlattenToPlane(moveInput, glm::vec3(0.0f, 1.0f, 0.0f)));
+			else if (glm::length(horizontalVelocity) > 0.1f)
+				facingDirection = glm::normalize(FlattenToPlane(horizontalVelocity, glm::vec3(0.0f, 1.0f, 0.0f)));
+
+			if (!hasWallContact && controller.enableWallJump)
+			{
+				const auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
+				const float radius = std::max(capsule.radius, 0.001f);
+				glm::vec3 probeNormalWall(0.0f, 1.0f, 0.0f);
+				float probePenetrationWall = 0.0f;
+				const glm::vec3 originalPosition = transform.position;
+				for (float distance : { std::max(controller.skinWidth + 0.06f, 0.03f), std::max(radius * 0.25f, 0.05f) })
+				{
+					transform.position = originalPosition + facingDirection * distance;
+					if (QueryCharacterSupport(scene, entity, probeNormalWall, probePenetrationWall) &&
+						!IsWalkableSlope(probeNormalWall, controller.maxSlopeAngleDegrees) && probePenetrationWall > 0.0001f)
 					{
-						const auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
-						const float radius = std::max(capsule.radius, 0.001f);
-						glm::vec3 probeNormalWall(0.0f, 1.0f, 0.0f);
-						float probePenetrationWall = 0.0f;
-						const glm::vec3 originalPosition = transform.position;
-						for (float distance : { std::max(controller.skinWidth + 0.06f, 0.03f), std::max(radius * 0.25f, 0.05f) })
-						{
-							transform.position = originalPosition + facingDirection * distance;
-							if (QueryCharacterSupport(scene, entity, probeNormalWall, probePenetrationWall) &&
-								!IsWalkableSlope(probeNormalWall, controller.maxSlopeAngleDegrees) && probePenetrationWall > 0.0001f)
-							{
-								wallNormal = glm::normalize(probeNormalWall);
-								hasWallContact = glm::length(wallNormal) > 0.0001f;
-								break;
-							}
-						}
-						transform.position = originalPosition;
+						wallNormal = glm::normalize(probeNormalWall);
+						hasWallContact = glm::length(wallNormal) > 0.0001f;
+						break;
 					}
-					if (controller.enableWallJump && hasWallContact && controller.wallJumpCooldownTimer <= 0.0f)
+				}
+				transform.position = originalPosition;
+			}
+
+			if (!hasWallContact && controller.enableWallRun)
+			{
+				const auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
+				const float radius = std::max(capsule.radius, 0.001f);
+				glm::vec3 probeNormalWall(0.0f, 1.0f, 0.0f);
+				float probePenetrationWall = 0.0f;
+				const glm::vec3 originalPosition = transform.position;
+				for (float distance : { std::max(controller.skinWidth + 0.06f, 0.03f), std::max(radius * 0.35f, 0.075f) })
+				{
+					transform.position = originalPosition + facingDirection * distance;
+					if (QueryCharacterSupport(scene, entity, probeNormalWall, probePenetrationWall) &&
+						!IsWalkableSlope(probeNormalWall, controller.maxSlopeAngleDegrees) && probePenetrationWall > 0.0001f)
 					{
-						const float facingDot = glm::dot(glm::normalize(facingDirection), -wallNormal);
-						if (facingDot >= std::clamp(controller.wallJumpFacingDotThreshold, 0.0f, 0.95f))
-						{
-							glm::vec3 incoming = glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z);
-							if (glm::length(incoming) < 0.1f)
-								incoming = facingDirection;
-							else
-								incoming = glm::normalize(incoming);
-							glm::vec3 reflected = glm::reflect(incoming, wallNormal);
-							reflected.y = 0.0f;
-							if (glm::length(reflected) < 0.0001f || glm::dot(reflected, wallNormal) < 0.1f)
-								reflected = FlattenToPlane(wallNormal, glm::vec3(0.0f, 1.0f, 0.0f));
-							if (glm::length(reflected) > 0.0001f)
-								reflected = glm::normalize(reflected);
-							rb.velocity.x = reflected.x * std::max(controller.wallJumpHorizontalSpeed, 0.0f);
-							rb.velocity.z = reflected.z * std::max(controller.wallJumpHorizontalSpeed, 0.0f);
-							rb.velocity.y = std::max(rb.velocity.y, controller.wallJumpVerticalSpeed);
-							const glm::vec3 towardWall(-wallNormal.x, 0.0f, -wallNormal.z);
-							if (glm::length(towardWall) > 0.0001f)
-								transform.rotation.y = std::atan2(towardWall.x, towardWall.z);
-								controller.jumpedThisFrame = true;
-								controller.wallJumpTriggeredThisFrame = true;
-								controller.wallJumpFallSyncRequested = true;
-								controller.wallJumpEstimatedAirTimeRemaining = 0.0f;
-								controller.isWallJumping = true;
-								controller.wallJumpTimer = std::max(controller.wallJumpStateDuration, 0.0f);
-								controller.wallJumpCooldownTimer = std::max(controller.wallJumpCooldown, 0.0f);
-								controller.jumpUngroundedTimer = std::max(controller.jumpUngroundedDuration, 0.0f);
-								controller.jumpRequested = false;
-							}
+						wallNormal = glm::normalize(probeNormalWall);
+						hasWallContact = glm::length(wallNormal) > 0.0001f;
+						break;
 					}
-					if (controller.jumpRequested && !controller.jumpHeld)
+				}
+				transform.position = originalPosition;
+			}
+
+			controller.wallRunCooldownTimer = std::max(0.0f, controller.wallRunCooldownTimer - dt);
+			const bool wallRunRequested = controller.wallRunRequested || InputActions::IsAction("WallRun");
+			const bool canWallRun = controller.enableWallRun && wallRunRequested && !controller.isGrounded && !controller.isDodging && !controller.isVaulting && !controller.isWallJumping &&
+			controller.wallRunCooldownTimer <= 0.0f && controller.wallRunTimer <= 0.0f;
+			if (canWallRun && hasWallContact)
+			{
+				const float wallAngle = glm::degrees(std::acos(glm::clamp(glm::dot(wallNormal, glm::vec3(0.0f, 1.0f, 0.0f)), -1.0f, 1.0f)));
+				const bool validWall = wallAngle >= controller.wallRunMinWallAngleDegrees && wallAngle <= controller.wallRunMaxWallAngleDegrees;
+				if (validWall)
+				{
+					glm::vec3 wallTangent = glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), wallNormal);
+					if (glm::length(wallTangent) > 0.0001f)
+						wallTangent = glm::normalize(wallTangent);
+					if (glm::length(moveInput) > 0.1f)
 					{
-						// If the button has been released before grounding, clear stale request.
+						glm::vec3 inputAlongWall = FlattenToPlane(moveInput, wallNormal);
+						if (glm::length(inputAlongWall) > 0.0001f)
+							wallTangent = glm::normalize(inputAlongWall);
+					}
+					if (glm::length(wallTangent) > 0.0001f)
+					{
+						controller.isWallRunning = true;
+						controller.wallRunNormal = wallNormal;
+						controller.wallRunDirection = wallTangent;
+						controller.wallRunSide = (glm::dot(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), wallNormal), wallTangent) >= 0.0f) ? 1 : -1;
+						controller.wallRunEntrySpeed = std::max(controller.wallRunSpeed, 0.0f);
+						controller.wallRunTimer = std::max(controller.wallRunMaxDuration, 0.0f);
 						controller.jumpRequested = false;
+						controller.wallRunRequested = false;
+						controller.wallRunCooldownTimer = 0.0f;
+						controller.jumpUngroundedTimer = std::max(controller.wallRunJumpUngroundedDuration, 0.0f);
+						controller.wallJumpCooldownTimer = std::max(controller.wallJumpCooldown, 0.0f);
+						controller.isWallJumping = false;
+						controller.wallJumpFallSyncRequested = false;
+						controller.wallJumpEstimatedAirTimeRemaining = 0.0f;
+						controller.jumpedThisFrame = false;
+						controller.wallJumpTriggeredThisFrame = false;
+						controller.capsuleBottomAnimationLift = std::max(controller.capsuleBottomAnimationLift, controller.wallJumpCapsuleLift * 0.85f);
 					}
 				}
 			}
+
+			if (controller.isWallRunning)
+			{
+				controller.wallRunTimer = std::max(0.0f, controller.wallRunTimer - dt);
+				if (controller.wallRunTimer <= 0.0f || controller.isGrounded || controller.jumpRequested || !hasWallContact || !IsWalkableSlope(probeNormal, controller.maxSlopeAngleDegrees))
+				{
+					controller.isWallRunning = false;
+					controller.wallRunTimer = 0.0f;
+					controller.wallRunCooldownTimer = std::max(controller.wallRunCooldown * 0.5f, 0.0f);
+				}
+				else
+				{
+					const glm::vec3 wallTangent = glm::length(controller.wallRunDirection) > 0.0001f
+						? glm::normalize(controller.wallRunDirection)
+						: glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), controller.wallRunNormal));
+					rb.velocity.x = wallTangent.x * controller.wallRunEntrySpeed;
+					rb.velocity.z = wallTangent.z * controller.wallRunEntrySpeed;
+					rb.velocity.y = std::max(rb.velocity.y, -glm::length(gravity) * controller.wallRunGravityScale * dt);
+					transform.rotation.y = std::atan2(-controller.wallRunNormal.x, -controller.wallRunNormal.z);
+					controller.currentSpeed = glm::length(glm::vec2(rb.velocity.x, rb.velocity.z));
+				}
+			}
+			else if (controller.jumpRequested && controller.enableWallJump && hasWallContact && controller.wallJumpCooldownTimer <= 0.0f)
+			{
+				const float facingDot = glm::dot(glm::normalize(facingDirection), -wallNormal);
+				if (facingDot >= std::clamp(controller.wallJumpFacingDotThreshold, 0.0f, 0.95f))
+				{
+					glm::vec3 incoming = glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z);
+					if (glm::length(incoming) < 0.1f)
+						incoming = facingDirection;
+					else
+						incoming = glm::normalize(incoming);
+					glm::vec3 reflected = glm::reflect(incoming, wallNormal);
+					reflected.y = 0.0f;
+					if (glm::length(reflected) < 0.0001f || glm::dot(reflected, wallNormal) < 0.1f)
+						reflected = FlattenToPlane(wallNormal, glm::vec3(0.0f, 1.0f, 0.0f));
+					if (glm::length(reflected) > 0.0001f)
+						reflected = glm::normalize(reflected);
+					rb.velocity.x = reflected.x * std::max(controller.wallJumpHorizontalSpeed, 0.0f);
+					rb.velocity.z = reflected.z * std::max(controller.wallJumpHorizontalSpeed, 0.0f);
+					rb.velocity.y = std::max(rb.velocity.y, controller.wallJumpVerticalSpeed);
+					const glm::vec3 towardWall(-wallNormal.x, 0.0f, -wallNormal.z);
+					if (glm::length(towardWall) > 0.0001f)
+						transform.rotation.y = std::atan2(towardWall.x, towardWall.z);
+					controller.jumpedThisFrame = true;
+					controller.wallJumpTriggeredThisFrame = true;
+					controller.wallJumpFallSyncRequested = true;
+					controller.wallJumpEstimatedAirTimeRemaining = 0.0f;
+					controller.isWallJumping = true;
+					controller.wallJumpTimer = std::max(controller.wallJumpStateDuration, 0.0f);
+					controller.wallJumpCooldownTimer = std::max(controller.wallJumpCooldown, 0.0f);
+					controller.jumpUngroundedTimer = std::max(controller.wallRunJumpUngroundedDuration, 0.0f);
+					controller.jumpRequested = false;
+					controller.wallRunRequested = false;
+					controller.isWallRunning = false;
+				}
+			}
+
+			if (controller.jumpRequested && !controller.jumpHeld)
+			{
+				// If the button has been released before grounding, clear stale request.
+				controller.jumpRequested = false;
+			}
 			if (!controller.isGrounded)
 			{
-				rb.velocity += gravity * controller.gravityScale * dt;
+				if (!controller.isWallRunning)
+					rb.velocity += gravity * controller.gravityScale * dt;
+				else
+					rb.velocity += gravity * controller.gravityScale * controller.wallRunGravityScale * dt;
 			}
 
 			if (controller.isOnSteepSlope)

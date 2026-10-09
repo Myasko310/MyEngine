@@ -23,6 +23,7 @@
 #include "components/BoxColliderComponent.h"
 #include "components/CameraComponent.h"
 #include "components/CapsuleColliderComponent.h"
+#include "components/CharacterControllerComponent.h"
 #include "components/CollisionEventsComponent.h"
 #include "components/CombatAttackComponent.h"
 #include "components/CombatHitboxComponent.h"
@@ -1677,6 +1678,17 @@ namespace MyEngine::Editor::Panels
 				ImGui::Checkbox("Kinematic", &rb.isKinematic);
 				ImGui::Checkbox("CCD (Continuous Collision)", &rb.useCCD);
 				ImGui::SetItemTooltip("Sub-steps this body's sweep each tick to prevent tunnelling at high speeds");
+
+				if (selectedEntity->HasComponent<CharacterControllerComponent>())
+				{
+					auto& controller = selectedEntity->GetComponent<CharacterControllerComponent>();
+					InspectorGroupLabel("Character Capsule Lift");
+					ImGui::DragFloat("Jump Lift", &controller.jumpCapsuleLift, 0.01f, 0.0f, 2.0f, "%.3f");
+					ImGui::DragFloat("Wall Jump Lift", &controller.wallJumpCapsuleLift, 0.01f, 0.0f, 2.0f, "%.3f");
+					ImGui::DragFloat("Wall Run Lift", &controller.wallJumpCapsuleLift, 0.01f, 0.0f, 2.0f, "%.3f");
+					ImGui::DragFloat("Fall Lift", &controller.fallCapsuleLift, 0.01f, 0.0f, 2.0f, "%.3f");
+					ImGui::DragFloat("Max Lift", &controller.maxCapsuleBottomAnimationLift, 0.01f, 0.0f, 2.0f, "%.3f");
+				}
 
 				InspectorGroupLabel("Constraints");
 				ImGui::TextDisabled("Freeze Position");

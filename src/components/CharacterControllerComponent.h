@@ -52,10 +52,22 @@ namespace MyEngine
 		float wallJumpCooldown = 0.25f;
 		float wallJumpFacingDotThreshold = 0.25f;
 		float wallJumpStateDuration = 0.26f;
+		bool enableWallRun = true;
+		float wallRunSpeed = 5.0f;
+		float wallRunGravityScale = 0.15f;
+		float wallRunMaxDuration = 0.75f;
+		float wallRunMinWallAngleDegrees = 65.0f;
+		float wallRunMaxWallAngleDegrees = 110.0f;
+		float wallRunJumpOffSpeed = 5.0f;
+		float wallRunCooldown = 0.35f;
+		float wallRunJumpUngroundedDuration = 0.18f;
+		float wallRunEntrySpeedThreshold = 2.2f;
+		float wallRunMinVerticalSpeed = -0.5f;
 		float turnSpeed = 12.0f;
 		bool sprintRequested = false;
 		bool slideRequested = false;
 		bool dodgeRequested = false;
+		bool wallRunRequested = false;
 		bool vaultRequested = false;
 		bool crouchHeld = false;
 		bool sprintLatched = false;
@@ -64,6 +76,13 @@ namespace MyEngine
 		bool isDodging = false;
 		bool isVaulting = false;
 		bool isWallJumping = false;
+		bool isWallRunning = false;
+		int wallRunSide = 0;
+		glm::vec3 wallRunNormal = glm::vec3(0.0f);
+		glm::vec3 wallRunDirection = glm::vec3(0.0f);
+		float wallRunTimer = 0.0f;
+		float wallRunCooldownTimer = 0.0f;
+		float wallRunEntrySpeed = 0.0f;
 		float slideTimer = 0.0f;
 		float slideCooldownTimer = 0.0f;
 		float dodgeTimer = 0.0f;
@@ -97,7 +116,10 @@ namespace MyEngine
 		bool wallJumpFallSyncRequested = false;
 		float wallJumpEstimatedAirTimeRemaining = 0.0f;
 		float capsuleBottomAnimationLift = 0.0f;
-		float maxCapsuleBottomAnimationLift = 0.24f;
+		float maxCapsuleBottomAnimationLift = 0.40f;
+		float jumpCapsuleLift = 0.30f;
+		float wallJumpCapsuleLift = 0.26f;
+		float fallCapsuleLift = 0.12f;
 
 		bool jumpRequested = false;
 		bool jumpHeld = false;
@@ -118,13 +140,13 @@ namespace MyEngine
 			sprintRequested = false;
 			slideRequested = false;
 			dodgeRequested = false;
+			wallRunRequested = false;
 			vaultRequested = false;
 			crouchHeld = false;
 			attack1Requested = false;
 			attack2Requested = false;
 			attack3Requested = false;
 			jumpedThisFrame = false;
-			capsuleBottomAnimationLift = 0.0f;
 		}
 	};
 }

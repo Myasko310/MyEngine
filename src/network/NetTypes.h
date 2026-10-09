@@ -20,6 +20,7 @@ namespace MyEngine::Net
 		bool slidePressed = false;
 		bool dodgePressed = false;
 		bool vaultPressed = false;
+		bool wallRunPressed = false;
 		bool crouchHeld = false;
 	};
 

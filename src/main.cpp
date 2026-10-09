@@ -3083,6 +3083,14 @@ int main(int argc, char** argv)
                 wallJumpTriggerParam.type = MyEngine::AnimationStateMachineParameterType::Trigger;
                 machine.parameters.push_back(wallJumpTriggerParam);
             }
+            if (machine.FindParameterIndex("IsWallRunning") < 0)
+            {
+                MyEngine::AnimationStateMachineParameter wallRunParam;
+                wallRunParam.name = "IsWallRunning";
+                wallRunParam.type = MyEngine::AnimationStateMachineParameterType::Bool;
+                wallRunParam.defaultBoolValue = false;
+                machine.parameters.push_back(wallRunParam);
+            }
 
             if (smComponent.parameterValues.size() < machine.parameters.size())
                 smComponent.parameterValues.resize(machine.parameters.size());
@@ -3151,6 +3159,17 @@ int main(int argc, char** argv)
                 machine.states.push_back(wallJumpState);
                 wallJumpStateIndex = static_cast<int>(machine.states.size()) - 1;
             }
+            int wallRunStateIndex = machine.FindStateIndex("WallRun");
+            if (wallRunStateIndex < 0)
+            {
+                MyEngine::AnimationStateMachineState wallRunState;
+                wallRunState.name = "WallRun";
+                wallRunState.clipName = "Diagonal Wall Run";
+                wallRunState.loop = true;
+                wallRunState.playbackSpeed = 1.0f;
+                machine.states.push_back(wallRunState);
+                wallRunStateIndex = static_cast<int>(machine.states.size()) - 1;
+            }
             int fallStateIndex = machine.FindStateIndex("Fall");
             if (fallStateIndex < 0)
             {
@@ -3207,6 +3226,43 @@ int main(int argc, char** argv)
             ensureEntryTransition("Run", vaultStateIndex, "IsVaulting", 0.07f);
             ensureEntryTransition("CrouchIdle", vaultStateIndex, "IsVaulting", 0.07f);
             ensureEntryTransition("CrouchWalk", vaultStateIndex, "IsVaulting", 0.07f);
+
+            if (wallRunStateIndex >= 0)
+            {
+                auto ensurePriorityWallRunTransition = [&](const char* fromStateName)
+                {
+                    int fromStateIndex = machine.FindStateIndex(fromStateName);
+                    if (fromStateIndex < 0 || fromStateIndex >= static_cast<int>(machine.states.size()))
+                        return;
+
+                    auto& fromState = machine.states[static_cast<size_t>(fromStateIndex)];
+                    fromState.transitions.erase(std::remove_if(fromState.transitions.begin(), fromState.transitions.end(),
+                        [&](const MyEngine::AnimationStateMachineTransition& transition)
+                    {
+                        if (transition.targetStateIndex != wallRunStateIndex)
+                            return false;
+                        return std::any_of(transition.conditions.begin(), transition.conditions.end(),
+                            [&](const MyEngine::AnimationStateMachineCondition& condition)
+                        {
+                            return condition.parameterName == "IsWallRunning" &&
+                                condition.op == MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+                        });
+                    }), fromState.transitions.end());
+
+                    MyEngine::AnimationStateMachineTransition toWallRun;
+                    toWallRun.targetStateIndex = wallRunStateIndex;
+                    toWallRun.blendDuration = 0.06f;
+                    toWallRun.resetTimeOnEnter = true;
+                    MyEngine::AnimationStateMachineCondition wallRunCond;
+                    wallRunCond.parameterName = "IsWallRunning";
+                    wallRunCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+                    toWallRun.conditions.push_back(wallRunCond);
+                    fromState.transitions.insert(fromState.transitions.begin(), toWallRun);
+                };
+
+                for (const char* stateName : { "Idle", "Walk", "Run", "Jump", "Fall", "WallJump", "CrouchIdle", "CrouchWalk", "Dodge", "Vault" })
+                    ensurePriorityWallRunTransition(stateName);
+            }
 
             if (wallJumpStateIndex >= 0)
             {
@@ -3303,6 +3359,19 @@ int main(int argc, char** argv)
                 wallJumpReplay.conditions.push_back(stillWallJumpingCond);
                 wallJumpState.transitions.push_back(wallJumpReplay);
 
+                if (wallRunStateIndex >= 0)
+                {
+                    MyEngine::AnimationStateMachineTransition toWallRun;
+                    toWallRun.targetStateIndex = wallRunStateIndex;
+                    toWallRun.blendDuration = 0.08f;
+                    toWallRun.resetTimeOnEnter = true;
+                    MyEngine::AnimationStateMachineCondition wallRunCond;
+                    wallRunCond.parameterName = "IsWallRunning";
+                    wallRunCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+                    toWallRun.conditions.push_back(wallRunCond);
+                    wallJumpState.transitions.push_back(toWallRun);
+                }
+
                 if (fallStateIndex >= 0)
                 {
                     MyEngine::AnimationStateMachineTransition toFall;
@@ -3374,6 +3443,32 @@ int main(int argc, char** argv)
                 ensureGroundedExit(wallJumpState, "Idle", 0.5f, false);
                 ensureGroundedExit(wallJumpState, "Walk", 0.5f, true);
                 ensureGroundedExit(wallJumpState, "Run", 2.0f, true);
+
+                if (wallRunStateIndex >= 0)
+                {
+                    auto& wallRunState = machine.states[static_cast<size_t>(wallRunStateIndex)];
+                    wallRunState.transitions.clear();
+
+                    MyEngine::AnimationStateMachineTransition wallRunToWallJump;
+                    wallRunToWallJump.targetStateIndex = wallJumpStateIndex;
+                    wallRunToWallJump.blendDuration = 0.08f;
+                    wallRunToWallJump.resetTimeOnEnter = true;
+                    MyEngine::AnimationStateMachineCondition wallJumpTrigger;
+                    wallJumpTrigger.parameterName = "WallJump";
+                    wallJumpTrigger.op = MyEngine::AnimationStateMachineConditionOperator::Trigger;
+                    wallRunToWallJump.conditions.push_back(wallJumpTrigger);
+                    wallRunState.transitions.push_back(wallRunToWallJump);
+
+                    MyEngine::AnimationStateMachineTransition wallRunToFall;
+                    wallRunToFall.targetStateIndex = fallStateIndex;
+                    wallRunToFall.blendDuration = 0.10f;
+                    wallRunToFall.resetTimeOnEnter = true;
+                    MyEngine::AnimationStateMachineCondition wallRunNotActive;
+                    wallRunNotActive.parameterName = "IsWallRunning";
+                    wallRunNotActive.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+                    wallRunToFall.conditions.push_back(wallRunNotActive);
+                    wallRunState.transitions.push_back(wallRunToFall);
+                }
 
                 if (fallStateIndex >= 0 && fallStateIndex < static_cast<int>(machine.states.size()))
                 {
@@ -4151,6 +4246,7 @@ int main(int argc, char** argv)
                     localInput.slidePressed = MyEngine::InputActions::IsActionPressed("Crouch");
                     localInput.dodgePressed = MyEngine::InputActions::IsActionPressed("Dodge");
                     localInput.vaultPressed = MyEngine::InputActions::IsActionPressed("Vault");
+                    localInput.wallRunPressed = MyEngine::InputActions::IsAction("WallRun");
                     localInput.crouchHeld = MyEngine::InputActions::IsAction("Crouch");
 
                     clientReconciliationState.RecordPredictedInput(localInput);

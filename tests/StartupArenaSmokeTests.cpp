@@ -26,6 +26,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace
@@ -43,6 +44,106 @@ namespace
 		const auto& transform = entity.GetComponent<TransformComponent>();
 		return transform.position + glm::vec3(0.0f, transform.scale.y * 0.5f, 0.0f);
 	}
+
+	bool ValidateParkourShowcase(const rapidjson::Value& entities)
+	{
+		std::vector<const rapidjson::Value*> course;
+		std::set<std::string> names;
+		int moverCount = 0;
+		for (const auto& entity : entities.GetArray())
+		{
+			if (!entity.HasMember("tag") || std::string(entity["tag"].GetString()) != "ParkourShowcase")
+				continue;
+			course.push_back(&entity);
+			if (!names.insert(entity["name"].GetString()).second ||
+				!entity.HasMember("Transform") ||
+				!entity.HasMember("MeshComponent") || std::string(entity["MeshComponent"]["assetPath"].GetString()) != "primitive_cube")
+				return false;
+			if (!entity.HasMember("BoxCollider"))
+			{
+				if (!entity.HasMember("BoundingSphere") || !entity["BoundingSphere"]["isTrigger"].GetBool())
+					return false;
+				continue;
+			}
+			if (!entity.HasMember("Rigidbody") || !entity["Rigidbody"]["isKinematic"].GetBool() ||
+				entity["Rigidbody"]["useGravity"].GetBool() || entity["BoxCollider"]["isTrigger"].GetBool())
+				return false;
+			for (rapidjson::SizeType axis = 0; axis < 3; ++axis)
+			{
+				if (std::abs(entity["BoxCollider"]["halfExtents"][axis].GetFloat() - 0.5f) > 0.0001f ||
+					entity["BoxCollider"]["center"][axis].GetFloat() != 0.0f ||
+					entity["Transform"]["rotation"][axis].GetFloat() != 0.0f ||
+					entity["Transform"]["scale"][axis].GetFloat() <= 0.0f)
+					return false;
+			}
+			if (entity.HasMember("MovingPlatformComponent"))
+			{
+				++moverCount;
+				const auto& mover = entity["MovingPlatformComponent"];
+				if (!mover["active"].GetBool() || !mover["pingPong"].GetBool() ||
+					mover["speed"].GetFloat() <= 0.0f || mover["speed"].GetFloat() > 5.0f || mover["waitTime"].GetFloat() <= 0.0f)
+					return false;
+				float distanceSquared = 0.0f;
+				for (rapidjson::SizeType axis = 0; axis < 3; ++axis)
+				{
+					const float start = mover["startPosition"][axis].GetFloat();
+					if (std::abs(start - entity["Transform"]["position"][axis].GetFloat()) > 0.001f)
+						return false;
+					const float delta = mover["endPosition"][axis].GetFloat() - start;
+					distanceSquared += delta * delta;
+				}
+				if (distanceSquared < 0.01f)
+					return false;
+			}
+		}
+		if (course.size() != 155 || moverCount != 12)
+			return false;
+		auto find = [&](const std::string& name) -> const rapidjson::Value*
+		{
+			for (const auto* entity : course)
+				if (name == (*entity)["name"].GetString())
+					return entity;
+			return nullptr;
+		};
+		auto position = [](const rapidjson::Value& entity, rapidjson::SizeType axis)
+		{
+			return entity["Transform"]["position"][axis].GetFloat();
+		};
+		auto size = [](const rapidjson::Value& entity, rapidjson::SizeType axis)
+		{
+			return entity["Transform"]["scale"][axis].GetFloat();
+		};
+		for (int tier = 1; tier <= 4; ++tier)
+		{
+			const std::string prefix = "Tower_T" + std::to_string(tier) + "_";
+			const auto* launch = find(prefix + "Launch");
+			const auto* catchPad = find(prefix + "Catch");
+			const auto* wall = find(prefix + "RunWall");
+			const auto* deck = find(prefix + "ServiceDeck");
+			const auto* gate = find(prefix + "Gate");
+			if (!launch || !catchPad || !wall || !deck || !gate || !find(prefix + "Shuttle") || !find(prefix + "CoreBridge"))
+				return false;
+			const float gap = std::abs(position(*launch, 2) - position(*catchPad, 2)) -
+				(size(*launch, 2) + size(*catchPad, 2)) * 0.5f;
+			if (gap < 5.6f || gap > 6.4f || size(*wall, 2) < 22.0f ||
+				std::abs(position(*catchPad, 1) - position(*launch, 1) - 2.4f) > 0.001f ||
+				std::abs(position(*deck, 1) + size(*deck, 1) * 0.5f - tier * 12.0f) > 0.001f ||
+				size(*deck, 0) > 6.2f || size(*launch, 0) > 4.0f ||
+				std::abs(position(*gate, 1) - size(*gate, 1) * 0.5f - (tier - 1) * 12.0f - 6.4f) > 0.001f)
+				return false;
+		}
+		for (int ledge = 1; ledge <= 16; ++ledge)
+		{
+			const auto* pad = find("Tower_CoreLedge_" + std::string(ledge < 10 ? "0" : "") + std::to_string(ledge));
+			if (!pad || std::abs(position(*pad, 1) + size(*pad, 1) * 0.5f - ledge * 3.0f) > 0.001f || size(*pad, 0) > 2.8f)
+				return false;
+		}
+		const auto* crown = find("Tower_Crown");
+		const auto* foundation = find("Tower_Foundation");
+		return crown && foundation && position(*crown, 0) == 80.0f &&
+			position(*foundation, 0) - size(*foundation, 0) * 0.5f > 48.5f &&
+			std::abs(position(*crown, 1) + size(*crown, 1) * 0.5f - 48.0f) < 0.001f;
+	}
 }
 
 bool StartupArenaSmokeTest()
@@ -53,6 +154,11 @@ bool StartupArenaSmokeTest()
 	rapidjson::Document document;
 	if (document.Parse(text.c_str()).HasParseError() || !document.HasMember("entities"))
 		return false;
+	if (!ValidateParkourShowcase(document["entities"]))
+	{
+		std::cerr << "StartupArenaSmokeTest: parkour geometry validation failed" << std::endl;
+		return false;
+	}
 
 	std::set<unsigned> ids;
 	int expansionCount = 0;

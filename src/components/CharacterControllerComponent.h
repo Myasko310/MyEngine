@@ -63,6 +63,9 @@ namespace MyEngine
 		float wallRunJumpUngroundedDuration = 0.18f;
 		float wallRunEntrySpeedThreshold = 2.2f;
 		float wallRunMinVerticalSpeed = -0.5f;
+		float wallRunWallClearance = 0.06f;
+		float wallRunContactGraceDuration = 0.10f;
+		float wallRunCommitDuration = 0.22f;
 		float turnSpeed = 12.0f;
 		bool sprintRequested = false;
 		bool slideRequested = false;
@@ -77,11 +80,15 @@ namespace MyEngine
 		bool isVaulting = false;
 		bool isWallJumping = false;
 		bool isWallRunning = false;
+		bool wallRunHeldLatch = false;
+		bool mirrorWallRunAnimation = false;
 		int wallRunSide = 0;
 		glm::vec3 wallRunNormal = glm::vec3(0.0f);
 		glm::vec3 wallRunDirection = glm::vec3(0.0f);
 		float wallRunTimer = 0.0f;
 		float wallRunCooldownTimer = 0.0f;
+		float wallRunContactGraceTimer = 0.0f;
+		float wallRunCommitTimer = 0.0f;
 		float wallRunEntrySpeed = 0.0f;
 		float slideTimer = 0.0f;
 		float slideCooldownTimer = 0.0f;

@@ -12009,7 +12009,9261 @@
                 "spotShadowSizeOverride": 0,
                 "spotShadowPCFRadiusOverride": -1.0
             }
-        }
+        },
+        {
+    "id": 400,
+    "name": "Tower_Column_18_6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            60.0,
+            26.0,
+            -4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.3,
+            52.0,
+            1.3
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 401,
+    "name": "Tower_Footing_18_6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            60.0,
+            0.6,
+            -4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            1.2,
+            2.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 402,
+    "name": "Tower_Column_18_26",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            60.0,
+            26.0,
+            36.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.3,
+            52.0,
+            1.3
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 403,
+    "name": "Tower_Footing_18_26",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            60.0,
+            0.6,
+            36.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            1.2,
+            2.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 404,
+    "name": "Tower_Column_38_6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            100.0,
+            26.0,
+            -4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.3,
+            52.0,
+            1.3
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 405,
+    "name": "Tower_Footing_38_6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            100.0,
+            0.6,
+            -4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            1.2,
+            2.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 406,
+    "name": "Tower_Column_38_26",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            100.0,
+            26.0,
+            36.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.3,
+            52.0,
+            1.3
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 407,
+    "name": "Tower_Footing_38_26",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            100.0,
+            0.6,
+            36.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            1.2,
+            2.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 408,
+    "name": "Tower_FrameX_6_6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            12.0,
+            -4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            40.0,
+            0.7,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 409,
+    "name": "Tower_FrameX_6_26",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            12.0,
+            36.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            40.0,
+            0.7,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 410,
+    "name": "Tower_FrameZ_6_18",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            60.0,
+            12.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.7,
+            0.7,
+            40.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 411,
+    "name": "Tower_FrameZ_6_38",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            100.0,
+            12.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.7,
+            0.7,
+            40.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 412,
+    "name": "Tower_FrameX_12_6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            24.0,
+            -4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            40.0,
+            0.7,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 413,
+    "name": "Tower_FrameX_12_26",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            24.0,
+            36.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            40.0,
+            0.7,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 414,
+    "name": "Tower_FrameZ_12_18",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            60.0,
+            24.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.7,
+            0.7,
+            40.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 415,
+    "name": "Tower_FrameZ_12_38",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            100.0,
+            24.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.7,
+            0.7,
+            40.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 416,
+    "name": "Tower_FrameX_18_6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            36.0,
+            -4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            40.0,
+            0.7,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 417,
+    "name": "Tower_FrameX_18_26",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            36.0,
+            36.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            40.0,
+            0.7,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 418,
+    "name": "Tower_FrameZ_18_18",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            60.0,
+            36.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.7,
+            0.7,
+            40.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 419,
+    "name": "Tower_FrameZ_18_38",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            100.0,
+            36.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.7,
+            0.7,
+            40.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 420,
+    "name": "Tower_FrameX_25_6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            50.0,
+            -4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            40.0,
+            0.7,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 421,
+    "name": "Tower_FrameX_25_26",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            50.0,
+            36.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            40.0,
+            0.7,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 422,
+    "name": "Tower_FrameZ_25_18",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            60.0,
+            50.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.7,
+            0.7,
+            40.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 423,
+    "name": "Tower_FrameZ_25_38",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            100.0,
+            50.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.7,
+            0.7,
+            40.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 424,
+    "name": "Tower_Entry",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            66.0,
+            -0.4,
+            2.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            8.0,
+            0.8,
+            8.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 425,
+    "name": "Tower_T1_Launch",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            66.0,
+            2.0,
+            6.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 426,
+    "name": "Tower_T1_RunWall",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            63.5,
+            6.0,
+            13.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.0,
+            12.0,
+            22.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 427,
+    "name": "Tower_T1_WallStripe",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            64.024,
+            4.0,
+            13.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.04,
+            0.24,
+            20.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 428,
+    "name": "Tower_T1_Catch",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            66.0,
+            4.4,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.2,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 429,
+    "name": "Tower_T1_KickLanding",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            70.4,
+            6.8,
+            22.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.6,
+            0.8,
+            3.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 430,
+    "name": "Tower_T1_Shuttle",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            70.4,
+            6.8,
+            27.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            70.4,
+            6.8,
+            27.0
+        ],
+        "endPosition": [
+            86.0,
+            6.8,
+            27.0
+        ],
+        "speed": 3.6,
+        "waitTime": 0.75
+    }
+},
+        {
+    "id": 431,
+    "name": "Tower_T1_ShuttleRail",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            78.2,
+            5.8,
+            27.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            20.0,
+            0.3,
+            0.3
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 432,
+    "name": "Tower_T1_Transfer",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            90.0,
+            9.2,
+            27.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 433,
+    "name": "Tower_T1_ServiceDeck",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            11.6,
+            30.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            6.0,
+            0.8,
+            6.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 434,
+    "name": "Tower_T1_CoreBridge",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.4,
+            11.6,
+            24.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.2,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            83.4,
+            11.6,
+            24.0
+        ],
+        "endPosition": [
+            93.0,
+            11.6,
+            24.0
+        ],
+        "speed": 2.4,
+        "waitTime": 1.1
+    }
+},
+        {
+    "id": 435,
+    "name": "Tower_T1_MaintenanceLane",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            -0.4,
+            7.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.8,
+            18.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 436,
+    "name": "Tower_T1_EntryLink",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            69.6,
+            -0.4,
+            2.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 437,
+    "name": "Tower_T1_Vault",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            1.0,
+            4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            2.0,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 438,
+    "name": "Tower_T1_Gate",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            8.8,
+            11.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            4.8,
+            0.9
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.78,
+            0.12,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            73.0,
+            8.8,
+            11.0
+        ],
+        "endPosition": [
+            73.0,
+            2.4,
+            11.0
+        ],
+        "speed": 3.2,
+        "waitTime": 0.9
+    }
+},
+        {
+    "id": 439,
+    "name": "Tower_T1_GateHousing",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            11.8,
+            11.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.4,
+            1.0,
+            2.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 440,
+    "name": "Tower_T1_CoreEntry",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.6,
+            -0.4,
+            9.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 441,
+    "name": "Tower_T1_Warning_-3.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            0.024,
+            9.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.048,
+            0.36
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 442,
+    "name": "Tower_T1_Warning_-1.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            0.024,
+            13.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.048,
+            0.36
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 443,
+    "name": "Tower_T1_DeckBeacon_-0.85",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            92.3,
+            12.06,
+            32.2
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.32,
+            0.12,
+            1.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 444,
+    "name": "Tower_T1_DeckBeacon_0.85",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            95.7,
+            12.06,
+            32.2
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.32,
+            0.12,
+            1.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 445,
+    "name": "Tower_T2_Launch",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            14.0,
+            26.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 446,
+    "name": "Tower_T2_RunWall",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            96.5,
+            18.0,
+            19.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.0,
+            12.0,
+            22.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 447,
+    "name": "Tower_T2_WallStripe",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            95.976,
+            16.0,
+            19.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.04,
+            0.24,
+            20.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 448,
+    "name": "Tower_T2_Catch",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            16.4,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.2,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 449,
+    "name": "Tower_T2_KickLanding",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            89.6,
+            18.8,
+            10.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.6,
+            0.8,
+            3.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 450,
+    "name": "Tower_T2_Shuttle",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            89.6,
+            18.8,
+            5.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            89.6,
+            18.8,
+            5.0
+        ],
+        "endPosition": [
+            74.0,
+            18.8,
+            5.0
+        ],
+        "speed": 3.9,
+        "waitTime": 0.75
+    }
+},
+        {
+    "id": 451,
+    "name": "Tower_T2_ShuttleRail",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            81.8,
+            17.8,
+            5.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            20.0,
+            0.3,
+            0.3
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 452,
+    "name": "Tower_T2_Transfer",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            70.0,
+            21.2,
+            5.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 453,
+    "name": "Tower_T2_ServiceDeck",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            66.0,
+            23.6,
+            2.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            6.0,
+            0.8,
+            6.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 454,
+    "name": "Tower_T2_CoreBridge",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.6,
+            23.6,
+            8.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.2,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            76.6,
+            23.6,
+            8.0
+        ],
+        "endPosition": [
+            67.0,
+            23.6,
+            8.0
+        ],
+        "speed": 2.4,
+        "waitTime": 1.1
+    }
+},
+        {
+    "id": 455,
+    "name": "Tower_T2_MaintenanceLane",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            11.6,
+            25.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.8,
+            18.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 456,
+    "name": "Tower_T2_EntryLink",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            90.4,
+            11.6,
+            30.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 457,
+    "name": "Tower_T2_Vault",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            13.0,
+            28.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            2.0,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 458,
+    "name": "Tower_T2_Gate",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            20.8,
+            21.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            4.8,
+            0.9
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.78,
+            0.12,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            87.0,
+            20.8,
+            21.0
+        ],
+        "endPosition": [
+            87.0,
+            14.4,
+            21.0
+        ],
+        "speed": 3.2,
+        "waitTime": 0.9
+    }
+},
+        {
+    "id": 459,
+    "name": "Tower_T2_GateHousing",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            23.8,
+            21.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.4,
+            1.0,
+            2.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 460,
+    "name": "Tower_T2_CoreEntry",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.4,
+            11.6,
+            23.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 461,
+    "name": "Tower_T2_Warning_-3.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            12.024,
+            23.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.048,
+            0.36
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 462,
+    "name": "Tower_T2_Warning_-1.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            12.024,
+            19.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.048,
+            0.36
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 463,
+    "name": "Tower_T2_DeckBeacon_-0.85",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            67.7,
+            24.060000000000002,
+            -0.1999999999999993
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.32,
+            0.12,
+            1.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 464,
+    "name": "Tower_T2_DeckBeacon_0.85",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            64.3,
+            24.060000000000002,
+            -0.1999999999999993
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.32,
+            0.12,
+            1.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 465,
+    "name": "Tower_T3_Launch",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            66.0,
+            26.0,
+            6.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 466,
+    "name": "Tower_T3_RunWall",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            63.5,
+            30.0,
+            13.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.0,
+            12.0,
+            22.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 467,
+    "name": "Tower_T3_WallStripe",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            64.024,
+            28.0,
+            13.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.04,
+            0.24,
+            20.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 468,
+    "name": "Tower_T3_Catch",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            66.0,
+            28.4,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.2,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 469,
+    "name": "Tower_T3_KickLanding",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            70.4,
+            30.8,
+            22.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.6,
+            0.8,
+            3.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 470,
+    "name": "Tower_T3_Shuttle",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            70.4,
+            30.8,
+            27.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            70.4,
+            30.8,
+            27.0
+        ],
+        "endPosition": [
+            86.0,
+            30.8,
+            27.0
+        ],
+        "speed": 4.2,
+        "waitTime": 0.75
+    }
+},
+        {
+    "id": 471,
+    "name": "Tower_T3_ShuttleRail",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            78.2,
+            29.8,
+            27.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            20.0,
+            0.3,
+            0.3
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 472,
+    "name": "Tower_T3_Transfer",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            90.0,
+            33.2,
+            27.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 473,
+    "name": "Tower_T3_ServiceDeck",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            35.6,
+            30.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            6.0,
+            0.8,
+            6.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 474,
+    "name": "Tower_T3_CoreBridge",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.4,
+            35.6,
+            24.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.2,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            83.4,
+            35.6,
+            24.0
+        ],
+        "endPosition": [
+            93.0,
+            35.6,
+            24.0
+        ],
+        "speed": 2.4,
+        "waitTime": 1.1
+    }
+},
+        {
+    "id": 475,
+    "name": "Tower_T3_MaintenanceLane",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            23.6,
+            7.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.8,
+            18.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 476,
+    "name": "Tower_T3_EntryLink",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            69.6,
+            23.6,
+            2.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 477,
+    "name": "Tower_T3_Vault",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            25.0,
+            4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            2.0,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 478,
+    "name": "Tower_T3_Gate",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            32.8,
+            11.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            4.8,
+            0.9
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.78,
+            0.12,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            73.0,
+            32.8,
+            11.0
+        ],
+        "endPosition": [
+            73.0,
+            26.4,
+            11.0
+        ],
+        "speed": 3.2,
+        "waitTime": 0.9
+    }
+},
+        {
+    "id": 479,
+    "name": "Tower_T3_GateHousing",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            35.8,
+            11.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.4,
+            1.0,
+            2.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 480,
+    "name": "Tower_T3_CoreEntry",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.6,
+            23.6,
+            9.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 481,
+    "name": "Tower_T3_Warning_-3.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            24.024,
+            9.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.048,
+            0.36
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 482,
+    "name": "Tower_T3_Warning_-1.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            73.0,
+            24.024,
+            13.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.048,
+            0.36
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 483,
+    "name": "Tower_T3_DeckBeacon_-0.85",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            92.3,
+            36.06,
+            32.2
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.32,
+            0.12,
+            1.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 484,
+    "name": "Tower_T3_DeckBeacon_0.85",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            95.7,
+            36.06,
+            32.2
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.32,
+            0.12,
+            1.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 485,
+    "name": "Tower_T4_Launch",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            38.0,
+            26.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 486,
+    "name": "Tower_T4_RunWall",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            96.5,
+            42.0,
+            19.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.0,
+            12.0,
+            22.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 487,
+    "name": "Tower_T4_WallStripe",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            95.976,
+            40.0,
+            19.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.04,
+            0.24,
+            20.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 488,
+    "name": "Tower_T4_Catch",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            40.4,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.2,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 489,
+    "name": "Tower_T4_KickLanding",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            89.6,
+            42.8,
+            10.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.6,
+            0.8,
+            3.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 490,
+    "name": "Tower_T4_Shuttle",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            89.6,
+            42.8,
+            5.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            89.6,
+            42.8,
+            5.0
+        ],
+        "endPosition": [
+            74.0,
+            42.8,
+            5.0
+        ],
+        "speed": 4.5,
+        "waitTime": 0.75
+    }
+},
+        {
+    "id": 491,
+    "name": "Tower_T4_ShuttleRail",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            81.8,
+            41.8,
+            5.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            20.0,
+            0.3,
+            0.3
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 492,
+    "name": "Tower_T4_Transfer",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            70.0,
+            45.2,
+            5.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 493,
+    "name": "Tower_T4_ServiceDeck",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            66.0,
+            47.6,
+            2.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            6.0,
+            0.8,
+            6.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 494,
+    "name": "Tower_T4_CoreBridge",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.6,
+            47.6,
+            8.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            3.2,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            76.6,
+            47.6,
+            8.0
+        ],
+        "endPosition": [
+            67.0,
+            47.6,
+            8.0
+        ],
+        "speed": 2.4,
+        "waitTime": 1.1
+    }
+},
+        {
+    "id": 495,
+    "name": "Tower_T4_MaintenanceLane",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            35.6,
+            25.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.8,
+            18.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 496,
+    "name": "Tower_T4_EntryLink",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            90.4,
+            35.6,
+            30.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 497,
+    "name": "Tower_T4_Vault",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            37.0,
+            28.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            2.0,
+            0.7
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 498,
+    "name": "Tower_T4_Gate",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            44.8,
+            21.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            4.8,
+            0.9
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.78,
+            0.12,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    },
+    "MovingPlatformComponent": {
+        "type": 0,
+        "active": true,
+        "pingPong": true,
+        "autoReturn": true,
+        "startPosition": [
+            87.0,
+            44.8,
+            21.0
+        ],
+        "endPosition": [
+            87.0,
+            38.4,
+            21.0
+        ],
+        "speed": 3.2,
+        "waitTime": 0.9
+    }
+},
+        {
+    "id": 499,
+    "name": "Tower_T4_GateHousing",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            47.8,
+            21.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.4,
+            1.0,
+            2.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 500,
+    "name": "Tower_T4_CoreEntry",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.4,
+            35.6,
+            23.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            5.6,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 501,
+    "name": "Tower_T4_Warning_-3.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            36.024,
+            23.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.048,
+            0.36
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 502,
+    "name": "Tower_T4_Warning_-1.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            87.0,
+            36.024,
+            19.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.4,
+            0.048,
+            0.36
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 503,
+    "name": "Tower_T4_DeckBeacon_-0.85",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            67.7,
+            48.06,
+            -0.1999999999999993
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.32,
+            0.12,
+            1.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 504,
+    "name": "Tower_T4_DeckBeacon_0.85",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            64.3,
+            48.06,
+            -0.1999999999999993
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.32,
+            0.12,
+            1.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 505,
+    "name": "Tower_CoreWall_25.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            75.0,
+            24.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.0,
+            48.0,
+            10.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 506,
+    "name": "Tower_CoreRib_25.5_3",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            75.0,
+            6.0,
+            21.299999999999997
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.5,
+            0.4,
+            0.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 507,
+    "name": "Tower_CoreRib_25.5_9",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            75.0,
+            18.0,
+            21.299999999999997
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.5,
+            0.4,
+            0.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 508,
+    "name": "Tower_CoreRib_25.5_15",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            75.0,
+            30.0,
+            21.299999999999997
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.5,
+            0.4,
+            0.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 509,
+    "name": "Tower_CoreRib_25.5_21",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            75.0,
+            42.0,
+            21.299999999999997
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.5,
+            0.4,
+            0.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 510,
+    "name": "Tower_CoreWall_30.5",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            85.0,
+            24.0,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.0,
+            48.0,
+            10.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 511,
+    "name": "Tower_CoreRib_30.5_3",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            85.0,
+            6.0,
+            21.299999999999997
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.5,
+            0.4,
+            0.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 512,
+    "name": "Tower_CoreRib_30.5_9",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            85.0,
+            18.0,
+            21.299999999999997
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.5,
+            0.4,
+            0.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 513,
+    "name": "Tower_CoreRib_30.5_15",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            85.0,
+            30.0,
+            21.299999999999997
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.5,
+            0.4,
+            0.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 514,
+    "name": "Tower_CoreRib_30.5_21",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            85.0,
+            42.0,
+            21.299999999999997
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.5,
+            0.4,
+            0.6
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 515,
+    "name": "Tower_CoreLedge_01",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.8,
+            2.6,
+            17.6
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 516,
+    "name": "Tower_CoreLedge_02",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.2,
+            5.6,
+            17.6
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 517,
+    "name": "Tower_CoreLedge_03",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.8,
+            8.6,
+            14.399999999999999
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 518,
+    "name": "Tower_CoreLedge_04",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.2,
+            11.6,
+            14.399999999999999
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 519,
+    "name": "Tower_CoreLedge_05",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.8,
+            14.6,
+            17.6
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 520,
+    "name": "Tower_CoreLedge_06",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.2,
+            17.6,
+            17.6
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 521,
+    "name": "Tower_CoreLedge_07",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.8,
+            20.6,
+            14.399999999999999
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 522,
+    "name": "Tower_CoreLedge_08",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.2,
+            23.6,
+            14.399999999999999
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 523,
+    "name": "Tower_CoreLedge_09",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.8,
+            26.6,
+            17.6
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 524,
+    "name": "Tower_CoreLedge_10",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.2,
+            29.6,
+            17.6
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 525,
+    "name": "Tower_CoreLedge_11",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.8,
+            32.6,
+            14.399999999999999
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 526,
+    "name": "Tower_CoreLedge_12",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.2,
+            35.6,
+            14.399999999999999
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 527,
+    "name": "Tower_CoreLedge_13",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.8,
+            38.6,
+            17.6
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 528,
+    "name": "Tower_CoreLedge_14",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.2,
+            41.6,
+            17.6
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 529,
+    "name": "Tower_CoreLedge_15",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            76.8,
+            44.6,
+            14.399999999999999
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 530,
+    "name": "Tower_CoreLedge_16",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            83.2,
+            47.6,
+            14.399999999999999
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            2.6,
+            0.8,
+            2.5
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 531,
+    "name": "Tower_Crown",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            47.6,
+            16.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            8.8,
+            0.8,
+            8.8
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.95,
+            0.51,
+            0.08
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 532,
+    "name": "Tower_CrownExit",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            72.0,
+            47.6,
+            8.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 533,
+    "name": "Tower_CrownLink",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            68.0,
+            47.6,
+            4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            4.0,
+            0.8,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.12,
+            0.65,
+            0.75
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 534,
+    "name": "Tower_Duct_32",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            88.0,
+            24.0,
+            8.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.2,
+            48.0,
+            1.2
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 535,
+    "name": "Tower_Duct_33",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            90.0,
+            24.0,
+            8.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1.2,
+            48.0,
+            1.2
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 536,
+    "name": "Tower_MachineBank_2",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            4.0,
+            10.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            6.0,
+            5.0,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 537,
+    "name": "Tower_Louver_2_-0.6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            92.8,
+            4.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 538,
+    "name": "Tower_Louver_2_0",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            4.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 539,
+    "name": "Tower_Louver_2_0.6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            95.2,
+            4.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 540,
+    "name": "Tower_MachineBank_8",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            16.0,
+            10.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            6.0,
+            5.0,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 541,
+    "name": "Tower_Louver_8_-0.6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            92.8,
+            16.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 542,
+    "name": "Tower_Louver_8_0",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            16.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 543,
+    "name": "Tower_Louver_8_0.6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            95.2,
+            16.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 544,
+    "name": "Tower_MachineBank_14",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            28.0,
+            10.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            6.0,
+            5.0,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 545,
+    "name": "Tower_Louver_14_-0.6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            92.8,
+            28.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 546,
+    "name": "Tower_Louver_14_0",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            28.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 547,
+    "name": "Tower_Louver_14_0.6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            95.2,
+            28.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 548,
+    "name": "Tower_MachineBank_20",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            40.0,
+            10.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            6.0,
+            5.0,
+            4.0
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 549,
+    "name": "Tower_Louver_20_-0.6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            92.8,
+            40.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 550,
+    "name": "Tower_Louver_20_0",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            94.0,
+            40.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 551,
+    "name": "Tower_Louver_20_0.6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            95.2,
+            40.0,
+            7.960000000000001
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            0.3,
+            4.0,
+            0.08
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "BoundingSphere": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "radius": 0.8660254,
+        "isTrigger": true
+    }
+},
+        {
+    "id": 552,
+    "name": "Tower_CrownBeam_6",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            52.0,
+            -4.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            44.0,
+            1.2,
+            1.2
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 553,
+    "name": "Tower_CrownBeam_26",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80.0,
+            52.0,
+            36.0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            44.0,
+            1.2,
+            1.2
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.18,
+            0.23,
+            0.28
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+},
+        {
+    "id": 554,
+    "name": "Tower_Foundation",
+    "tag": "ParkourShowcase",
+    "layer": 0,
+    "Transform": {
+        "position": [
+            80,
+            -1.3,
+            16
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            48,
+            1,
+            46
+        ],
+        "parentID": 0
+    },
+    "MeshComponent": {
+        "assetPath": "primitive_cube",
+        "isSkinned": false
+    },
+    "MeshRenderer": {
+        "visible": true,
+        "albedo": [
+            0.07,
+            0.09,
+            0.12
+        ],
+        "shininess": 64,
+        "useTexture": false,
+        "shaderVertexPath": "shaders/arena_lit.vert",
+        "shaderFragmentPath": "shaders/lit.frag"
+    },
+    "Rigidbody": {
+        "isKinematic": true,
+        "useGravity": false,
+        "velocity": [
+            0,
+            0,
+            0
+        ]
+    },
+    "BoxCollider": {
+        "center": [
+            0,
+            0,
+            0
+        ],
+        "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+        ],
+        "isTrigger": false
+    }
+}
     ],
     "globalScripts": [
         {
@@ -12017,6 +21271,12 @@
             "scriptPath": "",
             "enabled": true,
             "autoStart": true
+        },
+        {
+            "order": 1,
+            "scriptPath": "",
+            "enabled": false,
+            "autoStart": false
         }
     ]
 }

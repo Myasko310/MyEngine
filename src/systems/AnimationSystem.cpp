@@ -18,6 +18,7 @@
 #include <iostream>
 #include <limits>
 #include <unordered_set>
+#include <utility>
 
 namespace MyEngine
 {
@@ -509,6 +510,104 @@ namespace MyEngine
 		return currentPos - previousPos;
 	}
 
+	static std::string ToLowerAscii(std::string value)
+	{
+		for (char& c : value)
+			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		return value;
+	}
+
+	static bool ReplaceFirstToken(std::string& value, const char* from, const char* to)
+	{
+		const size_t pos = value.find(from);
+		if (pos == std::string::npos)
+			return false;
+		value.replace(pos, std::char_traits<char>::length(from), to);
+		return true;
+	}
+
+	static std::string SwapSideTokenInBoneName(const std::string& lowerName)
+	{
+		std::string swapped = lowerName;
+		if (ReplaceFirstToken(swapped, "left", "right"))
+			return swapped;
+		swapped = lowerName;
+		if (ReplaceFirstToken(swapped, "right", "left"))
+			return swapped;
+
+		struct SideTokenSwap
+		{
+			const char* from;
+			const char* to;
+		};
+
+		static constexpr SideTokenSwap swaps[] = {
+			{"_l", "_r"}, {"_r", "_l"},
+			{".l", ".r"}, {".r", ".l"},
+			{"-l", "-r"}, {"-r", "-l"},
+			{" l", " r"}, {" r", " l"},
+			{"l_", "r_"}, {"r_", "l_"},
+			{"l.", "r."}, {"r.", "l."},
+			{"(l)", "(r)"}, {"(r)", "(l)"}
+		};
+
+		for (const SideTokenSwap& sideSwap : swaps)
+		{
+			swapped = lowerName;
+			if (ReplaceFirstToken(swapped, sideSwap.from, sideSwap.to))
+				return swapped;
+		}
+
+		return lowerName;
+	}
+
+	static std::vector<int> BuildMirroredBoneIndexMap(const Skeleton& skeleton)
+	{
+		const auto& bones = skeleton.GetBones();
+		std::vector<std::string> lowerNames(bones.size());
+		for (size_t i = 0; i < bones.size(); ++i)
+			lowerNames[i] = ToLowerAscii(bones[i].name);
+
+		std::vector<int> mirrorMap(bones.size(), -1);
+		for (size_t i = 0; i < bones.size(); ++i)
+		{
+			const std::string swappedName = SwapSideTokenInBoneName(lowerNames[i]);
+			if (swappedName == lowerNames[i])
+			{
+				mirrorMap[i] = static_cast<int>(i);
+				continue;
+			}
+
+			int mappedIndex = static_cast<int>(i);
+			for (size_t j = 0; j < lowerNames.size(); ++j)
+			{
+				if (lowerNames[j] == swappedName)
+				{
+					mappedIndex = static_cast<int>(j);
+					break;
+				}
+			}
+			mirrorMap[i] = mappedIndex;
+		}
+
+		return mirrorMap;
+	}
+
+	static std::vector<glm::mat4> BuildMirroredLocalPose(const std::vector<glm::mat4>& localPose, const std::vector<int>& mirrorMap)
+	{
+		std::vector<glm::mat4> mirrored(localPose.size(), glm::mat4(1.0f));
+		const glm::mat4 mirrorMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(-1.0f, 1.0f, 1.0f));
+		for (size_t i = 0; i < localPose.size(); ++i)
+		{
+			const int sourceIndex =
+				(i < mirrorMap.size() && mirrorMap[i] >= 0 && mirrorMap[i] < static_cast<int>(localPose.size()))
+				? mirrorMap[i]
+				: static_cast<int>(i);
+			mirrored[i] = mirrorMatrix * localPose[sourceIndex] * mirrorMatrix;
+		}
+		return mirrored;
+	}
+
 	// Recursively computes each bone's final skinning matrix:
 	//   finalMatrix[bone] = parentAccumulatedTransform * localAnimatedTransform * offsetMatrix
 	// `localAnimatedTransform` comes from the sampled clip track for this bone
@@ -520,26 +619,35 @@ namespace MyEngine
 		const AnimationClip* clip,
 		float timeTicks,
 		int rootMotionBoneIndex,
+		bool mirrorPose,
 		std::vector<glm::mat4>& outMatrices)
 	{
 		const auto& bones = skeleton.GetBones();
 		std::vector<glm::mat4> accumulated(bones.size(), glm::mat4(1.0f));
+		std::vector<glm::mat4> sampledLocalPose(bones.size(), glm::mat4(1.0f));
 
 		outMatrices.assign(bones.size(), glm::mat4(1.0f));
 
 		for (size_t i = 0; i < bones.size(); ++i)
 		{
 			const Bone& bone = bones[i];
-
 			const bool removeRootTranslation = static_cast<int>(i) == rootMotionBoneIndex;
-			glm::mat4 localTransform = SampleLocalTransform(bone, clip, timeTicks, removeRootTranslation, true);
+			sampledLocalPose[i] = SampleLocalTransform(bone, clip, timeTicks, removeRootTranslation, true);
+		}
 
-			glm::mat4 parentTransform = bone.parentIndex >= 0
-				? accumulated[bone.parentIndex]
+		if (mirrorPose)
+		{
+			const std::vector<int> mirrorMap = BuildMirroredBoneIndexMap(skeleton);
+			sampledLocalPose = BuildMirroredLocalPose(sampledLocalPose, mirrorMap);
+		}
+
+		for (size_t i = 0; i < bones.size(); ++i)
+		{
+			glm::mat4 parentTransform = bones[i].parentIndex >= 0
+				? accumulated[bones[i].parentIndex]
 				: glm::mat4(1.0f);
-
-			accumulated[i] = parentTransform * localTransform;
-			outMatrices[i] = accumulated[i] * bone.offsetMatrix;
+			accumulated[i] = parentTransform * sampledLocalPose[i];
+			outMatrices[i] = accumulated[i] * bones[i].offsetMatrix;
 		}
 	}
 
@@ -556,32 +664,44 @@ namespace MyEngine
 		float blendT,
 		int rootMotionBoneIndex,
 		const std::vector<glm::mat4>& sourcePose,
+		bool mirrorPose,
 		std::vector<glm::mat4>& localPose,
 		std::vector<glm::mat4>& outMatrices)
 	{
 		const auto& bones = skeleton.GetBones();
 		std::vector<glm::mat4> accumulated(bones.size(), glm::mat4(1.0f));
+		std::vector<glm::mat4> fromPose(bones.size(), glm::mat4(1.0f));
+		std::vector<glm::mat4> toPose(bones.size(), glm::mat4(1.0f));
 
 		outMatrices.assign(bones.size(), glm::mat4(1.0f));
-
 		localPose.resize(bones.size());
+
 		for (size_t i = 0; i < bones.size(); ++i)
 		{
 			const Bone& bone = bones[i];
 			const bool removeRootTranslation = static_cast<int>(i) == rootMotionBoneIndex;
-
-			glm::mat4 fromLocal = sourcePose.size() == bones.size() ? sourcePose[i]
+			fromPose[i] = sourcePose.size() == bones.size() ? sourcePose[i]
 				: SampleLocalTransform(bone, fromClip, fromTimeTicks, removeRootTranslation, true);
-			glm::mat4 toLocal = SampleLocalTransform(bone, toClip, toTimeTicks, removeRootTranslation, true);
-			glm::mat4 localTransform = BlendLocalTransforms(fromLocal, toLocal, blendT);
+			toPose[i] = SampleLocalTransform(bone, toClip, toTimeTicks, removeRootTranslation, true);
+		}
+
+		if (mirrorPose)
+		{
+			const std::vector<int> mirrorMap = BuildMirroredBoneIndexMap(skeleton);
+			fromPose = BuildMirroredLocalPose(fromPose, mirrorMap);
+			toPose = BuildMirroredLocalPose(toPose, mirrorMap);
+		}
+
+		for (size_t i = 0; i < bones.size(); ++i)
+		{
+			glm::mat4 localTransform = BlendLocalTransforms(fromPose[i], toPose[i], blendT);
 			localPose[i] = localTransform;
 
-			glm::mat4 parentTransform = bone.parentIndex >= 0
-				? accumulated[bone.parentIndex]
+			glm::mat4 parentTransform = bones[i].parentIndex >= 0
+				? accumulated[bones[i].parentIndex]
 				: glm::mat4(1.0f);
-
 			accumulated[i] = parentTransform * localTransform;
-			outMatrices[i] = accumulated[i] * bone.offsetMatrix;
+			outMatrices[i] = accumulated[i] * bones[i].offsetMatrix;
 		}
 	}
 
@@ -851,6 +971,17 @@ namespace MyEngine
 			}
 			float timeTicks = anim.time * clip.ticksPerSecond;
 
+			bool shouldMirrorWallRunPose = false;
+			if (entity->HasComponent<CharacterControllerComponent>() && stateMachineComponent &&
+				stateMachineComponent->stateMachine &&
+				stateMachineComponent->stateMachine->IsValidStateIndex(stateMachineComponent->currentStateIndex))
+			{
+				const auto& activeState = stateMachineComponent->stateMachine->states[stateMachineComponent->currentStateIndex];
+				const auto& controller = entity->GetComponent<CharacterControllerComponent>();
+				shouldMirrorWallRunPose =
+					activeState.name == "WallRun" && controller.isWallRunning && controller.mirrorWallRunAnimation;
+			}
+
 			if (anim.blending)
 			{
 				// Advance the previous clip's time too so it keeps playing
@@ -877,7 +1008,7 @@ namespace MyEngine
 				float blendT = std::clamp(anim.blendElapsed / anim.blendDuration, 0.0f, 1.0f);
 
 				ComputeBlendedBoneMatrices(*skel.skeleton, prevClip, prevTimeTicks, &clip, timeTicks, blendT,
-					rootMotionBoneIndex, anim.blendSourcePose, anim.localPose, anim.boneMatrices);
+					rootMotionBoneIndex, anim.blendSourcePose, shouldMirrorWallRunPose, anim.localPose, anim.boneMatrices);
 
 				if (blendT >= 1.0f)
 				{
@@ -888,7 +1019,7 @@ namespace MyEngine
 			}
 			else
 			{
-				ComputeBoneMatrices(*skel.skeleton, &clip, timeTicks, rootMotionBoneIndex, anim.boneMatrices);
+				ComputeBoneMatrices(*skel.skeleton, &clip, timeTicks, rootMotionBoneIndex, shouldMirrorWallRunPose, anim.boneMatrices);
 			}
 
 			if (static_cast<int>(anim.boneMatrices.size()) > MAX_ANIMATION_BONES)

@@ -335,7 +335,7 @@ namespace MyEngine
 			controller.slideRequested |= newMovementCommand && (authoritativeInput
 				? authoritativeInput->slidePressed : InputActions::IsActionPressed("Crouch"));
 			controller.dodgeRequested |= newMovementCommand && dodgePressed;
-			controller.wallRunRequested |= newMovementCommand && (authoritativeInput ? wallRunPressed : InputActions::IsAction("WallRun"));
+			controller.wallRunRequested = authoritativeInput ? wallRunPressed : InputActions::IsAction("WallRun");
 			controller.vaultRequested |= newMovementCommand && vaultPressed;
 			controller.crouchHeld = authoritativeInput ? authoritativeInput->crouchHeld : InputActions::IsAction("Crouch");
 			controller.hasMovementInputTick = authoritativeInput != nullptr;
@@ -1562,14 +1562,18 @@ namespace MyEngine
 			}
 
 			controller.wallRunCooldownTimer = std::max(0.0f, controller.wallRunCooldownTimer - dt);
-			const bool wallRunRequested = controller.wallRunRequested || InputActions::IsAction("WallRun");
+			const bool wallRunRequested = controller.wallRunRequested;
 			const bool canWallRun = controller.enableWallRun && wallRunRequested && !controller.isGrounded && !controller.isDodging && !controller.isVaulting && !controller.isWallJumping &&
 			controller.wallRunCooldownTimer <= 0.0f && controller.wallRunTimer <= 0.0f;
 			if (canWallRun && hasWallContact)
 			{
 				const float wallAngle = glm::degrees(std::acos(glm::clamp(glm::dot(wallNormal, glm::vec3(0.0f, 1.0f, 0.0f)), -1.0f, 1.0f)));
 				const bool validWall = wallAngle >= controller.wallRunMinWallAngleDegrees && wallAngle <= controller.wallRunMaxWallAngleDegrees;
-				if (validWall)
+				const glm::vec3 horizontalVelocity = glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z);
+				const float horizontalSpeed = glm::length(horizontalVelocity);
+				const bool validSpeed = horizontalSpeed >= std::max(controller.wallRunEntrySpeedThreshold, 0.0f);
+				const bool validVerticalSpeed = rb.velocity.y >= controller.wallRunMinVerticalSpeed;
+				if (validWall && validSpeed && validVerticalSpeed)
 				{
 					glm::vec3 wallTangent = glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), wallNormal);
 					if (glm::length(wallTangent) > 0.0001f)
@@ -1586,11 +1590,16 @@ namespace MyEngine
 						controller.wallRunNormal = wallNormal;
 						controller.wallRunDirection = wallTangent;
 						controller.wallRunSide = (glm::dot(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), wallNormal), wallTangent) >= 0.0f) ? 1 : -1;
+						controller.mirrorWallRunAnimation = controller.wallRunSide < 0;
 						controller.wallRunEntrySpeed = std::max(controller.wallRunSpeed, 0.0f);
 						controller.wallRunTimer = std::max(controller.wallRunMaxDuration, 0.0f);
+						controller.wallRunCommitTimer = std::max(controller.wallRunCommitDuration, 0.0f);
+						controller.isGrounded = false;
+						controller.wasGrounded = false;
 						controller.jumpRequested = false;
 						controller.wallRunRequested = false;
 						controller.wallRunCooldownTimer = 0.0f;
+						controller.wallRunContactGraceTimer = std::max(controller.wallRunContactGraceDuration, 0.0f);
 						controller.jumpUngroundedTimer = std::max(controller.wallRunJumpUngroundedDuration, 0.0f);
 						controller.wallJumpCooldownTimer = std::max(controller.wallJumpCooldown, 0.0f);
 						controller.isWallJumping = false;
@@ -1599,51 +1608,103 @@ namespace MyEngine
 						controller.jumpedThisFrame = false;
 						controller.wallJumpTriggeredThisFrame = false;
 						controller.capsuleBottomAnimationLift = std::max(controller.capsuleBottomAnimationLift, controller.wallJumpCapsuleLift * 0.85f);
+						const float wallClearance = std::max(controller.wallRunWallClearance, 0.0f);
+						if (wallClearance > 0.0f)
+							transform.position += wallNormal * wallClearance;
 					}
+				}
+				else
+				{
+					controller.wallRunContactGraceTimer = 0.0f;
+					controller.wallRunCommitTimer = 0.0f;
 				}
 			}
 
 			if (controller.isWallRunning)
 			{
 				controller.wallRunTimer = std::max(0.0f, controller.wallRunTimer - dt);
-				if (controller.wallRunTimer <= 0.0f || controller.isGrounded || controller.jumpRequested || !hasWallContact || !IsWalkableSlope(probeNormal, controller.maxSlopeAngleDegrees))
+				controller.wallRunCommitTimer = std::max(0.0f, controller.wallRunCommitTimer - dt);
+				const float wallAngle = hasWallContact
+					? glm::degrees(std::acos(glm::clamp(glm::dot(wallNormal, glm::vec3(0.0f, 1.0f, 0.0f)), -1.0f, 1.0f)))
+					: 0.0f;
+				const bool wallAngleValid = hasWallContact &&
+					wallAngle >= controller.wallRunMinWallAngleDegrees &&
+					wallAngle <= controller.wallRunMaxWallAngleDegrees;
+				const float continuityDot = hasWallContact
+					? glm::dot(glm::normalize(wallNormal), glm::normalize(controller.wallRunNormal))
+					: 1.0f;
+				const bool wallContinuityValid = wallAngleValid && continuityDot >= -0.6f;
+				const bool inCommitWindow = controller.wallRunCommitTimer > 0.0f;
+				if (wallContinuityValid)
 				{
-					controller.isWallRunning = false;
-					controller.wallRunTimer = 0.0f;
-					controller.wallRunCooldownTimer = std::max(controller.wallRunCooldown * 0.5f, 0.0f);
+					controller.wallRunNormal = wallNormal;
+					controller.wallRunContactGraceTimer = std::max(controller.wallRunContactGraceDuration, 0.0f);
+				}
+				else if (!inCommitWindow)
+				{
+					controller.wallRunContactGraceTimer = std::max(0.0f, controller.wallRunContactGraceTimer - dt);
 				}
 				else
 				{
-					const glm::vec3 wallTangent = glm::length(controller.wallRunDirection) > 0.0001f
-						? glm::normalize(controller.wallRunDirection)
-						: glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), controller.wallRunNormal));
-					rb.velocity.x = wallTangent.x * controller.wallRunEntrySpeed;
-					rb.velocity.z = wallTangent.z * controller.wallRunEntrySpeed;
+					controller.wallRunContactGraceTimer = std::max(controller.wallRunContactGraceTimer, controller.wallRunContactGraceDuration * 0.5f);
+				}
+
+				if (controller.wallRunTimer <= 0.0f)
+				{
+					controller.isWallRunning = false;
+					controller.wallRunTimer = 0.0f;
+					controller.wallRunContactGraceTimer = 0.0f;
+					controller.wallRunCommitTimer = 0.0f;
+					controller.wallRunCooldownTimer = std::max(controller.wallRunCooldown, 0.0f);
+					controller.mirrorWallRunAnimation = false;
+				}
+				else
+				{
+					glm::vec3 wallTangent = FlattenToPlane(controller.wallRunDirection, controller.wallRunNormal);
+					if (glm::length(wallTangent) <= 0.0001f)
+						wallTangent = glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), controller.wallRunNormal);
+					if (glm::length(moveInput) > 0.1f)
+					{
+						glm::vec3 inputAlongWall = FlattenToPlane(moveInput, controller.wallRunNormal);
+						if (glm::length(inputAlongWall) > 0.0001f)
+							wallTangent = inputAlongWall;
+					}
+					if (glm::length(wallTangent) > 0.0001f)
+						controller.wallRunDirection = glm::normalize(wallTangent);
+
+					rb.velocity.x = controller.wallRunDirection.x * controller.wallRunEntrySpeed;
+					rb.velocity.z = controller.wallRunDirection.z * controller.wallRunEntrySpeed;
 					rb.velocity.y = std::max(rb.velocity.y, -glm::length(gravity) * controller.wallRunGravityScale * dt);
 					transform.rotation.y = std::atan2(-controller.wallRunNormal.x, -controller.wallRunNormal.z);
 					controller.currentSpeed = glm::length(glm::vec2(rb.velocity.x, rb.velocity.z));
 				}
 			}
-			else if (controller.jumpRequested && controller.enableWallJump && hasWallContact && controller.wallJumpCooldownTimer <= 0.0f)
+			const bool recentWallRunJumpWindow = !controller.isGrounded && controller.wallRunCooldownTimer > 0.0f && glm::length(controller.wallRunNormal) > 0.0001f;
+			const bool wallJumpSurfaceAvailable = hasWallContact || controller.isWallRunning || recentWallRunJumpWindow;
+			if (controller.jumpRequested && controller.enableWallJump && wallJumpSurfaceAvailable && controller.wallJumpCooldownTimer <= 0.0f)
 			{
-				const float facingDot = glm::dot(glm::normalize(facingDirection), -wallNormal);
-				if (facingDot >= std::clamp(controller.wallJumpFacingDotThreshold, 0.0f, 0.95f))
+				glm::vec3 jumpWallNormal = hasWallContact ? wallNormal : controller.wallRunNormal;
+				if (glm::length(jumpWallNormal) > 0.0001f)
+					jumpWallNormal = glm::normalize(jumpWallNormal);
+				const float facingDot = glm::dot(glm::normalize(facingDirection), -jumpWallNormal);
+				const bool bypassFacingCheck = controller.isWallRunning || recentWallRunJumpWindow;
+				if (bypassFacingCheck || facingDot >= std::clamp(controller.wallJumpFacingDotThreshold, 0.0f, 0.95f))
 				{
 					glm::vec3 incoming = glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z);
 					if (glm::length(incoming) < 0.1f)
 						incoming = facingDirection;
 					else
 						incoming = glm::normalize(incoming);
-					glm::vec3 reflected = glm::reflect(incoming, wallNormal);
+					glm::vec3 reflected = glm::reflect(incoming, jumpWallNormal);
 					reflected.y = 0.0f;
-					if (glm::length(reflected) < 0.0001f || glm::dot(reflected, wallNormal) < 0.1f)
-						reflected = FlattenToPlane(wallNormal, glm::vec3(0.0f, 1.0f, 0.0f));
+					if (glm::length(reflected) < 0.0001f || glm::dot(reflected, jumpWallNormal) < 0.1f)
+						reflected = FlattenToPlane(jumpWallNormal, glm::vec3(0.0f, 1.0f, 0.0f));
 					if (glm::length(reflected) > 0.0001f)
 						reflected = glm::normalize(reflected);
 					rb.velocity.x = reflected.x * std::max(controller.wallJumpHorizontalSpeed, 0.0f);
 					rb.velocity.z = reflected.z * std::max(controller.wallJumpHorizontalSpeed, 0.0f);
 					rb.velocity.y = std::max(rb.velocity.y, controller.wallJumpVerticalSpeed);
-					const glm::vec3 towardWall(-wallNormal.x, 0.0f, -wallNormal.z);
+					const glm::vec3 towardWall(-jumpWallNormal.x, 0.0f, -jumpWallNormal.z);
 					if (glm::length(towardWall) > 0.0001f)
 						transform.rotation.y = std::atan2(towardWall.x, towardWall.z);
 					controller.jumpedThisFrame = true;
@@ -1657,6 +1718,11 @@ namespace MyEngine
 					controller.jumpRequested = false;
 					controller.wallRunRequested = false;
 					controller.isWallRunning = false;
+					controller.wallRunTimer = 0.0f;
+					controller.wallRunContactGraceTimer = 0.0f;
+					controller.wallRunCommitTimer = 0.0f;
+					controller.wallRunCooldownTimer = 0.0f;
+					controller.mirrorWallRunAnimation = false;
 				}
 			}
 

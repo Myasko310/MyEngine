@@ -63,6 +63,24 @@ namespace MyEngine
 		return "";
 	}
 
+	static std::filesystem::path ResolveSharedImportedTextureDirectory()
+	{
+		namespace fs = std::filesystem;
+		std::error_code ec;
+		const fs::path cwd = fs::current_path();
+
+		for (fs::path cursor = cwd; !cursor.empty(); cursor = cursor.parent_path())
+		{
+			const fs::path assetsDir = cursor / "assets";
+			if (fs::exists(assetsDir, ec))
+				return assetsDir / "imported" / "embedded_textures";
+			if (cursor == cursor.parent_path())
+				break;
+		}
+
+		return cwd / "assets" / "imported" / "embedded_textures";
+	}
+
 	static std::string ResolveMaterialTexturePath(
 		const aiScene* scene,
 		const std::filesystem::path& modelPath,
@@ -82,7 +100,7 @@ namespace MyEngine
 			if (!embedded)
 				return "";
 
-			std::filesystem::path outDir = std::filesystem::path("assets") / "imported" / "embedded_textures";
+			std::filesystem::path outDir = ResolveSharedImportedTextureDirectory();
 			std::error_code ec;
 			std::filesystem::create_directories(outDir, ec);
 
@@ -429,10 +447,13 @@ namespace MyEngine
 				if (aiMat->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS && shininess > 0.0f)
 					matData.shininess = shininess;
 
-				// Base color / diffuse texture (prefer glTF PBR slot, then classic diffuse).
+				// Base color / diffuse texture. FBX files can expose color maps through
+				// several different Assimp slots, so try a wider set before giving up.
 				aiString texPath;
 				if (aiMat->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) == AI_SUCCESS ||
-					aiMat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
+					aiMat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS ||
+					aiMat->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &texPath) == AI_SUCCESS ||
+					aiMat->GetTexture(aiTextureType_UNKNOWN, 0, &texPath) == AI_SUCCESS)
 				{
 					matData.diffuseTexturePath = ResolveMaterialTexturePath(scene, modelPath, texPath);
 				}

@@ -32,6 +32,8 @@ namespace MyEngine
 	class AssetManager
 	{
 	public:
+		static std::string ResolveAssetPath(const std::string& path);
+
 		// Load model and return its meshes (cached)
 		static std::vector<std::shared_ptr<Mesh>> LoadModel(const std::string& path);
 

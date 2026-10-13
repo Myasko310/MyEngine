@@ -25,6 +25,67 @@
 
 namespace MyEngine
 {
+	static std::string ResolveAssetPathInternal(const std::string& path)
+	{
+		namespace fs = std::filesystem;
+		if (path.empty())
+			return {};
+
+		fs::path input(path);
+		std::error_code ec;
+		if (input.is_absolute() && fs::exists(input, ec))
+			return input.lexically_normal().generic_string();
+
+		std::vector<fs::path> candidates;
+		const fs::path cwd = fs::current_path();
+		candidates.push_back(cwd / input);
+		for (fs::path cursor = cwd; !cursor.empty(); cursor = cursor.parent_path())
+		{
+			candidates.push_back(cursor / input);
+			if (cursor == cursor.parent_path())
+				break;
+		}
+
+		for (const auto& candidate : candidates)
+		{
+			if (fs::exists(candidate, ec))
+				return candidate.lexically_normal().generic_string();
+		}
+
+		return input.lexically_normal().generic_string();
+	}
+
+	static std::filesystem::path ResolveSharedAssetDirectory(const std::string& relativeAssetPath)
+	{
+		namespace fs = std::filesystem;
+		const fs::path resolved = ResolveAssetPathInternal(relativeAssetPath);
+		fs::path candidate = fs::path(resolved);
+		if (!candidate.empty())
+		{
+			std::error_code ec;
+			if (fs::exists(candidate, ec))
+			{
+				if (!fs::is_directory(candidate, ec))
+					candidate = candidate.parent_path();
+				return candidate.lexically_normal();
+			}
+		}
+
+		const fs::path input(relativeAssetPath);
+		const fs::path cwd = fs::current_path();
+		for (fs::path cursor = cwd; !cursor.empty(); cursor = cursor.parent_path())
+		{
+			std::error_code ec;
+			const fs::path assetsDir = cursor / "assets";
+			if (fs::exists(assetsDir, ec))
+				return (cursor / input).lexically_normal();
+			if (cursor == cursor.parent_path())
+				break;
+		}
+
+		return (cwd / input).lexically_normal();
+	}
+
 	std::unordered_map<std::string, std::vector<std::shared_ptr<Mesh>>> AssetManager::s_ModelCache;
 	std::unordered_map<std::string, SkinnedModelData> AssetManager::s_SkinnedModelCache;
 	std::unordered_map<std::string, std::shared_ptr<Texture>> AssetManager::s_TextureCache;
@@ -34,6 +95,11 @@ namespace MyEngine
 	std::unordered_map<std::string, std::shared_ptr<AudioClip>> AssetManager::s_AudioClipCache;
 	bool AssetManager::s_TextureStreamingEnabled = false;
 	AssetManager::TextureStreamingQuality AssetManager::s_TextureStreamingQuality = AssetManager::TextureStreamingQuality::FullResolution;
+
+	std::string AssetManager::ResolveAssetPath(const std::string& path)
+	{
+		return ResolveAssetPathInternal(path);
+	}
 
 	static std::string CanonicalBoneName(const std::string& name)
 	{
@@ -283,17 +349,18 @@ namespace MyEngine
 
 	std::vector<std::shared_ptr<Mesh>> AssetManager::LoadModel(const std::string& path)
 	{
-		auto it = s_ModelCache.find(path);
+		const std::string resolvedPath = ResolveAssetPathInternal(path);
+		auto it = s_ModelCache.find(resolvedPath);
 		if (it != s_ModelCache.end())
 			return it->second;
 
 		Model model;
 		std::vector<std::shared_ptr<Mesh>> meshes;
 
-		if (model.LoadFromFile(path))
+		if (model.LoadFromFile(resolvedPath))
 		{
 			meshes = model.GetMeshes();
-			s_ModelCache[path] = meshes;
+			s_ModelCache[resolvedPath] = meshes;
 		}
 
 		return meshes;
@@ -301,19 +368,20 @@ namespace MyEngine
 
 	SkinnedModelData AssetManager::LoadSkinnedModel(const std::string& path)
 	{
-		auto it = s_SkinnedModelCache.find(path);
+		const std::string resolvedPath = ResolveAssetPathInternal(path);
+		auto it = s_SkinnedModelCache.find(resolvedPath);
 		if (it != s_SkinnedModelCache.end())
 			return it->second;
 
 		Model model;
 		SkinnedModelData data;
 
-		if (model.LoadFromFile(path))
+		if (model.LoadFromFile(resolvedPath))
 		{
 			data.meshes = model.GetMeshes();
 			data.skeleton = model.GetSkeleton();
 			data.clips = std::make_shared<std::vector<AnimationClip>>(model.GetAnimationClips());
-			s_SkinnedModelCache[path] = data;
+			s_SkinnedModelCache[resolvedPath] = data;
 		}
 
 		return data;
@@ -489,15 +557,16 @@ namespace MyEngine
 		if (path.empty())
 			return nullptr;
 
-		auto it = s_TextureCache.find(path);
+		const std::string resolvedPath = ResolveAssetPathInternal(path);
+		auto it = s_TextureCache.find(resolvedPath);
 		if (it != s_TextureCache.end())
 			return it->second;
 
 		std::error_code ec;
-		if (!std::filesystem::exists(path, ec))
+		if (!std::filesystem::exists(resolvedPath, ec))
 			return nullptr;
 
-		auto texture = std::make_shared<Texture>(path, generateMipmaps);
+		auto texture = std::make_shared<Texture>(resolvedPath, generateMipmaps);
 		if (texture && s_TextureStreamingEnabled)
 		{
 			float mipBias = 0.0f;
@@ -511,7 +580,7 @@ namespace MyEngine
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, mipBias);
 			texture->Unbind();
 		}
-		s_TextureCache[path] = texture;
+		s_TextureCache[resolvedPath] = texture;
 		return texture;
 	}
 
@@ -605,15 +674,16 @@ namespace MyEngine
 
 	std::shared_ptr<Material> AssetManager::LoadMaterial(const std::string& path)
 	{
-		auto it = s_MaterialCache.find(path);
+		const std::string resolvedPath = ResolveAssetPathInternal(path);
+		auto it = s_MaterialCache.find(resolvedPath);
 		if (it != s_MaterialCache.end())
 			return it->second;
 
 		auto material = std::make_shared<Material>();
-		if (!material->LoadFromFile(path))
+		if (!material->LoadFromFile(resolvedPath))
 			return nullptr;
 
-		s_MaterialCache[path] = material;
+		s_MaterialCache[resolvedPath] = material;
 		return material;
 	}
 
@@ -669,9 +739,11 @@ namespace MyEngine
 		const std::string& modelPath,
 		const std::string& outputDir)
 	{
+		const std::string resolvedModelPath = ResolveAssetPathInternal(modelPath);
+
 		// Load the model to read its embedded material data
 		Model model;
-		if (!model.LoadFromFile(modelPath))
+		if (!model.LoadFromFile(resolvedModelPath))
 			return {};
 
 		const auto& meshMats  = model.GetMeshMaterialData();
@@ -680,17 +752,17 @@ namespace MyEngine
 			return {};
 
 		// Determine output directory
-		std::string outDir = outputDir.empty() ? "assets/materials" : outputDir;
+		std::filesystem::path outDir = ResolveSharedAssetDirectory(outputDir.empty() ? "assets/materials" : outputDir);
 		{
-			std::filesystem::path stem = std::filesystem::path(modelPath).stem();
-			outDir += "/" + stem.string();
+			std::filesystem::path stem = std::filesystem::path(resolvedModelPath).stem();
+			outDir /= stem.string();
 		}
 		{
 			std::error_code ec;
 			std::filesystem::create_directories(outDir, ec);
 		}
 
-		std::string modelStem = std::filesystem::path(modelPath).stem().string();
+		std::string modelStem = std::filesystem::path(resolvedModelPath).stem().string();
 
 		std::vector<std::shared_ptr<Material>> result;
 		result.reserve(count);
@@ -707,10 +779,11 @@ namespace MyEngine
 			if (safeName.empty())
 				safeName = "mat" + std::to_string(i);
 
-			std::string matPath = outDir + "/" + modelStem + "_" + safeName + ".material.json";
+			const std::filesystem::path matPath = outDir / (modelStem + "_" + safeName + ".material.json");
+			const std::string resolvedMatPath = matPath.lexically_normal().generic_string();
 
 			// Re-use cached version if available (already imported before)
-			auto cacheIt = s_MaterialCache.find(matPath);
+			auto cacheIt = s_MaterialCache.find(resolvedMatPath);
 			if (cacheIt != s_MaterialCache.end())
 			{
 				result.push_back(cacheIt->second);
@@ -718,7 +791,7 @@ namespace MyEngine
 			}
 
 			// Build material
-			auto mat = std::make_shared<Material>(matPath);
+			auto mat = std::make_shared<Material>(resolvedMatPath);
 			mat->shaderVertexPath   = "shaders/lit.vert";
 			mat->shaderFragmentPath = "shaders/lit.frag";
 			mat->shader             = LoadShader(mat->shaderVertexPath, mat->shaderFragmentPath);
@@ -749,11 +822,11 @@ namespace MyEngine
 			// Persist to disk only if the file doesn't already exist
 			{
 				std::error_code ec;
-				if (!std::filesystem::exists(matPath, ec))
-					mat->SaveToFile(matPath);
+				if (!std::filesystem::exists(resolvedMatPath, ec))
+					mat->SaveToFile(resolvedMatPath);
 			}
 
-			s_MaterialCache[matPath] = mat;
+			s_MaterialCache[resolvedMatPath] = mat;
 			result.push_back(std::move(mat));
 		}
 
@@ -804,10 +877,11 @@ namespace MyEngine
 		// For imported model assets, auto-assign first imported material so
 		// spawned entities come in with texture already selected in Inspector.
 		std::error_code ec;
-		const bool modelPathExists = !assetPath.empty() && std::filesystem::exists(assetPath, ec);
+		const std::string resolvedAssetPath = ResolveAssetPathInternal(assetPath);
+		const bool modelPathExists = !resolvedAssetPath.empty() && std::filesystem::exists(resolvedAssetPath, ec);
 		if (modelPathExists)
 		{
-			std::string ext = std::filesystem::path(assetPath).extension().string();
+			std::string ext = std::filesystem::path(resolvedAssetPath).extension().string();
 			std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			const bool isImportableModel =
 				ext == ".fbx" || ext == ".glb" || ext == ".gltf" ||
@@ -815,7 +889,7 @@ namespace MyEngine
 
 			if (isImportableModel)
 			{
-				auto importedMats = ImportModelMaterials(assetPath);
+				auto importedMats = ImportModelMaterials(resolvedAssetPath);
 				if (!importedMats.empty() && importedMats[0])
 				{
 					mr.material = importedMats[0];

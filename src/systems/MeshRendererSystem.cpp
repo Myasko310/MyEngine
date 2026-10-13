@@ -1439,17 +1439,33 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         const glm::vec3 materialAlbedo = activeMaterial ? activeMaterial->GetResolvedAlbedo() : renderer.albedo;
         float materialShininess = activeMaterial ? activeMaterial->GetResolvedShininess() : renderer.shininess;
         bool useTexture = activeMaterial ? activeMaterial->GetResolvedUseTexture() : renderer.useTexture;
-        const auto baseTexture = activeMaterial ? activeMaterial->GetResolvedTexture() : renderer.texture;
+        auto baseTexture = activeMaterial ? activeMaterial->GetResolvedTexture() : renderer.texture;
         bool usePBR = activeMaterial ? activeMaterial->GetResolvedUsePBR() : renderer.usePBR;
         float metallic = activeMaterial ? activeMaterial->GetResolvedMetallic() : renderer.metallic;
         float roughness = activeMaterial ? activeMaterial->GetResolvedRoughness() : renderer.roughness;
         float aoStrength = activeMaterial ? activeMaterial->GetResolvedAOStrength() : renderer.aoStrength;
         const glm::vec3 emissive = activeMaterial ? activeMaterial->GetResolvedEmissive() : renderer.emissive;
-        const auto albedoMap = activeMaterial ? activeMaterial->GetResolvedAlbedoMap() : renderer.albedoMap;
-        const auto normalMap = activeMaterial ? activeMaterial->GetResolvedNormalMap() : renderer.normalMap;
-        const auto metallicRoughnessMap = activeMaterial ? activeMaterial->GetResolvedMetallicRoughnessMap() : renderer.metallicRoughnessMap;
-        const auto aoMap = activeMaterial ? activeMaterial->GetResolvedAOMap() : renderer.aoMap;
-        const auto emissiveMap = activeMaterial ? activeMaterial->GetResolvedEmissiveMap() : renderer.emissiveMap;
+        auto albedoMap = activeMaterial ? activeMaterial->GetResolvedAlbedoMap() : renderer.albedoMap;
+        auto normalMap = activeMaterial ? activeMaterial->GetResolvedNormalMap() : renderer.normalMap;
+        auto metallicRoughnessMap = activeMaterial ? activeMaterial->GetResolvedMetallicRoughnessMap() : renderer.metallicRoughnessMap;
+        auto aoMap = activeMaterial ? activeMaterial->GetResolvedAOMap() : renderer.aoMap;
+        auto emissiveMap = activeMaterial ? activeMaterial->GetResolvedEmissiveMap() : renderer.emissiveMap;
+
+        if (renderer.texture)
+        {
+            baseTexture = renderer.texture;
+            useTexture = renderer.useTexture;
+        }
+        if (renderer.albedoMap)
+            albedoMap = renderer.albedoMap;
+        if (renderer.normalMap)
+            normalMap = renderer.normalMap;
+        if (renderer.metallicRoughnessMap)
+            metallicRoughnessMap = renderer.metallicRoughnessMap;
+        if (renderer.aoMap)
+            aoMap = renderer.aoMap;
+        if (renderer.emissiveMap)
+            emissiveMap = renderer.emissiveMap;
 
         activeShader->Use();
 

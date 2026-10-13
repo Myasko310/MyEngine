@@ -199,11 +199,76 @@ static const size_t kMaxRecentScenes = 5;
 // Optional startup scene path loaded on boot when present.
 static const char* kStartupSceneFile = "startup_scene.txt";
 
+static std::vector<std::filesystem::path> GetPersistentConfigSearchPaths(const char* filename)
+{
+    namespace fs = std::filesystem;
+    std::vector<fs::path> candidates;
+    const fs::path cwd = fs::current_path();
+    candidates.push_back(cwd / filename);
+
+    for (fs::path cursor = cwd; !cursor.empty(); cursor = cursor.parent_path())
+    {
+        candidates.push_back(cursor / filename);
+        const fs::path buildDebug = cursor / "build" / "debug" / "Debug" / filename;
+        if (buildDebug != candidates.back())
+            candidates.push_back(buildDebug);
+        const fs::path buildRelease = cursor / "build" / "release" / "Release" / filename;
+        if (buildRelease != buildDebug)
+            candidates.push_back(buildRelease);
+        if (cursor == cursor.parent_path())
+            break;
+    }
+
+    std::vector<fs::path> unique;
+    for (const auto& path : candidates)
+    {
+        if (std::find(unique.begin(), unique.end(), path) == unique.end())
+            unique.push_back(path);
+    }
+    return unique;
+}
+
+static std::filesystem::path ResolvePersistentConfigPathForRead(const char* filename)
+{
+    namespace fs = std::filesystem;
+    for (const auto& candidate : GetPersistentConfigSearchPaths(filename))
+    {
+        std::error_code ec;
+        if (fs::exists(candidate, ec))
+            return candidate;
+    }
+    return {};
+}
+
+static std::filesystem::path ResolvePersistentConfigPathForWrite(const char* filename)
+{
+    namespace fs = std::filesystem;
+    const fs::path existing = ResolvePersistentConfigPathForRead(filename);
+    if (!existing.empty())
+        return existing;
+
+    const fs::path cwd = fs::current_path();
+    for (fs::path cursor = cwd; !cursor.empty(); cursor = cursor.parent_path())
+    {
+        std::error_code ec;
+        if (fs::exists(cursor / ".git", ec) || fs::exists(cursor / "assets", ec) || fs::exists(cursor / "src", ec))
+            return cursor / filename;
+        if (cursor == cursor.parent_path())
+            break;
+    }
+
+    return cwd / filename;
+}
+
 // Loads the recent-scene history from disk.
 static std::vector<std::string> LoadRecentScenes()
 {
     std::vector<std::string> recents;
-    std::ifstream ifs(kRecentScenesFile);
+    const auto path = ResolvePersistentConfigPathForRead(kRecentScenesFile);
+    if (path.empty())
+        return recents;
+
+    std::ifstream ifs(path);
     if (!ifs)
         return recents;
 
@@ -219,7 +284,8 @@ static std::vector<std::string> LoadRecentScenes()
 // Writes the recent-scene history back to disk.
 static void SaveRecentScenes(const std::vector<std::string>& recents)
 {
-    std::ofstream ofs(kRecentScenesFile, std::ios::trunc);
+    const auto path = ResolvePersistentConfigPathForWrite(kRecentScenesFile);
+    std::ofstream ofs(path, std::ios::trunc);
     if (!ofs)
         return;
 
@@ -244,7 +310,11 @@ static void AddRecentScene(std::vector<std::string>& recents, const std::string&
 // Loads the configured startup scene path from disk.
 static std::string LoadStartupScenePath()
 {
-    std::ifstream ifs(kStartupSceneFile);
+    const auto configPath = ResolvePersistentConfigPathForRead(kStartupSceneFile);
+    if (configPath.empty())
+        return {};
+
+    std::ifstream ifs(configPath);
     if (!ifs)
         return {};
 
@@ -256,7 +326,8 @@ static std::string LoadStartupScenePath()
 // Persists the startup scene path to disk (empty disables startup scene loading).
 static void SaveStartupScenePath(const std::string& path)
 {
-    std::ofstream ofs(kStartupSceneFile, std::ios::trunc);
+    const auto configPath = ResolvePersistentConfigPathForWrite(kStartupSceneFile);
+    std::ofstream ofs(configPath, std::ios::trunc);
     if (!ofs)
         return;
 
@@ -3494,6 +3565,10 @@ int main(int argc, char** argv)
     };
 
     // If configured, load startup scene now (once on engine boot).
+    if (!startupScenePath.empty())
+    {
+        startupScenePath = MyEngine::AssetManager::ResolveAssetPath(startupScenePath);
+    }
     if (!startupScenePath.empty() && std::filesystem::exists(startupScenePath))
     {
         if (MyEngine::Serialization::LoadScene(scene, startupScenePath, litShader, &globalScripts))
@@ -5373,10 +5448,11 @@ int main(int argc, char** argv)
                             if (!texturesScanned)
                             {
                                 texturesScanned = true;
-                                const std::string texturesRoot = "assets";
+                                const std::filesystem::path texturesRoot = MyEngine::AssetManager::ResolveAssetPath("assets");
                                 std::error_code ec;
-                                if (std::filesystem::exists(texturesRoot, ec))
+                                if (!texturesRoot.empty() && std::filesystem::exists(texturesRoot, ec))
                                 {
+                                    const std::filesystem::path projectRoot = texturesRoot.parent_path();
                                     for (const auto& entry : std::filesystem::recursive_directory_iterator(texturesRoot, ec))
                                     {
                                         if (ec || !entry.is_regular_file())
@@ -5386,7 +5462,7 @@ int main(int argc, char** argv)
                                         std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
                                         if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tga")
                                         {
-                                            availableTextures.push_back(entry.path().generic_string());
+                                            availableTextures.push_back(std::filesystem::relative(entry.path(), projectRoot, ec).generic_string());
                                         }
                                     }
                                     std::sort(availableTextures.begin(), availableTextures.end());

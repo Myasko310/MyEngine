@@ -419,16 +419,18 @@ namespace MyEngine::Editor::Panels
 				{
 					ui.matBrowserTextures.clear();
 					std::error_code ec2;
-					if (fs::exists("assets/textures", ec2))
+					const fs::path texturesRoot = MyEngine::AssetManager::ResolveAssetPath("assets");
+					if (!texturesRoot.empty() && fs::exists(texturesRoot, ec2))
 					{
-						for (const auto& te : fs::recursive_directory_iterator("assets/textures", ec2))
+						const fs::path projectRoot = texturesRoot.parent_path();
+						for (const auto& te : fs::recursive_directory_iterator(texturesRoot, ec2))
 						{
 							if (!te.is_regular_file())
 								continue;
 							std::string ext2 = te.path().extension().string();
 							std::transform(ext2.begin(), ext2.end(), ext2.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 							if (ext2 == ".png" || ext2 == ".jpg" || ext2 == ".jpeg" || ext2 == ".bmp" || ext2 == ".tga")
-								ui.matBrowserTextures.push_back(te.path().generic_string());
+								ui.matBrowserTextures.push_back(fs::relative(te.path(), projectRoot, ec2).generic_string());
 						}
 						std::sort(ui.matBrowserTextures.begin(), ui.matBrowserTextures.end());
 					}

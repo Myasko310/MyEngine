@@ -3236,7 +3236,7 @@ int main(int argc, char** argv)
                 MyEngine::AnimationStateMachineState wallRunState;
                 wallRunState.name = "WallRun";
                 wallRunState.clipName = "Diagonal Wall Run";
-                wallRunState.loop = true;
+                wallRunState.loop = false;
                 wallRunState.playbackSpeed = 1.0f;
                 machine.states.push_back(wallRunState);
                 wallRunStateIndex = static_cast<int>(machine.states.size()) - 1;
@@ -3518,6 +3518,7 @@ int main(int argc, char** argv)
                 if (wallRunStateIndex >= 0)
                 {
                     auto& wallRunState = machine.states[static_cast<size_t>(wallRunStateIndex)];
+                    wallRunState.loop = false;
                     wallRunState.transitions.clear();
 
                     MyEngine::AnimationStateMachineTransition wallRunToWallJump;
@@ -3530,15 +3531,116 @@ int main(int argc, char** argv)
                     wallRunToWallJump.conditions.push_back(wallJumpTrigger);
                     wallRunState.transitions.push_back(wallRunToWallJump);
 
-                    MyEngine::AnimationStateMachineTransition wallRunToFall;
-                    wallRunToFall.targetStateIndex = fallStateIndex;
-                    wallRunToFall.blendDuration = 0.10f;
-                    wallRunToFall.resetTimeOnEnter = true;
-                    MyEngine::AnimationStateMachineCondition wallRunNotActive;
-                    wallRunNotActive.parameterName = "IsWallRunning";
-                    wallRunNotActive.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
-                    wallRunToFall.conditions.push_back(wallRunNotActive);
-                    wallRunState.transitions.push_back(wallRunToFall);
+                    auto ensureWallRunGroundedExit = [&](const char* toStateName, float speedThreshold, bool requireGreater)
+                    {
+                        const int toStateIndex = machine.FindStateIndex(toStateName);
+                        if (toStateIndex < 0)
+                            return;
+
+                        const bool hasExit = std::any_of(wallRunState.transitions.begin(), wallRunState.transitions.end(),
+                            [&](const MyEngine::AnimationStateMachineTransition& transition)
+                        {
+                            if (transition.targetStateIndex != toStateIndex)
+                                return false;
+
+                            bool hasWallRunEnded = false;
+                            bool hasGrounded = false;
+                            bool hasSpeed = false;
+                            for (const auto& condition : transition.conditions)
+                            {
+                                if (condition.parameterName == "IsWallRunning" &&
+                                    condition.op == MyEngine::AnimationStateMachineConditionOperator::IfFalse)
+                                    hasWallRunEnded = true;
+                                if (condition.parameterName == "IsGrounded" &&
+                                    condition.op == MyEngine::AnimationStateMachineConditionOperator::IfTrue)
+                                    hasGrounded = true;
+                                if (condition.parameterName == "Speed" &&
+                                    condition.op == (requireGreater
+                                        ? MyEngine::AnimationStateMachineConditionOperator::Greater
+                                        : MyEngine::AnimationStateMachineConditionOperator::Less))
+                                    hasSpeed = true;
+                            }
+                            return hasWallRunEnded && hasGrounded && hasSpeed;
+                        });
+                        if (hasExit)
+                            return;
+
+                        MyEngine::AnimationStateMachineTransition exitTransition;
+                        exitTransition.targetStateIndex = toStateIndex;
+                        exitTransition.blendDuration = 1.50f;
+                        exitTransition.requiresExitTime = true;
+                        exitTransition.exitTimeNormalized = 0.98f;
+                        exitTransition.resetTimeOnEnter = true;
+
+                        MyEngine::AnimationStateMachineCondition wallRunEndedCond;
+                        wallRunEndedCond.parameterName = "IsWallRunning";
+                        wallRunEndedCond.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+                        exitTransition.conditions.push_back(wallRunEndedCond);
+
+                        MyEngine::AnimationStateMachineCondition groundedCond;
+                        groundedCond.parameterName = "IsGrounded";
+                        groundedCond.op = MyEngine::AnimationStateMachineConditionOperator::IfTrue;
+                        exitTransition.conditions.push_back(groundedCond);
+
+                        MyEngine::AnimationStateMachineCondition speedCond;
+                        speedCond.parameterName = "Speed";
+                        speedCond.op = requireGreater
+                            ? MyEngine::AnimationStateMachineConditionOperator::Greater
+                            : MyEngine::AnimationStateMachineConditionOperator::Less;
+                        speedCond.threshold = speedThreshold;
+                        exitTransition.conditions.push_back(speedCond);
+
+                        wallRunState.transitions.push_back(exitTransition);
+                    };
+
+                    ensureWallRunGroundedExit("Idle", 0.5f, false);
+                    ensureWallRunGroundedExit("Walk", 0.5f, true);
+                    ensureWallRunGroundedExit("Run", 2.0f, true);
+
+                    const int idleStateIndex = machine.FindStateIndex("Idle");
+                    if (idleStateIndex >= 0)
+                    {
+                        const bool hasAirExit = std::any_of(wallRunState.transitions.begin(), wallRunState.transitions.end(),
+                            [&](const MyEngine::AnimationStateMachineTransition& transition)
+                        {
+                            if (transition.targetStateIndex != idleStateIndex)
+                                return false;
+                            bool hasWallRunEnded = false;
+                            bool hasAirborne = false;
+                            for (const auto& condition : transition.conditions)
+                            {
+                                if (condition.parameterName == "IsWallRunning" &&
+                                    condition.op == MyEngine::AnimationStateMachineConditionOperator::IfFalse)
+                                    hasWallRunEnded = true;
+                                if (condition.parameterName == "IsGrounded" &&
+                                    condition.op == MyEngine::AnimationStateMachineConditionOperator::IfFalse)
+                                    hasAirborne = true;
+                            }
+                            return hasWallRunEnded && hasAirborne;
+                        });
+
+                        if (!hasAirExit)
+                        {
+                            MyEngine::AnimationStateMachineTransition wallRunAirExit;
+                            wallRunAirExit.targetStateIndex = idleStateIndex;
+                            wallRunAirExit.blendDuration = 1.50f;
+                            wallRunAirExit.requiresExitTime = true;
+                            wallRunAirExit.exitTimeNormalized = 0.98f;
+                            wallRunAirExit.resetTimeOnEnter = true;
+
+                            MyEngine::AnimationStateMachineCondition wallRunEndedCond;
+                            wallRunEndedCond.parameterName = "IsWallRunning";
+                            wallRunEndedCond.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+                            wallRunAirExit.conditions.push_back(wallRunEndedCond);
+
+                            MyEngine::AnimationStateMachineCondition airborneCond;
+                            airborneCond.parameterName = "IsGrounded";
+                            airborneCond.op = MyEngine::AnimationStateMachineConditionOperator::IfFalse;
+                            wallRunAirExit.conditions.push_back(airborneCond);
+
+                            wallRunState.transitions.push_back(wallRunAirExit);
+                        }
+                    }
                 }
 
                 if (fallStateIndex >= 0 && fallStateIndex < static_cast<int>(machine.states.size()))

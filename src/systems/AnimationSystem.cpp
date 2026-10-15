@@ -346,9 +346,9 @@ namespace MyEngine
 		// Safety fallback: if a non-looping state reaches its trim end and no
 		// transition fired (e.g. after editing trim/speed), return to default
 		// state so playback never hard-freezes.
-		// WallJump is intentionally excluded so it can hold in-air until grounded
-		// without forcing a fallback that may chain into Jump while airborne.
-		const bool allowAutoFallback = (currentState.name != "WallJump");
+		// WallJump/WallRun are intentionally excluded so their authored exit
+		// transitions (and blend durations) control the handoff timing.
+		const bool allowAutoFallback = (currentState.name != "WallJump" && currentState.name != "WallRun");
 		if (!tookTransition && currentClip && !currentState.loop && allowAutoFallback)
 		{
 			float trimStartSeconds = 0.0f;
@@ -978,8 +978,17 @@ namespace MyEngine
 			{
 				const auto& activeState = stateMachineComponent->stateMachine->states[stateMachineComponent->currentStateIndex];
 				const auto& controller = entity->GetComponent<CharacterControllerComponent>();
-				shouldMirrorWallRunPose =
-					activeState.name == "WallRun" && controller.isWallRunning && controller.mirrorWallRunAnimation;
+				const bool activeWallRun = activeState.name == "WallRun";
+				bool blendingOutFromWallRun = false;
+				if (anim.blending && anim.previousClipIndex >= 0 && anim.previousClipIndex < static_cast<int>(anim.clips->size()))
+				{
+					const std::string& previousClipName = (*anim.clips)[anim.previousClipIndex].name;
+					blendingOutFromWallRun =
+						previousClipName == "Diagonal Wall Run" ||
+						previousClipName.find("Wall Run") != std::string::npos ||
+						previousClipName.find("wall run") != std::string::npos;
+				}
+				shouldMirrorWallRunPose = controller.mirrorWallRunAnimation && (activeWallRun || blendingOutFromWallRun);
 			}
 
 			if (anim.blending)

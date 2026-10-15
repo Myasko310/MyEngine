@@ -330,10 +330,15 @@ namespace MyEngine
 			controller.jumpRequested = controller.jumpRequested || jumpPressed;
 			const bool newMovementCommand = !authoritativeInput || !controller.hasMovementInputTick ||
 				controller.lastMovementInputTick != authoritativeInput->tick;
-			controller.sprintRequested |= newMovementCommand && (authoritativeInput
+			const bool sprintPressed = newMovementCommand && (authoritativeInput
 				? authoritativeInput->sprintPressed : InputActions::IsActionPressed("Sprint"));
-			controller.slideRequested |= newMovementCommand && (authoritativeInput
+			const bool slidePressed = newMovementCommand && (authoritativeInput
 				? authoritativeInput->slidePressed : InputActions::IsActionPressed("Crouch"));
+			controller.sprintRequested |= sprintPressed;
+			controller.slideRequested |= slidePressed;
+			if (slidePressed)
+				controller.slideInputBufferTimer = std::max(controller.slideInputBufferTimer,
+					std::max(controller.slideInputBufferDuration, 0.0f));
 			controller.dodgeRequested |= newMovementCommand && dodgePressed;
 			controller.wallRunRequested = authoritativeInput ? wallRunPressed : InputActions::IsAction("WallRun");
 			controller.vaultRequested |= newMovementCommand && vaultPressed;
@@ -1326,6 +1331,10 @@ namespace MyEngine
 				controller.isWallJumping = false;
 				controller.wallJumpFallSyncRequested = false;
 				controller.wallJumpEstimatedAirTimeRemaining = 0.0f;
+				controller.wallRunEndMomentumTimer = 0.0f;
+				controller.wallRunEndMomentumSpeed = 0.0f;
+				controller.wallRunEndMomentumDirection = glm::vec3(0.0f);
+				controller.wallRunAirborneFacingLock = false;
 			}
 
 			glm::vec3 moveInput = controller.moveInput;
@@ -1336,9 +1345,11 @@ namespace MyEngine
 
 			glm::vec3 horizontalVelocity(rb.velocity.x, 0.0f, rb.velocity.z);
 			controller.slideCooldownTimer = std::max(0.0f, controller.slideCooldownTimer - dt);
+			controller.slideInputBufferTimer = std::max(0.0f, controller.slideInputBufferTimer - dt);
 			controller.dodgeCooldownTimer = std::max(0.0f, controller.dodgeCooldownTimer - dt);
 			controller.vaultCooldownTimer = std::max(0.0f, controller.vaultCooldownTimer - dt);
 			controller.wallJumpCooldownTimer = std::max(0.0f, controller.wallJumpCooldownTimer - dt);
+			controller.wallRunEndMomentumTimer = std::max(0.0f, controller.wallRunEndMomentumTimer - dt);
 			const bool wasWallJumping = controller.isWallJumping;
 			controller.wallJumpTimer = std::max(0.0f, controller.wallJumpTimer - dt);
 			if (controller.isWallJumping && controller.wallJumpTimer <= 0.0f)
@@ -1436,6 +1447,7 @@ namespace MyEngine
 				controller.isSliding = false;
 				controller.isDodging = false;
 				controller.slideRequested = false;
+				controller.slideInputBufferTimer = 0.0f;
 				controller.dodgeRequested = false;
 				controller.vaultRequested = false;
 				controller.jumpRequested = false;
@@ -1444,16 +1456,23 @@ namespace MyEngine
 				UpdateControllerAnimationState(entity, controller);
 				continue;
 			}
-			if (controller.enableSprintSlide && controller.isSprinting && controller.sprintLatched &&
-				glm::length(moveInput) >= 0.1f && controller.slideRequested && !controller.isSliding && !controller.isDodging &&
+			const bool hasBufferedSlideInput = controller.slideRequested || controller.slideInputBufferTimer > 0.0f;
+			const float horizontalSpeed = glm::length(horizontalVelocity);
+			const float sprintSpeedThreshold = controller.moveSpeed * std::max(controller.sprintMultiplier, 1.0f);
+			const bool canSlideFromSprint = controller.isSprinting && controller.sprintLatched;
+			const bool canSlideFromHighGroundSpeed = controller.isGrounded && horizontalSpeed >= sprintSpeedThreshold;
+			if (controller.enableSprintSlide && (canSlideFromSprint || canSlideFromHighGroundSpeed) &&
+				glm::length(moveInput) >= 0.1f && hasBufferedSlideInput && !controller.isSliding && !controller.isDodging &&
 				controller.isGrounded && !controller.jumpRequested && controller.slideCooldownTimer <= 0.0f &&
-				glm::length(horizontalVelocity) >= controller.moveSpeed * 0.8f && controller.slideDuration > 0.0f)
+				horizontalSpeed >= controller.moveSpeed * 0.8f && controller.slideDuration > 0.0f)
 			{
 				controller.isSliding = true;
 				controller.slideTimer = controller.slideDuration;
 				controller.slideDirection = glm::normalize(horizontalVelocity);
-				controller.slideEntrySpeed = std::min(glm::length(horizontalVelocity),
-					controller.moveSpeed * std::max(controller.sprintMultiplier, 1.0f));
+				const float slideStartMomentumBoost = std::clamp(controller.slideStartMomentumBoost, 1.0f, 1.25f);
+				controller.slideEntrySpeed = std::min(horizontalSpeed * slideStartMomentumBoost,
+					controller.moveSpeed * std::max(controller.sprintMultiplier, 1.0f) * slideStartMomentumBoost);
+				controller.slideInputBufferTimer = 0.0f;
 			}
 			controller.slideRequested = false;
 			controller.dodgeRequested = false;
@@ -1470,8 +1489,9 @@ namespace MyEngine
 			else if (controller.isSliding)
 			{
 				const float slideSpeed = controller.slideEntrySpeed * std::clamp(controller.slideSpeedMultiplier, 1.0f, 1.25f);
+				const float slideFrictionScale = std::clamp(controller.slideGroundFrictionScale, 0.3f, 1.0f);
 				horizontalVelocity = MoveTowards(horizontalVelocity, controller.slideDirection * slideSpeed,
-					std::max(controller.acceleration, 0.0f) * dt);
+					std::max(controller.acceleration, 0.0f) * slideFrictionScale * dt);
 			}
 			else if (glm::length(moveInput) > 0.0001f)
 			{
@@ -1479,6 +1499,12 @@ namespace MyEngine
 					? controller.acceleration
 					: controller.airAcceleration * std::max(controller.airControl, 0.0f);
 				horizontalVelocity = MoveTowards(horizontalVelocity, targetHorizontalVelocity, accel * dt);
+			}
+			else if (!controller.isGrounded && controller.wallRunEndMomentumTimer > 0.0f && controller.wallRunEndMomentumSpeed > 0.0f)
+			{
+				horizontalVelocity = MoveTowards(horizontalVelocity,
+					controller.wallRunEndMomentumDirection * controller.wallRunEndMomentumSpeed,
+					std::max(controller.airAcceleration, 0.0f) * 0.4f * dt);
 			}
 			else
 			{
@@ -1593,6 +1619,12 @@ namespace MyEngine
 						controller.mirrorWallRunAnimation = controller.wallRunSide < 0;
 						controller.wallRunEntrySpeed = std::max(controller.wallRunSpeed, 0.0f);
 						controller.wallRunTimer = std::max(controller.wallRunMaxDuration, 0.0f);
+						controller.wallRunEndMomentumTimer = 0.0f;
+						controller.wallRunEndMomentumSpeed = 0.0f;
+						controller.wallRunEndMomentumDirection = glm::vec3(0.0f);
+						controller.wallRunAirborneFacingLock = false;
+						controller.wallRunEndRotatePending = false;
+						controller.wallRunEndRotateDirection = 0;
 						controller.wallRunCommitTimer = std::max(controller.wallRunCommitDuration, 0.0f);
 						controller.isGrounded = false;
 						controller.wasGrounded = false;
@@ -1651,12 +1683,36 @@ namespace MyEngine
 
 				if (controller.wallRunTimer <= 0.0f)
 				{
+					glm::vec3 pushOff = FlattenToPlane(controller.wallRunNormal, glm::vec3(0.0f, 1.0f, 0.0f));
+					if (glm::length(pushOff) <= 0.0001f)
+						pushOff = -FlattenToPlane(controller.wallRunDirection, glm::vec3(0.0f, 1.0f, 0.0f));
+					if (glm::length(pushOff) > 0.0001f)
+						pushOff = glm::normalize(pushOff);
+
+					glm::vec3 carry = FlattenToPlane(controller.wallRunDirection, glm::vec3(0.0f, 1.0f, 0.0f));
+					if (glm::length(carry) > 0.0001f)
+						carry = glm::normalize(carry);
+
+					const float pushOffSpeed = std::max(controller.wallRunEndPushOffSpeed, 0.0f);
+					const float carrySpeed = std::max(controller.wallRunJumpOffSpeed, 0.0f);
+					glm::vec3 launchVelocity = pushOff * pushOffSpeed + carry * carrySpeed;
+					if (glm::length(launchVelocity) > 0.0001f)
+					{
+						rb.velocity.x = launchVelocity.x;
+						rb.velocity.z = launchVelocity.z;
+						controller.wallRunEndMomentumDirection = glm::normalize(launchVelocity);
+						controller.wallRunEndMomentumSpeed = glm::length(launchVelocity);
+						controller.wallRunEndMomentumTimer = std::max(controller.wallRunEndMomentumDuration, 0.0f);
+					}
+					rb.velocity.y = std::max(rb.velocity.y, std::max(controller.wallRunEndPushOffUpwardSpeed, 0.0f));
+					controller.wallRunAirborneFacingLock = true;
+					controller.wallRunEndRotatePending = true;
+					controller.wallRunEndRotateDirection = (controller.wallRunSide < 0) ? 1 : -1;
 					controller.isWallRunning = false;
 					controller.wallRunTimer = 0.0f;
 					controller.wallRunContactGraceTimer = 0.0f;
 					controller.wallRunCommitTimer = 0.0f;
 					controller.wallRunCooldownTimer = std::max(controller.wallRunCooldown, 0.0f);
-					controller.mirrorWallRunAnimation = false;
 				}
 				else
 				{
@@ -1675,7 +1731,6 @@ namespace MyEngine
 					rb.velocity.x = controller.wallRunDirection.x * controller.wallRunEntrySpeed;
 					rb.velocity.z = controller.wallRunDirection.z * controller.wallRunEntrySpeed;
 					rb.velocity.y = std::max(rb.velocity.y, -glm::length(gravity) * controller.wallRunGravityScale * dt);
-					transform.rotation.y = std::atan2(-controller.wallRunNormal.x, -controller.wallRunNormal.z);
 					controller.currentSpeed = glm::length(glm::vec2(rb.velocity.x, rb.velocity.z));
 				}
 			}
@@ -1723,6 +1778,9 @@ namespace MyEngine
 					controller.wallRunCommitTimer = 0.0f;
 					controller.wallRunCooldownTimer = 0.0f;
 					controller.mirrorWallRunAnimation = false;
+					controller.wallRunAirborneFacingLock = false;
+					controller.wallRunEndRotatePending = false;
+					controller.wallRunEndRotateDirection = 0;
 				}
 			}
 
@@ -1817,7 +1875,25 @@ namespace MyEngine
 			}
 
 			glm::vec3 facing = FlattenToPlane(glm::vec3(rb.velocity.x, 0.0f, rb.velocity.z), glm::vec3(0.0f, 1.0f, 0.0f));
-			if (controller.orientToMovement && !controller.isWallJumping && glm::length(facing) > 0.1f)
+			bool animationInWallRunState = false;
+			if (entity->HasComponent<AnimationStateMachineComponent>())
+			{
+				auto& sm = entity->GetComponent<AnimationStateMachineComponent>();
+				if (sm.stateMachine && sm.stateMachine->IsValidStateIndex(sm.currentStateIndex))
+					animationInWallRunState = sm.stateMachine->states[sm.currentStateIndex].name == "WallRun";
+			}
+			if (controller.wallRunEndRotatePending && !animationInWallRunState)
+			{
+				const float endTurnOffset = static_cast<float>(controller.wallRunEndRotateDirection) * 1.5707963f;
+				const float newYaw = transform.rotation.y + endTurnOffset;
+				transform.rotation.y = std::atan2(std::sin(newYaw), std::cos(newYaw));
+				controller.wallRunEndRotatePending = false;
+				controller.wallRunEndRotateDirection = 0;
+			}
+			const bool inWallRunKickoffWindow = animationInWallRunState || controller.isWallRunning ||
+				(!controller.isGrounded &&
+					(controller.wallRunEndMomentumTimer > 0.0f || controller.wallRunCooldownTimer > 0.0f));
+			if (controller.orientToMovement && !controller.isWallJumping && !inWallRunKickoffWindow && !controller.wallRunAirborneFacingLock && glm::length(facing) > 0.1f)
 			{
 				facing = glm::normalize(facing);
 				// TransformComponent rotation uses radians; use +Z-forward yaw convention

@@ -400,46 +400,19 @@ namespace MyEngine
 		if (!skeleton)
 			return static_cast<int>(clip.tracks.size());
 
-		// Build skeleton bone names map
-		std::unordered_map<std::string, std::string> canonicalToOriginal;  // For debugging
 		std::unordered_map<std::string, bool> skeletonNames;
 		skeletonNames.reserve(skeleton->GetBoneCount());
-
-		std::cerr << "\n========== ANIMATION COMPATIBILITY CHECK ==========\n";
-		std::cerr << "Clip: " << clip.name << " (" << clip.tracks.size() << " tracks)\n";
-		std::cerr << "Skeleton: " << skeleton->GetBoneCount() << " bones\n\n";
-
-		std::cerr << "SKELETON BONES (in order):\n";
 		for (const auto& bone : skeleton->GetBones())
 		{
-			std::string canonical = CanonicalBoneName(bone.name);
-			skeletonNames[canonical] = true;
-			canonicalToOriginal[canonical] = bone.name;
-			std::cerr << "  [" << bone.name << "] -> [" << canonical << "]\n";
+			skeletonNames[CanonicalBoneName(bone.name)] = true;
 		}
 
-		std::cerr << "\nANIMATION TRACKS (in order):\n";
 		int matches = 0;
-		for (size_t i = 0; i < clip.tracks.size(); ++i)
+		for (const auto& track : clip.tracks)
 		{
-			const auto& track = clip.tracks[i];
-			std::string canonicalTrack = CanonicalBoneName(track.boneName);
-			bool found = skeletonNames.find(canonicalTrack) != skeletonNames.end();
-
-			std::cerr << "  [" << track.boneName << "] -> [" << canonicalTrack << "]";
-			if (found)
-			{
-				std::cerr << " ✓ MATCHES [" << canonicalToOriginal[canonicalTrack] << "]\n";
+			if (skeletonNames.find(CanonicalBoneName(track.boneName)) != skeletonNames.end())
 				++matches;
-			}
-			else
-			{
-				std::cerr << " ✗ NO MATCH\n";
-			}
 		}
-
-		std::cerr << "\nRESULT: " << matches << " / " << clip.tracks.size() << " tracks matched\n";
-		std::cerr << "====================================================\n\n";
 
 		return matches;
 	}

@@ -11,6 +11,7 @@
 
 #include <glm/glm.hpp>
 
+#include "editor/CharacterPreviewCamera.h"
 #include "network/NetReplicationSystem.h"
 #include "network/NetTransport.h"
 
@@ -209,6 +210,11 @@ namespace MyEngine
 		// Persistent editor-side state for the Character Editor panel.
 		struct CharacterEditorPanelState
 		{
+			std::weak_ptr<::Entity> lastCharacterTarget;
+			CharacterPreviewCamera previewCamera;
+			bool previewEnabled = false;
+			bool previewFocusRequested = true;
+			uint32_t previewTargetID = 0;
 			int selectedBoneIndex = -1;
 			bool drawSkeletonOverlay = true;
 			bool drawBoneNames = false;
@@ -243,6 +249,7 @@ namespace MyEngine
 			std::shared_ptr<::Entity>* playerEntity = nullptr;
 			::Entity* selectedEntity = nullptr;
 			CharacterEditorPanelState* state = nullptr;
+			bool previewAllowed = true;
 			glm::mat4 viewMatrix = glm::mat4(1.0f);
 			glm::mat4 projectionMatrix = glm::mat4(1.0f);
 			int viewportWidth = 0;

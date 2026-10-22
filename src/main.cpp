@@ -4874,7 +4874,10 @@ int main(int argc, char** argv)
             cpuAnimationMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
         }
 
-        cameraSystem.Update(scene, window, deltaTime, aspectRatio);
+        const bool characterPreviewRequested = showUI && showCharacterEditorPanel
+            && !isPlaying && characterEditorPanelState.previewEnabled;
+        if (!characterPreviewRequested)
+            cameraSystem.Update(scene, window, deltaTime, aspectRatio);
 
         for (const auto& entity : scene.GetEntities())
         {
@@ -4992,6 +4995,23 @@ int main(int argc, char** argv)
 
         glm::mat4 view = cameraSystem.GetViewMatrix();
         glm::mat4 projection = cameraSystem.GetProjectionMatrix();
+
+        MyEngine::Editor::Panels::CharacterEditorPanelContext previewContext;
+        previewContext.isOpen = &showCharacterEditorPanel;
+        previewContext.scene = &scene;
+        previewContext.playerEntity = &playerEntity;
+        previewContext.selectedEntity = selectedEntity;
+        previewContext.state = &characterEditorPanelState;
+        previewContext.previewAllowed = showUI && !isPlaying;
+        previewContext.viewportWidth = g_WindowWidth;
+        previewContext.viewportHeight = g_WindowHeight;
+        previewContext.viewMatrix = view;
+        previewContext.projectionMatrix = projection;
+        if (MyEngine::Editor::Panels::UpdateCharacterPreviewCamera(previewContext))
+        {
+            view = previewContext.viewMatrix;
+            projection = previewContext.projectionMatrix;
+        }
 
         // --------------------------------------------------------
         // Render
@@ -7555,8 +7575,8 @@ int main(int argc, char** argv)
             combatDebugPanelContext.isOpen = &showCombatPanel;
             combatDebugPanelContext.drawCombatShapesOverlay = &drawCombatShapesOverlay;
             combatDebugPanelContext.scene = &scene;
-            combatDebugPanelContext.viewMatrix = cameraSystem.GetViewMatrix();
-            combatDebugPanelContext.projectionMatrix = cameraSystem.GetProjectionMatrix();
+            combatDebugPanelContext.viewMatrix = view;
+            combatDebugPanelContext.projectionMatrix = projection;
             combatDebugPanelContext.viewportWidth = g_WindowWidth;
             combatDebugPanelContext.viewportHeight = g_WindowHeight;
             MyEngine::Editor::Panels::DrawCombatDebugPanel(combatDebugPanelContext);
@@ -7570,8 +7590,9 @@ int main(int argc, char** argv)
                 characterEditorPanelContext.playerEntity = &playerEntity;
                 characterEditorPanelContext.selectedEntity = selectedEntity;
                 characterEditorPanelContext.state = &characterEditorPanelState;
-                characterEditorPanelContext.viewMatrix = cameraSystem.GetViewMatrix();
-                characterEditorPanelContext.projectionMatrix = cameraSystem.GetProjectionMatrix();
+                characterEditorPanelContext.previewAllowed = !isPlaying;
+                characterEditorPanelContext.viewMatrix = view;
+                characterEditorPanelContext.projectionMatrix = projection;
                 characterEditorPanelContext.viewportWidth = characterEditorWindowW;
                 characterEditorPanelContext.viewportHeight = characterEditorWindowH;
 #ifdef USE_IMGUIZMO
@@ -7579,6 +7600,7 @@ int main(int argc, char** argv)
                 characterEditorPanelContext.gizmoMode = static_cast<int>(gizmoMode);
 #endif
                 MyEngine::Editor::Panels::DrawCharacterEditorPanel(characterEditorPanelContext);
+                selectedEntity = characterEditorPanelContext.selectedEntity;
                 characterEditorBoneGizmoActive = characterEditorPanelContext.boneGizmoActive;
             }
         }

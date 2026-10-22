@@ -8,6 +8,9 @@
 #include "components/TransformComponent.h"
 #include "components/LightComponent.h"
 #include "components/AnimationComponent.h"
+#include "components/CharacterCustomizationComponent.h"
+#include "character/CharacterMaterialAssets.h"
+#include "components/SocketAttachmentComponent.h"
 #include "components/TerrainComponent.h"
 #include "core/AssetManager.h"
 #include "ecs/Scene.h"
@@ -1236,6 +1239,35 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
 
 
+    auto characterOverride = [&scene](Entity& entity) -> CharacterMaterialOverride*
+    {
+        if (entity.HasComponent<SocketAttachmentComponent>())
+        {
+            const auto& marker = entity.GetComponent<SocketAttachmentComponent>();
+            Entity* owner = scene.GetEntityByID(marker.ownerEntityID);
+            if (owner && owner->HasComponent<CharacterCustomizationComponent>())
+            {
+                auto& customization = owner->GetComponent<CharacterCustomizationComponent>();
+                if (customization.enabled)
+                    if (auto* socket = customization.FindSocket(marker.socketName))
+                        return &socket->material;
+            }
+        }
+        else if (entity.HasComponent<CharacterCustomizationComponent>())
+        {
+            auto& customization = entity.GetComponent<CharacterCustomizationComponent>();
+            if (customization.enabled)
+                return &customization.bodyMaterial;
+        }
+        return nullptr;
+    };
+    auto effectiveMaterial = [&characterOverride](Entity& entity)
+    {
+        const auto* customization = characterOverride(entity);
+        return customization && customization->enabled && customization->materialAsset.asset
+            ? customization->materialAsset.asset : entity.GetComponent<MeshRendererComponent>().material;
+    };
+
     // Sort renderable entities by material renderQueue (opaque first, then
     // transparent) so alpha-blended objects composite correctly over opaque ones.
     std::vector<std::shared_ptr<Entity>> sortedEntities;
@@ -1245,22 +1277,17 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         if (!entity->HasComponent<TransformComponent>()) continue;
         if (!entity->HasComponent<MeshComponent>())      continue;
         if (!entity->HasComponent<MeshRendererComponent>()) continue;
+        if (auto* customization = characterOverride(*entity))
+            MyEngine::ResolveCharacterMaterialAssets(*customization);
         sortedEntities.push_back(entity);
     }
     std::stable_sort(sortedEntities.begin(), sortedEntities.end(),
-        [](const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b)
+        [&effectiveMaterial](const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b)
         {
-            int qa = 2000, qb = 2000;
-            if (a->HasComponent<MeshRendererComponent>())
-            {
-                const auto& ra = a->GetComponent<MeshRendererComponent>();
-                if (ra.material) qa = ra.material->GetResolvedRenderQueue();
-            }
-            if (b->HasComponent<MeshRendererComponent>())
-            {
-                const auto& rb = b->GetComponent<MeshRendererComponent>();
-                if (rb.material) qb = rb.material->GetResolvedRenderQueue();
-            }
+            const auto ma = effectiveMaterial(*a);
+            const auto mb = effectiveMaterial(*b);
+            const int qa = ma ? ma->GetResolvedRenderQueue() : 2000;
+            const int qb = mb ? mb->GetResolvedRenderQueue() : 2000;
             return qa < qb;
         });
 
@@ -1411,11 +1438,13 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
             }
         }
 
-        auto activeMaterial = renderer.material;
+        const auto* characterMaterial = characterOverride(*entity);
+        const bool replaceMaterial = characterMaterial && characterMaterial->enabled && characterMaterial->materialAsset.asset;
+        auto activeMaterial = effectiveMaterial(*entity);
         const bool isAnimated = entity->HasComponent<AnimationComponent>();
 
         std::shared_ptr<MyEngine::Shader> activeShader = renderer.shader;
-        if (!isAnimated && activeMaterial && activeMaterial->GetResolvedShader())
+        if ((!isAnimated || replaceMaterial) && activeMaterial && activeMaterial->GetResolvedShader())
             activeShader = activeMaterial->GetResolvedShader();
         if (!activeShader && activeMaterial && activeMaterial->GetResolvedShader())
             activeShader = activeMaterial->GetResolvedShader();
@@ -1429,14 +1458,15 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
                 if (fragmentPath.empty())
                     fragmentPath = "shaders/lit.frag";
                 activeShader = MyEngine::AssetManager::LoadShader("shaders/lit_skinned.vert", fragmentPath);
-                renderer.shader = activeShader;
+                if (!replaceMaterial)
+                    renderer.shader = activeShader;
             }
         }
 
         if (!activeShader)
             continue;
 
-        const glm::vec3 materialAlbedo = activeMaterial ? activeMaterial->GetResolvedAlbedo() : renderer.albedo;
+        glm::vec3 materialAlbedo = activeMaterial ? activeMaterial->GetResolvedAlbedo() : renderer.albedo;
         float materialShininess = activeMaterial ? activeMaterial->GetResolvedShininess() : renderer.shininess;
         bool useTexture = activeMaterial ? activeMaterial->GetResolvedUseTexture() : renderer.useTexture;
         auto baseTexture = activeMaterial ? activeMaterial->GetResolvedTexture() : renderer.texture;
@@ -1444,28 +1474,37 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         float metallic = activeMaterial ? activeMaterial->GetResolvedMetallic() : renderer.metallic;
         float roughness = activeMaterial ? activeMaterial->GetResolvedRoughness() : renderer.roughness;
         float aoStrength = activeMaterial ? activeMaterial->GetResolvedAOStrength() : renderer.aoStrength;
-        const glm::vec3 emissive = activeMaterial ? activeMaterial->GetResolvedEmissive() : renderer.emissive;
+        glm::vec3 emissive = activeMaterial ? activeMaterial->GetResolvedEmissive() : renderer.emissive;
         auto albedoMap = activeMaterial ? activeMaterial->GetResolvedAlbedoMap() : renderer.albedoMap;
         auto normalMap = activeMaterial ? activeMaterial->GetResolvedNormalMap() : renderer.normalMap;
         auto metallicRoughnessMap = activeMaterial ? activeMaterial->GetResolvedMetallicRoughnessMap() : renderer.metallicRoughnessMap;
         auto aoMap = activeMaterial ? activeMaterial->GetResolvedAOMap() : renderer.aoMap;
         auto emissiveMap = activeMaterial ? activeMaterial->GetResolvedEmissiveMap() : renderer.emissiveMap;
 
-        if (renderer.texture)
+        if (!replaceMaterial && renderer.texture)
         {
             baseTexture = renderer.texture;
             useTexture = renderer.useTexture;
         }
-        if (renderer.albedoMap)
+        if (!replaceMaterial && renderer.albedoMap)
             albedoMap = renderer.albedoMap;
-        if (renderer.normalMap)
+        if (!replaceMaterial && renderer.normalMap)
             normalMap = renderer.normalMap;
-        if (renderer.metallicRoughnessMap)
+        if (!replaceMaterial && renderer.metallicRoughnessMap)
             metallicRoughnessMap = renderer.metallicRoughnessMap;
-        if (renderer.aoMap)
+        if (!replaceMaterial && renderer.aoMap)
             aoMap = renderer.aoMap;
-        if (renderer.emissiveMap)
+        if (!replaceMaterial && renderer.emissiveMap)
             emissiveMap = renderer.emissiveMap;
+
+        if (characterMaterial && characterMaterial->enabled && characterMaterial->textureAsset.asset)
+        {
+            baseTexture = characterMaterial->textureAsset.asset;
+            albedoMap = baseTexture;
+            useTexture = true;
+        }
+        if (characterMaterial)
+            characterMaterial->Apply(materialAlbedo, materialShininess, metallic, roughness, emissive);
 
         activeShader->Use();
 
@@ -1484,6 +1523,8 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
         // Material uniforms
         activeShader->SetVec3("u_MaterialAlbedo", materialAlbedo);
+        activeShader->SetVec3("u_CharacterTextureTint", characterMaterial && characterMaterial->enabled
+            ? glm::clamp(characterMaterial->tint, glm::vec3(0.0f), glm::vec3(1.0f)) : glm::vec3(1.0f));
         activeShader->SetFloat("u_MaterialShininess", materialShininess);
 
         int nextTextureUnit = 0;

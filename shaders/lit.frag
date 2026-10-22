@@ -14,6 +14,7 @@ uniform vec3 u_AmbientColor;
 uniform vec3 u_ViewPos;
 
 uniform vec3 u_MaterialAlbedo;
+uniform vec3 u_CharacterTextureTint = vec3(1.0);
 uniform float u_MaterialShininess;
 uniform bool u_UseTexture;
 uniform sampler2D u_Texture;
@@ -280,7 +281,7 @@ void main()
 	if (u_TerrainLayerBlendEnabled)
 		baseColor = SampleTerrainLayerBaseColor();
 	else if (u_UseTexture)
-		baseColor = texture(u_Texture, v_TexCoords).rgb;
+		baseColor = texture(u_Texture, v_TexCoords).rgb * u_CharacterTextureTint;
 
 	// Ambient — modulated by SSAO if enabled
 	float ssao = 1.0;

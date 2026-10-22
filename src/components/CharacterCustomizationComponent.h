@@ -1,12 +1,14 @@
 #pragma once
 
 #include <string>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include "rendering/Skeleton.h"
 
 // Per-bone customization applied on top of the sampled animation pose.
 //
@@ -85,6 +87,66 @@ struct BodySlider
 	bool HasCustomRange() const { return minValue != -1.0f || maxValue != 1.0f; }
 };
 
+namespace MyEngine { class Material; class Texture; }
+
+template <typename T>
+struct CharacterAssetReference
+{
+	std::string attemptedPath;
+	std::shared_ptr<T> asset;
+	bool failed = false;
+
+	template <typename Loader>
+	void Resolve(const std::string& path, Loader load)
+	{
+		if (path == attemptedPath)
+			return;
+		attemptedPath = path;
+		asset.reset();
+		failed = false;
+		if (!path.empty())
+		{
+			asset = load(path);
+			failed = !asset;
+		}
+	}
+};
+
+// Applied to resolved surface values, never to the shared material asset.
+struct CharacterMaterialOverride
+{
+	bool enabled = false;
+	std::string materialPath;
+	std::string albedoTexturePath;
+	// Transient load results; only the paths above are serialized.
+	CharacterAssetReference<MyEngine::Material> materialAsset;
+	CharacterAssetReference<MyEngine::Texture> textureAsset;
+	void RetryAssets() { materialAsset = {}; textureAsset = {}; }
+	glm::vec3 tint = glm::vec3(1.0f);
+	bool overrideShininess = false;
+	float shininess = 32.0f;
+	bool overridePBR = false;
+	float metallic = 0.0f;
+	float roughness = 0.5f;
+	glm::vec3 emissive = glm::vec3(0.0f);
+
+	void Apply(glm::vec3& albedo, float& resolvedShininess, float& resolvedMetallic,
+		float& resolvedRoughness, glm::vec3& resolvedEmissive) const
+	{
+		if (!enabled)
+			return;
+		albedo *= glm::clamp(tint, glm::vec3(0.0f), glm::vec3(1.0f));
+		if (overrideShininess)
+			resolvedShininess = glm::clamp(shininess, 1.0f, 256.0f);
+		if (overridePBR)
+		{
+			resolvedMetallic = glm::clamp(metallic, 0.0f, 1.0f);
+			resolvedRoughness = glm::clamp(roughness, 0.04f, 1.0f);
+			resolvedEmissive = glm::clamp(emissive, glm::vec3(0.0f), glm::vec3(100.0f));
+		}
+	}
+};
+
 // A named attachment point on a bone. A static mesh is positioned at
 //   entityWorld * boneModelTransform * T(positionOffset) * R(rotationOffsetDegrees) * S(scale)
 // every frame by CharacterSocketSystem.
@@ -97,6 +159,7 @@ struct BoneSocket
 	glm::vec3 rotationOffsetDegrees = glm::vec3(0.0f);
 	glm::vec3 scale = glm::vec3(1.0f);
 	bool visible = true;
+	CharacterMaterialOverride material;
 
 	glm::mat4 BuildLocalMatrix() const
 	{
@@ -118,6 +181,7 @@ struct CharacterCustomizationComponent
 
 	// Bone sockets with attached meshes (M2).
 	std::vector<BoneSocket> sockets;
+	CharacterMaterialOverride bodyMaterial;
 
 	// Last loaded/saved *.character.json path (empty = unsaved).
 	std::string presetPath;
@@ -239,6 +303,33 @@ struct CharacterCustomizationComponent
 				return &socket;
 		}
 		return nullptr;
+	}
+
+	// Resolve only unmodified defaults; explicit custom mappings stay exact.
+	void BindDefaultSliderBones(const MyEngine::Skeleton& skeleton)
+	{
+		auto bareName = [](const std::string& name)
+		{
+			const auto separator = name.find_last_of(':');
+			return name.substr(separator == std::string::npos ? 0 : separator + 1);
+		};
+		for (auto& slider : bodySliders)
+		{
+			if (slider.customMappings) continue;
+			for (auto& mapping : slider.mappings)
+			{
+				if (skeleton.GetBoneIndex(mapping.boneName) >= 0) continue;
+				const auto name = bareName(mapping.boneName);
+				const MyEngine::Bone* match = nullptr;
+				for (const auto& bone : skeleton.GetBones())
+				{
+					if (bareName(bone.name) != name) continue;
+					if (match) { match = nullptr; break; }
+					match = &bone;
+				}
+				if (match) mapping.boneName = match->name;
+			}
+		}
 	}
 
 	// Slider-only contribution for a bone (no manual override).

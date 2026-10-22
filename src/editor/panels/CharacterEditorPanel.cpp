@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -17,6 +19,8 @@
 #endif
 
 #include "character/CharacterPreset.h"
+#include "character/CharacterMaterialAssets.h"
+#include "core/FileDialog.h"
 #include "character/CharacterSocketSystem.h"
 #include "components/AnimationComponent.h"
 #include "components/CharacterCustomizationComponent.h"
@@ -59,6 +63,14 @@ namespace
 		if (context.playerEntity && *context.playerEntity && (*context.playerEntity)->HasComponent<SkeletonComponent>())
 			return context.playerEntity->get();
 		return nullptr;
+	}
+
+	bool HasEditableRig(const Entity& entity)
+	{
+		if (!entity.HasComponent<SkeletonComponent>())
+			return false;
+		const auto& skeleton = entity.GetComponent<SkeletonComponent>().skeleton;
+		return skeleton && skeleton->GetBoneCount() > 0;
 	}
 
 	// Model-space bone transforms (entity local space). Prefers the live
@@ -155,6 +167,97 @@ namespace
 		}
 	}
 
+	std::string CharacterAssetPath(const std::string& path)
+	{
+		if (path.empty()) return {};
+		std::error_code ec;
+		const auto root = std::filesystem::weakly_canonical(MyEngine::AssetManager::ResolveAssetPath("assets"), ec);
+		if (ec) return path;
+		const auto absolute = std::filesystem::weakly_canonical(MyEngine::AssetManager::ResolveAssetPath(path), ec);
+		if (ec) return path;
+		const auto relative = absolute.lexically_relative(root);
+		if (!relative.empty() && *relative.begin() != "..")
+			return (std::filesystem::path("assets") / relative).generic_string();
+		return absolute.generic_string();
+	}
+
+	void DrawCharacterAssetPath(const char* label, std::string& path, bool isMaterial)
+	{
+		ImGui::PushID(label);
+		char buffer[2048];
+		std::snprintf(buffer, sizeof(buffer), "%s", path.c_str());
+		if (ImGui::InputText(label, buffer, sizeof(buffer), ImGuiInputTextFlags_EnterReturnsTrue))
+			path = CharacterAssetPath(buffer);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Press Enter to apply. Empty inherits the original asset.");
+		if (ImGui::Button("Browse..."))
+		{
+			const std::string chosen = isMaterial ? MyEngine::FileDialog::OpenMaterialFile() : MyEngine::FileDialog::OpenImageFile();
+			if (!chosen.empty()) path = CharacterAssetPath(chosen);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Clear")) path.clear();
+		ImGui::PopID();
+	}
+
+	void DrawMaterialEditor(const char* id, CharacterMaterialOverride& material)
+	{
+		ImGui::PushID(id);
+		ImGui::Checkbox("Enable Material Customization", &material.enabled);
+		static std::vector<std::string> materialChoices;
+		static bool materialChoicesInitialized = false;
+		const bool refreshMaterials = ImGui::Button("Refresh Material List");
+		if (!materialChoicesInitialized || refreshMaterials)
+		{
+			materialChoices = MyEngine::ListCharacterMaterials(MyEngine::AssetManager::ResolveAssetPath("assets"));
+			for (auto& path : materialChoices) path = CharacterAssetPath(path);
+			materialChoicesInitialized = true;
+		}
+		const char* preview = material.materialPath.empty() ? "Original / Inherit" : material.materialPath.c_str();
+		if (ImGui::BeginCombo("Material Selection", preview))
+		{
+			if (ImGui::Selectable("Original / Inherit", material.materialPath.empty()))
+				material.materialPath.clear();
+			for (const auto& path : materialChoices)
+			{
+				if (ImGui::Selectable(path.c_str(), material.materialPath == path))
+				{
+					material.materialPath = path;
+					material.enabled = true;
+				}
+			}
+			if (materialChoices.empty())
+				ImGui::TextDisabled("No .material.json files in assets. Use Material Browser to create one, or Browse below.");
+			ImGui::EndCombo();
+		}
+		ImGui::BeginDisabled(!material.enabled);
+		DrawCharacterAssetPath("Material Asset", material.materialPath, true);
+		DrawCharacterAssetPath("Base Color Texture", material.albedoTexturePath, false);
+		if (ImGui::Button("Retry Asset Loads")) material.RetryAssets();
+		MyEngine::ResolveCharacterMaterialAssets(material);
+		if (material.materialAsset.failed)
+			ImGui::TextWrapped("Material could not be loaded: %s. Using the original material.", material.materialPath.c_str());
+		if (material.textureAsset.failed)
+			ImGui::TextWrapped("Texture could not be loaded: %s. Using the material's base texture.", material.albedoTexturePath.c_str());
+		ImGui::ColorEdit3("Tint", glm::value_ptr(material.tint));
+		ImGui::Checkbox("Override Shininess", &material.overrideShininess);
+		if (material.overrideShininess)
+			ImGui::SliderFloat("Shininess", &material.shininess, 1.0f, 256.0f);
+		ImGui::Checkbox("Override PBR Surface", &material.overridePBR);
+		if (material.overridePBR)
+		{
+			ImGui::SliderFloat("Metallic", &material.metallic, 0.0f, 1.0f);
+			ImGui::SliderFloat("Roughness", &material.roughness, 0.04f, 1.0f);
+			ImGui::DragFloat3("Emissive (RGB)", glm::value_ptr(material.emissive), 0.01f, 0.0f, 100.0f,
+				"%.2f", ImGuiSliderFlags_AlwaysClamp);
+			ImGui::TextWrapped("PBR controls require a PBR-enabled material and shader. A selected material supplies its shader and maps; Base Color Texture overrides only albedo.");
+		}
+		ImGui::EndDisabled();
+		if (ImGui::Button("Reset Material"))
+			material = {};
+		ImGui::PopID();
+	}
+
 	void DrawOverrideEditor(CharacterCustomizationComponent& customization, const std::string& boneName)
 	{
 		BoneOverride* existing = const_cast<BoneOverride*>(customization.FindOverride(boneName));
@@ -187,6 +290,9 @@ namespace
 		CharacterCustomizationComponent& customization,
 		const MyEngine::Skeleton& skeleton)
 	{
+		customization.BindDefaultSliderBones(skeleton);
+		if (!customization.enabled)
+			ImGui::TextWrapped("Enable Overrides above to preview body slider changes.");
 		if (customization.bodySliders.empty())
 		{
 			if (ImGui::Button("Add Default Body Sliders"))
@@ -234,6 +340,11 @@ namespace
 			ImGui::SliderFloat(label.c_str(), &slider.value, slider.minValue, slider.maxValue, "%.2f");
 			if (unmapped)
 				ImGui::PopStyleColor();
+			if (unmapped)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("No matching bones");
+			}
 			if (ImGui::IsItemHovered())
 			{
 				ImGui::BeginTooltip();
@@ -502,6 +613,11 @@ namespace
 		ImGui::DragFloat3("Position", glm::value_ptr(socket.positionOffset), 0.005f, -5.0f, 5.0f, "%.3f");
 		ImGui::DragFloat3("Rotation (deg)", glm::value_ptr(socket.rotationOffsetDegrees), 0.5f, -180.0f, 180.0f, "%.1f");
 		ImGui::DragFloat3("Scale", glm::value_ptr(socket.scale), 0.005f, 0.001f, 100.0f, "%.3f");
+		if (ImGui::TreeNode("Socket Material"))
+		{
+			DrawMaterialEditor("socketMaterial", socket.material);
+			ImGui::TreePop();
+		}
 		ImGui::Checkbox("Visible", &socket.visible);
 		ImGui::SameLine();
 		if (ImGui::Button("Remove Socket"))
@@ -812,6 +928,103 @@ namespace
 
 namespace MyEngine::Editor::Panels
 {
+	bool SelectCharacterEditorTarget(CharacterEditorPanelContext& context, uint32_t entityID)
+	{
+		if (!context.scene || !context.state)
+			return false;
+		for (const auto& entity : context.scene->GetEntities())
+		{
+			if (!entity || entity->GetID() != entityID || !HasEditableRig(*entity))
+				continue;
+			context.selectedEntity = entity.get();
+			auto& state = *context.state;
+			if (state.lastCharacterTarget.lock() == entity)
+				return true;
+			state.lastCharacterTarget = entity;
+			state.selectedBoneIndex = -1;
+			state.selectedSocketIndex = -1;
+			state.editingSliderIndex = -1;
+			state.selectedMappingIndex = -1;
+			state.gizmoWasUsing = false;
+			state.previewFocusRequested = true;
+			state.selectedPresetIndex = -1;
+			state.pendingDeletePresetIndex = -1;
+			state.statusMessage.clear();
+			std::string path;
+			if (entity->HasComponent<CharacterCustomizationComponent>())
+				path = entity->GetComponent<CharacterCustomizationComponent>().presetPath;
+			if (path.empty())
+			{
+				const bool isPlayer = context.playerEntity && *context.playerEntity == entity;
+				path = isPlayer ? CharacterPreset::kDefaultPlayerPresetPath
+					: "assets/characters/character_" + std::to_string(entityID) + ".character.json";
+			}
+			std::snprintf(state.presetPathBuffer, sizeof(state.presetPathBuffer), "%s", path.c_str());
+			std::snprintf(state.presetNameBuffer, sizeof(state.presetNameBuffer), "%s",
+				CharacterPreset::PresetDisplayName(path).c_str());
+			return true;
+		}
+		return false;
+	}
+
+	bool UpdateCharacterPreviewCamera(CharacterEditorPanelContext& context)
+	{
+		if (!context.state)
+			return false;
+		auto& state = *context.state;
+		if (!context.previewAllowed || !context.isOpen || !*context.isOpen || !context.scene)
+		{
+			state.previewEnabled = false;
+			state.previewTargetID = 0;
+			return false;
+		}
+		if (!state.previewEnabled || context.viewportWidth <= 0 || context.viewportHeight <= 0)
+			return false;
+		Entity* target = ResolveTargetEntity(context);
+		if (!target || !target->GetComponent<SkeletonComponent>().skeleton)
+		{
+			state.previewEnabled = false;
+			state.previewTargetID = 0;
+			return false;
+		}
+		const auto& skeleton = *target->GetComponent<SkeletonComponent>().skeleton;
+		if (skeleton.GetBoneCount() == 0)
+		{
+			state.previewEnabled = false;
+			return false;
+		}
+		const float aspect = static_cast<float>(context.viewportWidth) / context.viewportHeight;
+		if (state.previewFocusRequested || state.previewTargetID != target->GetID())
+		{
+			const auto modelBones = BuildModelSpaceBoneTransforms(*target, skeleton);
+			const glm::mat4 world = target->HasComponent<TransformComponent>()
+				? TransformHierarchy::GetWorldMatrix(*context.scene, *target) : glm::mat4(1.0f);
+			glm::vec3 minimum(std::numeric_limits<float>::max());
+			glm::vec3 maximum(std::numeric_limits<float>::lowest());
+			bool hasBounds = false;
+			for (const auto& bone : modelBones)
+			{
+				const glm::vec3 point(world * bone * glm::vec4(0, 0, 0, 1));
+				if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z))
+					continue;
+				minimum = glm::min(minimum, point);
+				maximum = glm::max(maximum, point);
+				hasBounds = true;
+			}
+			if (!hasBounds)
+			{
+				state.previewEnabled = false;
+				return false;
+			}
+			state.previewCamera.Focus(minimum, maximum, aspect);
+			state.previewTargetID = target->GetID();
+			state.previewFocusRequested = false;
+		}
+		context.viewMatrix = state.previewCamera.GetView();
+		context.projectionMatrix = state.previewCamera.GetProjection(aspect);
+		return true;
+	}
+
 	void DrawCharacterEditorPanel(CharacterEditorPanelContext& context)
 	{
 		context.boneGizmoActive = false;
@@ -829,6 +1042,27 @@ namespace MyEngine::Editor::Panels
 		}
 
 		Entity* target = ResolveTargetEntity(context);
+		if (ImGui::BeginCombo("Character", target ? target->GetName().c_str() : "Choose a character"))
+		{
+			bool found = false;
+			for (const auto& entity : context.scene->GetEntities())
+			{
+				if (!entity || !HasEditableRig(*entity))
+					continue;
+				found = true;
+				const std::string label = entity->GetName() + " [" + std::to_string(entity->GetID()) + "]";
+				ImGui::PushID(static_cast<int>(entity->GetID()));
+				if (ImGui::Selectable(label.c_str(), entity.get() == target))
+				{
+					SelectCharacterEditorTarget(context, entity->GetID());
+					target = context.selectedEntity;
+				}
+				ImGui::PopID();
+			}
+			if (!found)
+				ImGui::TextDisabled("No loaded character rigs in this scene.");
+			ImGui::EndCombo();
+		}
 		if (!target)
 		{
 			ImGui::TextWrapped("No skinned character found. Select an entity with a SkeletonComponent or load a scene with a Player.");
@@ -846,6 +1080,7 @@ namespace MyEngine::Editor::Panels
 
 		const Skeleton& skeleton = *skeletonComponent.skeleton;
 		const auto& bones = skeleton.GetBones();
+		SelectCharacterEditorTarget(context, target->GetID());
 		if (!target->HasComponent<CharacterCustomizationComponent>())
 			target->AddComponent<CharacterCustomizationComponent>();
 		auto& customization = target->GetComponent<CharacterCustomizationComponent>();
@@ -856,6 +1091,44 @@ namespace MyEngine::Editor::Panels
 		ImGui::Text("Target: %s", target->GetName().c_str());
 		ImGui::SameLine();
 		ImGui::TextDisabled("(%zu bones)", bones.size());
+
+		if (ImGui::CollapsingHeader("Preview Camera", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			ImGui::BeginDisabled(!context.previewAllowed);
+			if (ImGui::Checkbox("Preview in Main Viewport", &state.previewEnabled))
+				state.previewFocusRequested = true;
+			if (ImGui::Button("Focus Character"))
+			{
+				state.previewEnabled = true;
+				state.previewFocusRequested = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Return to Scene Camera"))
+				state.previewEnabled = false;
+			if (state.previewEnabled)
+			{
+				auto& camera = state.previewCamera;
+				if (ImGui::Button("Front")) { camera.yaw = 0.0f; camera.pitch = 0.0f; }
+				ImGui::SameLine();
+				if (ImGui::Button("Back")) { camera.yaw = 180.0f; camera.pitch = 0.0f; }
+				ImGui::SameLine();
+				if (ImGui::Button("Side")) { camera.yaw = 90.0f; camera.pitch = 0.0f; }
+				ImGui::SliderFloat("Orbit", &camera.yaw, -180.0f, 180.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SliderFloat("Elevation", &camera.pitch, -85.0f, 85.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SliderFloat("Distance", &camera.distance, camera.radius * 0.2f, camera.radius * 200.0f,
+					"%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SliderFloat("Vertical Framing", &camera.verticalOffset, -camera.radius * 2.0f, camera.radius * 2.0f,
+					"%.3f", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::Button("Drag to orbit / wheel to zoom", ImVec2(-1.0f, 48.0f));
+				if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+					camera.Orbit(ImGui::GetIO().MouseDelta.x * 0.4f, ImGui::GetIO().MouseDelta.y * 0.4f);
+				if (ImGui::IsItemHovered())
+					camera.Zoom(ImGui::GetIO().MouseWheel);
+			}
+			ImGui::EndDisabled();
+			if (!context.previewAllowed)
+				ImGui::TextDisabled("Stop Play mode to use the preview camera.");
+		}
 
 		ImGui::Checkbox("Enable Overrides", &customization.enabled);
 		ImGui::SameLine();
@@ -930,6 +1203,12 @@ namespace MyEngine::Editor::Panels
 			}
 		}
 
+		if (ImGui::CollapsingHeader("Body Material"))
+		{
+			ImGui::TextWrapped("Applies to the character's whole mesh. Tint multiplies its existing color and textures; shared material assets are not changed.");
+			DrawMaterialEditor("bodyMaterial", customization.bodyMaterial);
+		}
+
 		if (ImGui::CollapsingHeader("Sockets"))
 			DrawSocketEditor(state, customization, skeleton);
 
@@ -994,6 +1273,18 @@ namespace MyEngine::Editor::Panels
 #else
 namespace MyEngine::Editor::Panels
 {
+	bool SelectCharacterEditorTarget(CharacterEditorPanelContext&, uint32_t)
+	{
+		return false;
+	}
+
+	bool UpdateCharacterPreviewCamera(CharacterEditorPanelContext& context)
+	{
+		if (context.state)
+			context.state->previewEnabled = false;
+		return false;
+	}
+
 	void DrawCharacterEditorPanel(CharacterEditorPanelContext& context)
 	{
 		context.boneGizmoActive = false;

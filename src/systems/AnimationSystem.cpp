@@ -795,9 +795,11 @@ namespace MyEngine
 			AnimationStateMachineComponent* stateMachineComponent = entity->HasComponent<AnimationStateMachineComponent>()
 				? &entity->GetComponent<AnimationStateMachineComponent>()
 				: nullptr;
-			const CharacterCustomizationComponent* customization = entity->HasComponent<CharacterCustomizationComponent>()
+			CharacterCustomizationComponent* customization = entity->HasComponent<CharacterCustomizationComponent>()
 				? &entity->GetComponent<CharacterCustomizationComponent>()
 				: nullptr;
+			if (customization && skel.skeleton)
+				customization->BindDefaultSliderBones(*skel.skeleton);
 
 			if (entity->HasComponent<CharacterControllerComponent>() && skel.skeleton)
 			{

@@ -1,4 +1,5 @@
 #include "character/CharacterPreset.h"
+#include "character/CharacterMaterialAssets.h"
 #include "character/CharacterSocketSystem.h"
 #include "components/AnimationComponent.h"
 #include "components/CharacterCustomizationComponent.h"
@@ -9,6 +10,8 @@
 #include "ecs/Scene.h"
 #include "rendering/Skeleton.h"
 #include "systems/AnimationSystem.h"
+#include "editor/CharacterPreviewCamera.h"
+#include "editor/panels/CharacterEditorPanel.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -568,6 +571,301 @@ namespace
 	}
 }
 
+static bool CharacterMaterialTest()
+{
+	CharacterCustomizationComponent original;
+	auto& material = original.bodyMaterial;
+	material.tint = glm::vec3(0.5f, 0.25f, 1.0f);
+	material.overrideShininess = true;
+	material.shininess = 80.0f;
+	material.overridePBR = true;
+	material.metallic = 0.8f;
+	material.roughness = 0.2f;
+	material.emissive = glm::vec3(2.0f, 0.0f, 1.0f);
+	glm::vec3 albedo(0.8f), emissive(0.1f);
+	float shininess = 32.0f, metallic = 0.0f, roughness = 0.5f;
+	material.Apply(albedo, shininess, metallic, roughness, emissive);
+	if (!NearlyEqual(albedo, glm::vec3(0.8f)) || !NearlyEqual(shininess, 32.0f)
+		|| !NearlyEqual(metallic, 0.0f) || !NearlyEqual(roughness, 0.5f)
+		|| !NearlyEqual(emissive, glm::vec3(0.1f))) return false;
+	material.enabled = true;
+	material.Apply(albedo, shininess, metallic, roughness, emissive);
+	if (!NearlyEqual(albedo, glm::vec3(0.4f, 0.2f, 0.8f)) || !NearlyEqual(shininess, 80.0f)
+		|| !NearlyEqual(metallic, 0.8f) || !NearlyEqual(roughness, 0.2f)
+		|| !NearlyEqual(emissive, material.emissive)) return false;
+
+	BoneSocket socket;
+	socket.name = "Weapon";
+	socket.boneName = "Head";
+	socket.material.enabled = true;
+	socket.material.tint = glm::vec3(0.1f, 1.0f, 0.3f);
+	original.sockets.push_back(socket);
+	CharacterCustomizationComponent restored;
+	const std::string json = MyEngine::CharacterPreset::ToJson(original);
+	if (!MyEngine::CharacterPreset::FromJson(json, restored)) return false;
+	if (MyEngine::CharacterPreset::ToJson(restored) != json) return false;
+	if (restored.sockets.size() != 1 || !restored.bodyMaterial.enabled
+		|| !restored.sockets[0].material.enabled) return false;
+	albedo = glm::vec3(1.0f);
+	restored.sockets[0].material.Apply(albedo, shininess, metallic, roughness, emissive);
+	if (!NearlyEqual(albedo, socket.material.tint) || !NearlyEqual(shininess, 80.0f)
+		|| !NearlyEqual(metallic, 0.8f)) return false;
+	restored.sockets[0].material = {};
+	if (!restored.bodyMaterial.enabled || !NearlyEqual(restored.bodyMaterial.tint, material.tint)) return false;
+
+	const std::string before = MyEngine::CharacterPreset::ToJson(restored);
+	const char* invalid[] = {
+		R"({"bodyMaterial":{"tint":[1,0]}})",
+		R"({"bodyMaterial":{"metallic":2}})",
+		R"({"bodyMaterial":{"roughness":1e100}})",
+		R"({"bodyMaterial":{"enabled":"true"}})",
+		R"({"sockets":[{"name":"Weapon","material":{"emissive":[-1,0,0]}}]})"
+	};
+	for (const char* input : invalid)
+	{
+		if (MyEngine::CharacterPreset::FromJson(input, restored)) return false;
+		if (MyEngine::CharacterPreset::ToJson(restored) != before) return false;
+	}
+	for (int version = 1; version <= 3; ++version)
+	{
+		restored.bodyMaterial = material;
+		if (!MyEngine::CharacterPreset::FromJson("{\"version\":" + std::to_string(version) + "}", restored)) return false;
+		if (restored.bodyMaterial.enabled || !restored.sockets.empty()) return false;
+	}
+	std::cout << "[CharacterEditor] Body/socket material application, preset compatibility and validation passed" << std::endl;
+	return true;
+}
+
+static bool CharacterPreviewCameraTest()
+{
+	MyEngine::Editor::CharacterPreviewCamera camera;
+	for (float aspect : { 0.5f, 1.0f, 2.0f })
+	{
+		camera.Focus(glm::vec3(-1, 0, -1), glm::vec3(1, 4, 1), aspect);
+		if (!NearlyEqual(camera.target, glm::vec3(0, 2, 0))) return false;
+		for (int corner = 0; corner < 8; ++corner)
+		{
+			glm::vec4 point((corner & 1) ? 1.0f : -1.0f, (corner & 2) ? 4.0f : 0.0f,
+				(corner & 4) ? 1.0f : -1.0f, 1.0f);
+			const glm::vec4 clip = camera.GetProjection(aspect) * camera.GetView() * point;
+			if (clip.w <= 0 || std::abs(clip.x / clip.w) > 1 || std::abs(clip.y / clip.w) > 1
+				|| std::abs(clip.z / clip.w) > 1) return false;
+		}
+	}
+	camera.Orbit(10000.0f, 10000.0f);
+	if (std::abs(camera.yaw) > 180 || camera.pitch != 85.0f) return false;
+	camera.Orbit(0, -10000.0f);
+	if (camera.pitch != -85.0f) return false;
+	for (int i = 0; i < 20; ++i) camera.Zoom(20);
+	if (!NearlyEqual(camera.distance, camera.radius * 0.2f)) return false;
+	for (int i = 0; i < 20; ++i) camera.Zoom(-20);
+	if (!NearlyEqual(camera.distance, camera.radius * 200)) return false;
+	camera.Focus(glm::vec3(2), glm::vec3(2), 0);
+	const auto view = camera.GetView();
+	const auto projection = camera.GetProjection(0);
+	for (int c = 0; c < 4; ++c)
+		for (int r = 0; r < 4; ++r)
+			if (!std::isfinite(view[c][r]) || !std::isfinite(projection[c][r])) return false;
+
+#ifdef USE_IMGUI
+	Scene scene;
+	auto first = scene.CreateEntity("Preview A");
+	first->AddComponent<TransformComponent>();
+	first->AddComponent<SkeletonComponent>().skeleton = BuildChainSkeleton();
+	auto second = scene.CreateEntity("Preview B");
+	second->AddComponent<TransformComponent>().position = glm::vec3(10, 0, 0);
+	second->AddComponent<SkeletonComponent>().skeleton = BuildChainSkeleton();
+	MyEngine::Editor::Panels::CharacterEditorPanelState state;
+	state.previewEnabled = true;
+	bool open = true;
+	MyEngine::Editor::Panels::CharacterEditorPanelContext context;
+	context.isOpen = &open;
+	context.scene = &scene;
+	context.state = &state;
+	context.selectedEntity = first.get();
+	context.viewportWidth = 800;
+	context.viewportHeight = 600;
+	if (!MyEngine::Editor::Panels::UpdateCharacterPreviewCamera(context)) return false;
+	const glm::vec3 firstTarget = state.previewCamera.target;
+	context.selectedEntity = second.get();
+	if (!MyEngine::Editor::Panels::UpdateCharacterPreviewCamera(context)) return false;
+	if (!NearlyEqual(state.previewCamera.target - firstTarget, glm::vec3(10, 0, 0))) return false;
+	if (!NearlyEqual(second->GetComponent<TransformComponent>().position, glm::vec3(10, 0, 0))) return false;
+	context.previewAllowed = false;
+	if (MyEngine::Editor::Panels::UpdateCharacterPreviewCamera(context) || state.previewEnabled) return false;
+	context.previewAllowed = true;
+	state.previewEnabled = true;
+	open = false;
+	if (MyEngine::Editor::Panels::UpdateCharacterPreviewCamera(context) || state.previewEnabled) return false;
+#endif
+	std::cout << "[CharacterEditor] Preview camera framing/orbit/zoom and lifecycle passed" << std::endl;
+	return true;
+}
+
+static bool CharacterPickerTest()
+{
+#ifdef USE_IMGUI
+	using namespace MyEngine::Editor::Panels;
+	Scene scene;
+	auto player = scene.CreateEntity("Player");
+	player->AddComponent<SkeletonComponent>().skeleton = BuildChainSkeleton();
+	auto mannequin = scene.CreateEntity("Character Editor Test");
+	mannequin->AddComponent<SkeletonComponent>().skeleton = BuildChainSkeleton();
+	auto empty = scene.CreateEntity("Empty Rig");
+	empty->AddComponent<SkeletonComponent>();
+	CharacterEditorPanelState state;
+	CharacterEditorPanelContext context;
+	context.scene = &scene;
+	context.state = &state;
+	context.playerEntity = &player;
+	if (!SelectCharacterEditorTarget(context, player->GetID())) return false;
+	if (context.selectedEntity != player.get() || std::string(state.presetPathBuffer) != MyEngine::CharacterPreset::kDefaultPlayerPresetPath) return false;
+	state.selectedBoneIndex = 2;
+	state.selectedSocketIndex = 0;
+	state.editingSliderIndex = 1;
+	state.selectedMappingIndex = 1;
+	state.gizmoWasUsing = true;
+	state.previewFocusRequested = false;
+	if (!SelectCharacterEditorTarget(context, player->GetID()) || state.selectedBoneIndex != 2) return false;
+	if (!SelectCharacterEditorTarget(context, mannequin->GetID())) return false;
+	if (context.selectedEntity != mannequin.get() || state.selectedBoneIndex != -1 || state.selectedSocketIndex != -1
+		|| state.editingSliderIndex != -1 || state.selectedMappingIndex != -1 || state.gizmoWasUsing || !state.previewFocusRequested) return false;
+	if (std::string(state.presetPathBuffer) == MyEngine::CharacterPreset::kDefaultPlayerPresetPath) return false;
+	if (SelectCharacterEditorTarget(context, empty->GetID()) || context.selectedEntity != mannequin.get()) return false;
+	mannequin->AddComponent<CharacterCustomizationComponent>().presetPath = "assets/characters/test-look.character.json";
+	if (!SelectCharacterEditorTarget(context, player->GetID()) || !SelectCharacterEditorTarget(context, mannequin->GetID())) return false;
+	if (std::string(state.presetPathBuffer) != "assets/characters/test-look.character.json") return false;
+	const auto removedID = mannequin->GetID();
+	scene.DestroyEntity(removedID);
+	if (SelectCharacterEditorTarget(context, removedID)) return false;
+	std::cout << "[CharacterEditor] Character picker switching, reset and preset isolation passed" << std::endl;
+#endif
+	return true;
+}
+
+static bool CharacterAssetSelectionTest()
+{
+	CharacterAssetReference<int> reference;
+	int loads = 0;
+	auto load = [&](const std::string& path) -> std::shared_ptr<int>
+	{
+		++loads;
+		return path == "missing" ? nullptr : std::make_shared<int>(42);
+	};
+	reference.Resolve("good", load);
+	if (!reference.asset || reference.failed || loads != 1) return false;
+	reference.Resolve("good", load);
+	if (loads != 1) return false;
+	reference.Resolve("missing", load);
+	if (reference.asset || !reference.failed || loads != 2) return false;
+	reference.Resolve("missing", load);
+	if (loads != 2) return false;
+	reference = {};
+	reference.Resolve("missing", load);
+	if (loads != 3 || !reference.failed) return false;
+	reference.Resolve("", load);
+	if (reference.asset || reference.failed || loads != 3) return false;
+
+	CharacterCustomizationComponent original;
+	original.bodyMaterial.enabled = true;
+	original.bodyMaterial.materialPath = "assets/materials/body.material.json";
+	original.bodyMaterial.albedoTexturePath = "assets/textures/body.png";
+	BoneSocket socket;
+	socket.name = "Weapon";
+	socket.material.materialPath = "assets/materials/metal.material.json";
+	socket.material.albedoTexturePath = "assets/textures/weapon.png";
+	original.sockets.push_back(socket);
+	const auto json = MyEngine::CharacterPreset::ToJson(original);
+	CharacterCustomizationComponent restored;
+	if (!MyEngine::CharacterPreset::FromJson(json, restored)) return false;
+	if (MyEngine::CharacterPreset::ToJson(restored) != json) return false;
+	if (!restored.bodyMaterial.materialAsset.attemptedPath.empty() || restored.bodyMaterial.materialAsset.asset) return false;
+	const char* invalid[] = {
+		R"({"bodyMaterial":{"materialPath":123}})",
+		R"({"bodyMaterial":{"albedoTexturePath":"bad\u0000.png"}})",
+		R"({"sockets":[{"name":"Weapon","material":{"albedoTexturePath":false}}]})"
+	};
+	for (const char* input : invalid)
+	{
+		if (MyEngine::CharacterPreset::FromJson(input, restored)) return false;
+		if (MyEngine::CharacterPreset::ToJson(restored) != json) return false;
+	}
+	if (!MyEngine::CharacterPreset::FromJson(R"({"version":3,"bodyMaterial":{"enabled":true}})", restored)) return false;
+	if (!restored.bodyMaterial.materialPath.empty() || !restored.bodyMaterial.albedoTexturePath.empty()) return false;
+	std::cout << "[CharacterEditor] Asset resolution caching/retry/clear and path persistence passed" << std::endl;
+	return true;
+}
+
+static bool PrefixedBodySliderTest()
+{
+	Scene scene;
+	auto entity = scene.CreateEntity("Paused mannequin");
+	auto& anim = entity->AddComponent<AnimationComponent>();
+	anim.playing = false;
+	anim.clips = std::make_shared<std::vector<MyEngine::AnimationClip>>();
+	MyEngine::AnimationClip clip;
+	clip.name = "Idle";
+	clip.durationTicks = 10;
+	clip.ticksPerSecond = 1;
+	anim.clips->push_back(clip);
+	auto skeleton = std::make_shared<MyEngine::Skeleton>();
+	const auto sourceSkeleton = BuildChainSkeleton();
+	for (auto bone : sourceSkeleton->GetBones())
+	{
+		bone.name = "mixamorig:" + bone.name;
+		skeleton->AddBone(bone);
+	}
+	entity->AddComponent<SkeletonComponent>().skeleton = skeleton;
+	auto& customization = entity->AddComponent<CharacterCustomizationComponent>();
+	customization.EnsureDefaultBodySliders();
+	customization.FindSlider("Height")->value = 1;
+	MyEngine::AnimationSystem animation;
+	animation.Update(scene, 0);
+	if (customization.FindSlider("Height")->mappings[0].boneName != "mixamorig:Hips") return false;
+	if (!NearlyEqual(BoneWorldPosition(anim, *skeleton, 2), glm::vec3(0, 2.3f, 0))) return false;
+	if (anim.time != 0 || anim.playing) return false;
+	CharacterCustomizationComponent loaded;
+	if (!MyEngine::CharacterPreset::FromJson(MyEngine::CharacterPreset::ToJson(customization), loaded)) return false;
+	loaded.BindDefaultSliderBones(*skeleton);
+	if (!NearlyEqual(loaded.ComputeSliderOverride("mixamorig:Hips").scaleMultiplier, glm::vec3(1.15f))) return false;
+	customization.enabled = false;
+	animation.Update(scene, 0);
+	if (!NearlyEqual(BoneWorldPosition(anim, *skeleton, 2), glm::vec3(0, 2, 0))) return false;
+	loaded.FindSlider("Height")->customMappings = true;
+	loaded.FindSlider("Height")->mappings[0].boneName = "Hips";
+	loaded.BindDefaultSliderBones(*skeleton);
+	if (loaded.FindSlider("Height")->mappings[0].boneName != "Hips") return false;
+	MyEngine::Skeleton ambiguous;
+	MyEngine::Bone bone;
+	bone.name = "A:Hips"; ambiguous.AddBone(bone);
+	bone.name = "B:Hips"; ambiguous.AddBone(bone);
+	CharacterCustomizationComponent defaults;
+	defaults.EnsureDefaultBodySliders();
+	defaults.BindDefaultSliderBones(ambiguous);
+	if (defaults.FindSlider("Height")->mappings[0].boneName != "Hips") return false;
+	std::cout << "[CharacterEditor] Paused prefixed rig slider deformation and mapping safety passed" << std::endl;
+	return true;
+}
+
+static bool CharacterMaterialListTest()
+{
+	namespace fs = std::filesystem;
+	const auto root = fs::temp_directory_path() / "myengine_character_material_list";
+	fs::create_directories(root / "nested");
+	{ std::ofstream file(root / "a.material.json"); file << "{}"; }
+	{ std::ofstream file(root / "nested" / "b.material.json"); file << "{}"; }
+	{ std::ofstream file(root / "ignored.json"); file << "{}"; }
+	{ std::ofstream file(root / "ignored.material.json.bak"); file << "{}"; }
+	const auto paths = MyEngine::ListCharacterMaterials(root.generic_string());
+	const bool ok = paths.size() == 2 && paths[0] == (root / "a.material.json").generic_string()
+		&& paths[1] == (root / "nested" / "b.material.json").generic_string()
+		&& MyEngine::ListCharacterMaterials((root / "missing").generic_string()).empty();
+	fs::remove_all(root);
+	if (!ok) return false;
+	std::cout << "[CharacterEditor] Material dropdown discovery/filtering passed" << std::endl;
+	return true;
+}
+
 bool CharacterEditorSmokeTest()
 {
 	if (!DeltaMatrixCompositionTest()) return false;
@@ -579,5 +877,11 @@ bool CharacterEditorSmokeTest()
 	if (!SliderMappingEditorTest()) return false;
 	if (!PresetLibraryTest()) return false;
 	if (!CounterScaleChildrenTest()) return false;
+	if (!CharacterMaterialTest()) return false;
+	if (!CharacterPreviewCameraTest()) return false;
+	if (!CharacterPickerTest()) return false;
+	if (!CharacterAssetSelectionTest()) return false;
+	if (!PrefixedBodySliderTest()) return false;
+	if (!CharacterMaterialListTest()) return false;
 	return true;
 }

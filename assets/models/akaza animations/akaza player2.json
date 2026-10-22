@@ -71,6 +71,58 @@
     ],
     "entities": [
         {
+            "id": 555,
+            "name": "Character Editor Test",
+            "tag": "CharacterEditorTest",
+            "layer": 0,
+            "Transform": {
+                "position": [-2.5, 0.03, 0.8],
+                "rotation": [0.0, 0.0, 0.0],
+                "scale": [0.01, 0.01, 0.01],
+                "parentID": 0
+            },
+            "MeshComponent": {
+                "assetPath": "assets/models/akaza (2).fbx",
+                "isSkinned": true
+            },
+            "SkeletonComponent": {
+                "present": true
+            },
+            "AnimationComponent": {
+                "activeClipIndex": 0,
+                "time": 0.0,
+                "playbackSpeed": 1.0,
+                "playing": false,
+                "looping": true,
+                "enableRootMotion": false,
+                "rootMotionBoneName": "Hips",
+                "events": [],
+                "importedAnimationFiles": [
+                    "assets/models/akaza animations/Idle.fbx"
+                ]
+            },
+            "MeshRenderer": {
+                "visible": true,
+                "albedo": [1.0, 1.0, 1.0],
+                "shininess": 32.0,
+                "useTexture": true,
+                "texturePath": "assets/imported/embedded_textures/akazaglb_embedded_0.png",
+                "shaderVertexPath": "shaders/lit_skinned.vert",
+                "shaderFragmentPath": "shaders/lit.frag"
+            },
+            "CapsuleCollider": {
+                "pointA": [0.0, 0.35, 0.0],
+                "pointB": [0.0, 1.9, 0.0],
+                "radius": 0.35,
+                "isTrigger": true
+            },
+            "BoundingSphere": {
+                "center": [-0.00007748603820800781, -0.005003511905670166, -0.0014174878597259521],
+                "radius": 1.2262237071990967,
+                "isTrigger": true
+            }
+        },
+        {
             "id": 1,
             "name": "Camera",
             "tag": "",

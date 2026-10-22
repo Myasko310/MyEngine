@@ -19,6 +19,7 @@
 #include "components/JointComponent.h"
 #include "components/MeshColliderComponent.h"
 #include "components/SkeletonComponent.h"
+#include "components/SocketAttachmentComponent.h"
 #include "core/CollisionMatrix.h"
 #include "components/AnimationComponent.h"
 #include "components/AnimationStateMachineComponent.h"
@@ -372,6 +373,10 @@ namespace MyEngine
 			for (const auto& e : scene.GetEntities())
 			{
 				if (!e)
+					continue;
+
+				// Socket attachments are runtime-generated from character presets.
+				if (e->HasComponent<SocketAttachmentComponent>())
 					continue;
 
 				writer.StartObject();

@@ -158,6 +158,8 @@ set(SOURCES
     src/network/ClientNetworkSystem.cpp
     src/network/ServerNetworkSystem.cpp
     src/plugins/PluginManager.cpp
+    src/character/CharacterPreset.cpp
+    src/character/CharacterSocketSystem.cpp
     src/editor/EditorStyle.cpp
     src/editor/EditorUILayout.cpp
     src/editor/PanelDockManager.cpp
@@ -165,6 +167,7 @@ set(SOURCES
     src/editor/FrameTimingDisplay.cpp
     src/editor/panels/AnimationStateMachinePanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp
+    src/editor/panels/CharacterEditorPanel.cpp
     src/editor/panels/CombatDebugPanel.cpp
     src/editor/panels/InspectorSectionsPanel.cpp
     src/editor/panels/MaterialBrowserPanel.cpp
@@ -430,17 +433,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     )
 endif()
 
-# Copy vcpkg runtime DLLs next to the executable so the app can find them at runtime
-if(EXISTS "C:/vcpkg/installed/x64-windows/bin")
-    add_custom_command(TARGET MyEngine POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo "Copying vcpkg runtime DLLs to output folder..."
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "C:/vcpkg/installed/x64-windows/bin"
-            $<TARGET_FILE_DIR:MyEngine>
-        COMMENT "Copying vcpkg runtime DLLs..."
-    )
-endif()
-
 # ============================================================
 # Smoke tests (serializer + Lua API)
 # ============================================================
@@ -459,6 +451,7 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
         tests/SceneVisibilitySmokeTests.cpp
         tests/SunsetSkyboxSmokeTests.cpp
         tests/CharacterMovementSmokeTests.cpp
+        tests/CharacterEditorSmokeTests.cpp
         tests/VaultPresentationSmokeTests.cpp
         ${SOURCES_NO_MAIN}
     )

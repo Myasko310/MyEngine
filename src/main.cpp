@@ -37,6 +37,7 @@
 #include "editor/PlayModeSession.h"
 #include "editor/panels/AnimationStateMachinePanel.h"
 #include "editor/panels/AssetBrowserPanel.h"
+#include "editor/panels/CharacterEditorPanel.h"
 #include "editor/panels/CombatDebugPanel.h"
 #include "editor/panels/InspectorSectionsPanel.h"
 #include "editor/panels/MaterialBrowserPanel.h"
@@ -73,6 +74,9 @@
 #include "components/AnimationStateMachineComponent.h"
 #include "components/PrefabInstanceComponent.h"
 #include "components/SkeletonComponent.h"
+#include "components/CharacterCustomizationComponent.h"
+#include "character/CharacterPreset.h"
+#include "character/CharacterSocketSystem.h"
 #include "components/ScriptComponent.h"
 #include "audio/AudioEngine.h"
 #include "audio/AudioClip.h"
@@ -593,6 +597,7 @@ int main(int argc, char** argv)
     std::string skyboxFacePaths[6]; // +X,-X,+Y,-Y,+Z,-Z
 
     AnimationSystem animationSystem;
+    MyEngine::CharacterSocketSystem characterSocketSystem;
     MyEngine::ParticleSystem particleSystem;
 
     PhysicsSystem physicsSystem;
@@ -1659,6 +1664,9 @@ int main(int argc, char** argv)
     auto& showPhysicsPanel = editorUI.showPhysicsPanel;
     auto& showCombatPanel = editorUI.showCombatPanel;
     auto& drawCombatShapesOverlay = editorUI.drawCombatShapesOverlay;
+    auto& showCharacterEditorPanel = editorUI.showCharacterEditorPanel;
+    MyEngine::Editor::Panels::CharacterEditorPanelState characterEditorPanelState;
+    bool characterEditorBoneGizmoActive = false;
     auto& showColliderDebugOverlay = editorUI.showColliderDebugOverlay;
     auto& showAssetBrowser = editorUI.showAssetBrowser;
     auto& assetBrowserPath = editorUI.assetBrowserPath;
@@ -3702,6 +3710,26 @@ int main(int argc, char** argv)
         startupScenePath.clear();
         SaveStartupScenePath(startupScenePath);
     }
+
+    // Apply the default character preset to the player (if one exists) so
+    // customizations made in the Character Editor persist across runs.
+    characterSocketSystem.SetDefaultShader(litShader);
+    if (playerEntity && playerEntity->HasComponent<SkeletonComponent>())
+    {
+        if (!playerEntity->HasComponent<CharacterCustomizationComponent>())
+            playerEntity->AddComponent<CharacterCustomizationComponent>();
+        auto& customization = playerEntity->GetComponent<CharacterCustomizationComponent>();
+        customization.EnsureDefaultBodySliders();
+
+        const std::string presetPath = MyEngine::AssetManager::ResolveAssetPath(MyEngine::CharacterPreset::kDefaultPlayerPresetPath);
+        if (!presetPath.empty() && std::filesystem::exists(presetPath))
+        {
+            if (MyEngine::CharacterPreset::Load(presetPath, customization))
+                std::cout << "[main] Applied character preset " << presetPath << " (" << customization.boneOverrides.size() << " bone overrides, " << customization.sockets.size() << " sockets)." << std::endl;
+            else
+                std::cout << "[main] Failed to parse character preset: " << presetPath << std::endl;
+        }
+    }
     UpdateWindowTitle(window, currentScenePath);
     editorContext.recentScenes = &recentScenes;
     editorContext.window = window;
@@ -4199,6 +4227,18 @@ int main(int argc, char** argv)
                 currentScenePath = path;
                 AddRecentScene(recentScenes, path);
                 UpdateWindowTitle(window, currentScenePath);
+            }
+        }
+
+        // Ctrl+Shift+C: open the Character Editor on the current scene's Player.
+        {
+            const bool shiftHeld = Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT) || Input::IsKeyDown(GLFW_KEY_RIGHT_SHIFT);
+            if (allowGlobalHotkeys && ctrlHeld && shiftHeld && Input::IsKeyPressed(GLFW_KEY_C))
+            {
+                if (playerEntity && playerEntity->HasComponent<SkeletonComponent>())
+                    selectedEntity = playerEntity.get();
+                showCharacterEditorPanel = true;
+                showUI = true;
             }
         }
 
@@ -4829,6 +4869,7 @@ int main(int argc, char** argv)
             // time again, otherwise playback runs roughly 2x speed.
             const float renderAnimationDelta = 0.0f;
             animationSystem.Update(scene, renderAnimationDelta);
+            characterSocketSystem.Update(scene);
             particleSystem.Update(scene, isPlaying ? deltaTime : 0.0f);
             cpuAnimationMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cpuStart).count();
         }
@@ -5167,6 +5208,7 @@ int main(int argc, char** argv)
                     ImGui::MenuItem("Scripting", nullptr, &showScriptingPanel);
                     ImGui::MenuItem("Performance", nullptr, &showPerformancePanel);
                     ImGui::MenuItem("Combat Debug", nullptr, &showCombatPanel);
+                    ImGui::MenuItem("Character Editor", nullptr, &showCharacterEditorPanel);
                     ImGui::MenuItem("Collider Overlay", nullptr, &showColliderDebugOverlay);
                     ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
                     ImGui::MenuItem("Material Browser", nullptr, &showMaterialBrowser);
@@ -5197,6 +5239,26 @@ int main(int argc, char** argv)
                     if (ImGui::MenuItem("Local Space", nullptr, !isWorldSpace))
                         gizmoMode = ImGuizmo::LOCAL;
 #endif
+                    ImGui::EndMenu();
+                }
+
+                if (ImGui::BeginMenu("Character"))
+                {
+                    const bool hasPlayerRig = playerEntity && playerEntity->HasComponent<SkeletonComponent>();
+                    if (ImGui::MenuItem("Open Character Editor (Player)", "Ctrl+Shift+C", false, hasPlayerRig))
+                    {
+                        selectedEntity = playerEntity.get();
+                        showCharacterEditorPanel = true;
+                        showUI = true;
+                    }
+                    if (!hasPlayerRig && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip("No skinned Player entity in the current scene.");
+                    ImGui::MenuItem("Character Editor Panel", nullptr, &showCharacterEditorPanel);
+                    if (!startupScenePath.empty())
+                    {
+                        ImGui::Separator();
+                        ImGui::TextDisabled("Startup Scene: %s", startupScenePath.c_str());
+                    }
                     ImGui::EndMenu();
                 }
 
@@ -7498,6 +7560,27 @@ int main(int argc, char** argv)
             combatDebugPanelContext.viewportWidth = g_WindowWidth;
             combatDebugPanelContext.viewportHeight = g_WindowHeight;
             MyEngine::Editor::Panels::DrawCombatDebugPanel(combatDebugPanelContext);
+
+            {
+                int characterEditorWindowW = 0, characterEditorWindowH = 0;
+                glfwGetWindowSize(window, &characterEditorWindowW, &characterEditorWindowH);
+                MyEngine::Editor::Panels::CharacterEditorPanelContext characterEditorPanelContext;
+                characterEditorPanelContext.isOpen = &showCharacterEditorPanel;
+                characterEditorPanelContext.scene = &scene;
+                characterEditorPanelContext.playerEntity = &playerEntity;
+                characterEditorPanelContext.selectedEntity = selectedEntity;
+                characterEditorPanelContext.state = &characterEditorPanelState;
+                characterEditorPanelContext.viewMatrix = cameraSystem.GetViewMatrix();
+                characterEditorPanelContext.projectionMatrix = cameraSystem.GetProjectionMatrix();
+                characterEditorPanelContext.viewportWidth = characterEditorWindowW;
+                characterEditorPanelContext.viewportHeight = characterEditorWindowH;
+#ifdef USE_IMGUIZMO
+                characterEditorPanelContext.gizmoOperation = static_cast<int>(gizmoOperation);
+                characterEditorPanelContext.gizmoMode = static_cast<int>(gizmoMode);
+#endif
+                MyEngine::Editor::Panels::DrawCharacterEditorPanel(characterEditorPanelContext);
+                characterEditorBoneGizmoActive = characterEditorPanelContext.boneGizmoActive;
+            }
         }
 #endif
 
@@ -7511,7 +7594,7 @@ int main(int argc, char** argv)
         // previous frame (last frame's mouse position), causing clicks on the
         // gizmo to be misinterpreted as scene picks - deselecting the entity
         // (and thus the gizmo) before it could ever be dragged.
-        if (selectedEntity && selectedEntity->HasComponent<TransformComponent>())
+        if (selectedEntity && selectedEntity->HasComponent<TransformComponent>() && !characterEditorBoneGizmoActive)
         {
             ImGuizmo::SetOrthographic(false);
             ImGuizmo::BeginFrame();

@@ -5,6 +5,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -12,6 +15,7 @@
 #include "network/NetTransport.h"
 
 class Scene;
+class Entity;
 class MeshRendererSystem;
 
 namespace MyEngine
@@ -200,6 +204,54 @@ namespace MyEngine
 			glm::mat4 projectionMatrix = glm::mat4(1.0f);
 			int viewportWidth = 0;
 			int viewportHeight = 0;
+		};
+
+		// Persistent editor-side state for the Character Editor panel.
+		struct CharacterEditorPanelState
+		{
+			int selectedBoneIndex = -1;
+			bool drawSkeletonOverlay = true;
+			bool drawBoneNames = false;
+			bool boneGizmoEnabled = true;
+			bool gizmoWasUsing = false;
+			glm::mat4 gizmoDragStartParentWorld = glm::mat4(1.0f);
+			glm::mat4 gizmoDragStartAnimatedLocal = glm::mat4(1.0f);
+			char presetPathBuffer[512] = "assets/characters/player.character.json";
+			std::string statusMessage;
+			int selectedSocketIndex = -1;
+			bool drawSocketOverlay = true;
+			char newSocketNameBuffer[64] = "Socket";
+			// Slider mapping editor (M3).
+			bool showSliderMappingEditor = false;
+			int editingSliderIndex = -1;
+			int selectedMappingIndex = -1;
+			char newSliderNameBuffer[64] = "Custom Slider";
+			// Preset browser (M3).
+			bool showPresetBrowser = true;
+			bool presetListDirty = true;
+			std::vector<std::string> presetList;
+			int selectedPresetIndex = -1;
+			char presetDirectoryBuffer[512] = "assets/characters";
+			char presetNameBuffer[128] = "";
+			int pendingDeletePresetIndex = -1;
+		};
+
+		struct CharacterEditorPanelContext
+		{
+			bool* isOpen = nullptr;
+			::Scene* scene = nullptr;
+			std::shared_ptr<::Entity>* playerEntity = nullptr;
+			::Entity* selectedEntity = nullptr;
+			CharacterEditorPanelState* state = nullptr;
+			glm::mat4 viewMatrix = glm::mat4(1.0f);
+			glm::mat4 projectionMatrix = glm::mat4(1.0f);
+			int viewportWidth = 0;
+			int viewportHeight = 0;
+			int gizmoOperation = 0;
+			int gizmoMode = 0;
+			// Set by the panel when a bone gizmo is being shown so the
+			// entity transform gizmo can be suppressed for that frame.
+			bool boneGizmoActive = false;
 		};
 	}
 }

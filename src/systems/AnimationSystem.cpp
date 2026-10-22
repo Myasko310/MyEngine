@@ -3,6 +3,7 @@
 #include "animation/RelaxedFallAnimation.h"
 #include "components/AnimationComponent.h"
 #include "components/AnimationStateMachineComponent.h"
+#include "components/CharacterCustomizationComponent.h"
 #include "components/SkeletonComponent.h"
 #include "components/TransformComponent.h"
 #include "components/CharacterControllerComponent.h"
@@ -608,6 +609,39 @@ namespace MyEngine
 		return mirrored;
 	}
 
+	// Applies the character customization override layer (per-bone local
+	// delta) on top of the sampled local pose, before parent accumulation.
+	// Runs after mirroring so overrides stay anchored to the named bone.
+	static void ApplyBoneOverrides(
+		const Skeleton& skeleton,
+		const CharacterCustomizationComponent* customization,
+		std::vector<glm::mat4>& localPose)
+	{
+		if (!customization || !customization->enabled)
+			return;
+		if (customization->boneOverrides.empty() && !customization->HasAnySliderInfluence())
+			return;
+
+		const auto& bones = skeleton.GetBones();
+		std::vector<BoneOverride> effectiveOverrides(bones.size());
+		for (size_t i = 0; i < bones.size(); ++i)
+			effectiveOverrides[i] = customization->ComputeEffectiveOverride(bones[i].name);
+
+		for (size_t i = 0; i < bones.size() && i < localPose.size(); ++i)
+		{
+			// Parent counter-scale is prepended so this bone (and its subtree)
+			// is not stretched by a parent flagged counterScaleChildren.
+			const int parent = bones[i].parentIndex;
+			if (parent >= 0 && parent < static_cast<int>(bones.size()) && effectiveOverrides[parent].childCounterScale != glm::vec3(1.0f))
+				localPose[i] = effectiveOverrides[parent].BuildChildCompensationMatrix() * localPose[i];
+
+			const BoneOverride& effective = effectiveOverrides[i];
+			if (effective.IsIdentity())
+				continue;
+			localPose[i] = localPose[i] * effective.BuildDeltaMatrix();
+		}
+	}
+
 	// Recursively computes each bone's final skinning matrix:
 	//   finalMatrix[bone] = parentAccumulatedTransform * localAnimatedTransform * offsetMatrix
 	// `localAnimatedTransform` comes from the sampled clip track for this bone
@@ -620,6 +654,7 @@ namespace MyEngine
 		float timeTicks,
 		int rootMotionBoneIndex,
 		bool mirrorPose,
+		const CharacterCustomizationComponent* customization,
 		std::vector<glm::mat4>& outMatrices)
 	{
 		const auto& bones = skeleton.GetBones();
@@ -640,6 +675,8 @@ namespace MyEngine
 			const std::vector<int> mirrorMap = BuildMirroredBoneIndexMap(skeleton);
 			sampledLocalPose = BuildMirroredLocalPose(sampledLocalPose, mirrorMap);
 		}
+
+		ApplyBoneOverrides(skeleton, customization, sampledLocalPose);
 
 		for (size_t i = 0; i < bones.size(); ++i)
 		{
@@ -665,6 +702,7 @@ namespace MyEngine
 		int rootMotionBoneIndex,
 		const std::vector<glm::mat4>& sourcePose,
 		bool mirrorPose,
+		const CharacterCustomizationComponent* customization,
 		std::vector<glm::mat4>& localPose,
 		std::vector<glm::mat4>& outMatrices)
 	{
@@ -693,14 +731,20 @@ namespace MyEngine
 		}
 
 		for (size_t i = 0; i < bones.size(); ++i)
-		{
-			glm::mat4 localTransform = BlendLocalTransforms(fromPose[i], toPose[i], blendT);
-			localPose[i] = localTransform;
+			localPose[i] = BlendLocalTransforms(fromPose[i], toPose[i], blendT);
 
+		// Overrides are applied to a copy so `localPose` (the blend source
+		// snapshot for the next transition) stays free of customization and
+		// the delta is not applied twice when it's reused as `sourcePose`.
+		std::vector<glm::mat4> posedLocal = localPose;
+		ApplyBoneOverrides(skeleton, customization, posedLocal);
+
+		for (size_t i = 0; i < bones.size(); ++i)
+		{
 			glm::mat4 parentTransform = bones[i].parentIndex >= 0
 				? accumulated[bones[i].parentIndex]
 				: glm::mat4(1.0f);
-			accumulated[i] = parentTransform * localTransform;
+			accumulated[i] = parentTransform * posedLocal[i];
 			outMatrices[i] = accumulated[i] * bones[i].offsetMatrix;
 		}
 	}
@@ -750,6 +794,9 @@ namespace MyEngine
 			auto& skel = entity->GetComponent<SkeletonComponent>();
 			AnimationStateMachineComponent* stateMachineComponent = entity->HasComponent<AnimationStateMachineComponent>()
 				? &entity->GetComponent<AnimationStateMachineComponent>()
+				: nullptr;
+			const CharacterCustomizationComponent* customization = entity->HasComponent<CharacterCustomizationComponent>()
+				? &entity->GetComponent<CharacterCustomizationComponent>()
 				: nullptr;
 
 			if (entity->HasComponent<CharacterControllerComponent>() && skel.skeleton)
@@ -1017,7 +1064,7 @@ namespace MyEngine
 				float blendT = std::clamp(anim.blendElapsed / anim.blendDuration, 0.0f, 1.0f);
 
 				ComputeBlendedBoneMatrices(*skel.skeleton, prevClip, prevTimeTicks, &clip, timeTicks, blendT,
-					rootMotionBoneIndex, anim.blendSourcePose, shouldMirrorWallRunPose, anim.localPose, anim.boneMatrices);
+					rootMotionBoneIndex, anim.blendSourcePose, shouldMirrorWallRunPose, customization, anim.localPose, anim.boneMatrices);
 
 				if (blendT >= 1.0f)
 				{
@@ -1028,7 +1075,7 @@ namespace MyEngine
 			}
 			else
 			{
-				ComputeBoneMatrices(*skel.skeleton, &clip, timeTicks, rootMotionBoneIndex, shouldMirrorWallRunPose, anim.boneMatrices);
+				ComputeBoneMatrices(*skel.skeleton, &clip, timeTicks, rootMotionBoneIndex, shouldMirrorWallRunPose, customization, anim.boneMatrices);
 			}
 
 			if (static_cast<int>(anim.boneMatrices.size()) > MAX_ANIMATION_BONES)

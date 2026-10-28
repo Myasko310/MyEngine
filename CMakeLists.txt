@@ -72,7 +72,47 @@ endif()
 # Try find_package again for glm
 find_package(glm CONFIG QUIET)
 find_package(imgui CONFIG QUIET)
-find_package(Lua REQUIRED)
+
+# Lua discovery: try CMake first, then deterministic local/vcpkg fallbacks.
+set(MYENGINE_LUA_HINT_ROOTS
+    "C:/vcpkg/installed/x64-windows"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows"
+    "${CMAKE_CURRENT_SOURCE_DIR}/build/debug/vcpkg_installed/x64-windows"
+    "${CMAKE_CURRENT_SOURCE_DIR}/build/release/vcpkg_installed/x64-windows"
+)
+
+find_package(Lua QUIET)
+
+if(NOT LUA_FOUND)
+    if(NOT LUA_INCLUDE_DIR)
+        foreach(_lua_root ${MYENGINE_LUA_HINT_ROOTS})
+            if(EXISTS "${_lua_root}/include/lua.h")
+                set(LUA_INCLUDE_DIR "${_lua_root}/include")
+                break()
+            endif()
+        endforeach()
+    endif()
+
+    if(NOT LUA_LIBRARIES)
+        foreach(_lua_root ${MYENGINE_LUA_HINT_ROOTS})
+            find_library(_MYENGINE_LUA_LIB
+                NAMES lua lua54 lua53
+                PATHS "${_lua_root}/lib"
+                NO_DEFAULT_PATH
+            )
+            if(_MYENGINE_LUA_LIB)
+                set(LUA_LIBRARIES "${_MYENGINE_LUA_LIB}")
+                break()
+            endif()
+        endforeach()
+    endif()
+
+    if(LUA_INCLUDE_DIR AND LUA_LIBRARIES)
+        set(LUA_FOUND TRUE)
+        message(STATUS "Lua resolved via fallback paths: include='${LUA_INCLUDE_DIR}', lib='${LUA_LIBRARIES}'")
+    endif()
+endif()
+
 if(NOT DEFINED assimp_DIR)
     if(EXISTS "C:/vcpkg/installed/x64-windows/share/assimp")
         set(assimp_DIR "C:/vcpkg/installed/x64-windows/share/assimp")
@@ -350,7 +390,7 @@ if(WIN32)
 endif()
 
 if(NOT LUA_FOUND)
-    message(FATAL_ERROR "Lua was requested but not found")
+    message(FATAL_ERROR "Lua was requested but not found. Install Lua via vcpkg (x64-windows) or provide LUA_INCLUDE_DIR and LUA_LIBRARIES.")
 endif()
 
 if(TARGET imguizmo::imguizmo)
@@ -537,7 +577,37 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
         MYENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     )
 
+    set(MYENGINE_RUNTIME_DLL_DIRS_SMOKE
+        "C:/vcpkg/installed/x64-windows/bin"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/bin"
+        "${CMAKE_CURRENT_SOURCE_DIR}/build/debug/vcpkg_installed/x64-windows/bin"
+        "${CMAKE_CURRENT_SOURCE_DIR}/build/release/vcpkg_installed/x64-windows/bin"
+    )
+    foreach(_dll_dir ${MYENGINE_RUNTIME_DLL_DIRS_SMOKE})
+        if(EXISTS "${_dll_dir}")
+            file(GLOB VCPKG_RUNTIME_DLLS_SMOKE "${_dll_dir}/*.dll")
+            foreach(_dll ${VCPKG_RUNTIME_DLLS_SMOKE})
+                add_custom_command(TARGET MyEngineSmokeTests POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" $<TARGET_FILE_DIR:MyEngineSmokeTests>
+                )
+            endforeach()
+        endif()
+    endforeach()
+
+    if(EXISTS "C:/vcpkg/installed/x64-windows/bin/assimp-vc145-mt.dll")
+        add_custom_command(TARGET MyEngineSmokeTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "C:/vcpkg/installed/x64-windows/bin/assimp-vc145-mt.dll" $<TARGET_FILE_DIR:MyEngineSmokeTests>/assimp-vc145-mtd.dll
+        )
+    endif()
+
+    if(MYENGINE_BUILD_SAMPLE_PLUGIN)
+        add_dependencies(MyEngineSmokeTests SamplePlugin)
+    endif()
+
     add_test(NAME MyEngineSmokeTests COMMAND $<TARGET_FILE:MyEngineSmokeTests>)
+    set_tests_properties(MyEngineSmokeTests PROPERTIES
+        WORKING_DIRECTORY $<TARGET_FILE_DIR:MyEngineSmokeTests>
+    )
 endif()
 
 # ============================================================
@@ -580,4 +650,113 @@ endif()
 # ============================================================
 # Tools subdirectory
 # ============================================================
+add_executable(AiBackendContractTests
+    tests/AiBackendContractTests.cpp
+    ${SOURCES_NO_MAIN}
+)
+
+target_include_directories(AiBackendContractTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vendor/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vendor/imgui/backends
+)
+
+if(LUA_FOUND)
+    target_include_directories(AiBackendContractTests PRIVATE ${LUA_INCLUDE_DIR})
+endif()
+
+target_link_libraries(AiBackendContractTests PRIVATE
+    OpenGL::GL
+    glad::glad
+    glfw
+    glm::glm
+    ${LUA_LIBRARIES}
+)
+
+if(TARGET OpenAL::OpenAL)
+    target_link_libraries(AiBackendContractTests PRIVATE OpenAL::OpenAL)
+elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/OpenAL32.lib")
+    target_include_directories(AiBackendContractTests PRIVATE "C:/vcpkg/installed/x64-windows/include")
+    target_link_libraries(AiBackendContractTests PRIVATE "C:/vcpkg/installed/x64-windows/lib/OpenAL32.lib")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/OpenAL32.lib")
+    target_include_directories(AiBackendContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+    target_link_libraries(AiBackendContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/OpenAL32.lib")
+endif()
+
+if(WIN32)
+    target_link_libraries(AiBackendContractTests PRIVATE comdlg32)
+    if(MYENGINE_ENABLE_DX12_BACKEND)
+        target_link_libraries(AiBackendContractTests PRIVATE d3d12 dxgi dxguid d3dcompiler)
+    endif()
+endif()
+
+if(TARGET imguizmo::imguizmo)
+    target_link_libraries(AiBackendContractTests PRIVATE imguizmo::imguizmo)
+    target_compile_definitions(AiBackendContractTests PRIVATE USE_IMGUIZMO)
+elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/imguizmo.lib")
+    target_include_directories(AiBackendContractTests PRIVATE "C:/vcpkg/installed/x64-windows/include")
+    target_link_libraries(AiBackendContractTests PRIVATE "C:/vcpkg/installed/x64-windows/lib/imguizmo.lib")
+    target_compile_definitions(AiBackendContractTests PRIVATE USE_IMGUIZMO)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imguizmo.lib")
+    target_include_directories(AiBackendContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+    target_link_libraries(AiBackendContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imguizmo.lib")
+    target_compile_definitions(AiBackendContractTests PRIVATE USE_IMGUIZMO)
+endif()
+
+if(TARGET imgui::imgui)
+    target_link_libraries(AiBackendContractTests PRIVATE imgui::imgui)
+    target_compile_definitions(AiBackendContractTests PRIVATE USE_IMGUI)
+elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/imgui.lib")
+    target_include_directories(AiBackendContractTests PRIVATE "C:/vcpkg/installed/x64-windows/include")
+    target_link_libraries(AiBackendContractTests PRIVATE "C:/vcpkg/installed/x64-windows/lib/imgui.lib")
+    target_compile_definitions(AiBackendContractTests PRIVATE USE_IMGUI)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imgui.lib")
+    target_include_directories(AiBackendContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+    target_link_libraries(AiBackendContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/imgui.lib")
+    target_compile_definitions(AiBackendContractTests PRIVATE USE_IMGUI)
+endif()
+
+if(TARGET assimp::assimp)
+    target_link_libraries(AiBackendContractTests PRIVATE assimp::assimp)
+elseif(EXISTS "C:/vcpkg/installed/x64-windows/lib/assimp-vc145-mt.lib")
+    target_include_directories(AiBackendContractTests PRIVATE "C:/vcpkg/installed/x64-windows/include")
+    target_link_libraries(AiBackendContractTests PRIVATE "C:/vcpkg/installed/x64-windows/lib/assimp-vc145-mt.lib")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/assimp-vc145-mt.lib")
+    target_include_directories(AiBackendContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+    target_link_libraries(AiBackendContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/lib/assimp-vc145-mt.lib")
+endif()
+
+target_compile_definitions(AiBackendContractTests PRIVATE
+    GLM_ENABLE_EXPERIMENTAL
+    MYENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+set(MYENGINE_RUNTIME_DLL_DIRS_BACKEND_TEST
+    "C:/vcpkg/installed/x64-windows/bin"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/bin"
+    "${CMAKE_CURRENT_SOURCE_DIR}/build/debug/vcpkg_installed/x64-windows/bin"
+    "${CMAKE_CURRENT_SOURCE_DIR}/build/release/vcpkg_installed/x64-windows/bin"
+)
+foreach(_dll_dir ${MYENGINE_RUNTIME_DLL_DIRS_BACKEND_TEST})
+    if(EXISTS "${_dll_dir}")
+        file(GLOB VCPKG_RUNTIME_DLLS_BACKEND_TEST "${_dll_dir}/*.dll")
+        foreach(_dll ${VCPKG_RUNTIME_DLLS_BACKEND_TEST})
+            add_custom_command(TARGET AiBackendContractTests POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" $<TARGET_FILE_DIR:AiBackendContractTests>
+            )
+        endforeach()
+    endif()
+endforeach()
+
+if(EXISTS "C:/vcpkg/installed/x64-windows/bin/assimp-vc145-mt.dll")
+    add_custom_command(TARGET AiBackendContractTests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "C:/vcpkg/installed/x64-windows/bin/assimp-vc145-mt.dll" $<TARGET_FILE_DIR:AiBackendContractTests>/assimp-vc145-mtd.dll
+    )
+endif()
+
+add_test(NAME AiBackendContractTests COMMAND $<TARGET_FILE:AiBackendContractTests>)
+set_tests_properties(AiBackendContractTests PROPERTIES
+    WORKING_DIRECTORY $<TARGET_FILE_DIR:AiBackendContractTests>
+)
+
 add_subdirectory(tools)

@@ -11,6 +11,18 @@ namespace MyEngine::AI
 		bool generateCollisionMesh = true;
 		int lodCount = 3;
 		int textureResolution = 512;
+		std::string comfyApiBaseUrl = "http://127.0.0.1:8188";
+		std::string comfyWorkflowTemplatePath = "assets/ai/comfyui_workflow_api.json";
+		std::string comfyPromptToken = "{{PROMPT}}";
+		int comfyPollIntervalMs = 1000;
+		int comfyPollTimeoutMs = 120000;
+		std::string textTo3dPythonExe = "python";
+		std::string textTo3dRunnerScriptPath = "tools/ai/generate_text_to_3d.py";
+		std::string textTo3dBackend = "hunyuan3d";
+		bool textTo3dRequireGlbOutput = true;
+		int textTo3dTimeoutMs = 300000;
+		int textTo3dRetryCount = 1;
+		int textTo3dRetryBackoffMs = 250;
 	};
 
 	struct AiAssetGenerationRequest
@@ -33,6 +45,8 @@ namespace MyEngine::AI
 		std::string albedoTexturePath;
 		std::string materialPath;
 		std::string manifestPath;
+		int telemetryDurationMs = -1;
+		int telemetryAttemptCount = 0;
 		std::vector<std::string> generatedFiles;
 	};
 
@@ -64,4 +78,6 @@ namespace MyEngine::AI
 	};
 
 	std::shared_ptr<IAiAssetProvider> CreateLocalAiAssetProvider();
+	std::shared_ptr<IAiAssetProvider> CreateComfyUiLocalAiAssetProvider();
+	std::shared_ptr<IAiAssetProvider> CreateLocalTextTo3dGlbAiAssetProvider();
 }

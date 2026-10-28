@@ -203,6 +203,10 @@ namespace MyEngine::Editor::Panels
 				std::string ext = entry.path().extension().string();
 				std::transform(ext.begin(), ext.end(), ext.begin(),
 					[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				const bool isSceneAsset =
+					ext == ".scene" ||
+					(filePath.size() >= std::string(".scene.json").size() &&
+						filePath.compare(filePath.size() - std::string(".scene.json").size(), std::string(".scene.json").size(), ".scene.json") == 0);
 
 				std::string labelPrefix = "[File] ";
 				if (ext == ".obj" || ext == ".gltf" || ext == ".glb" || ext == ".fbx")
@@ -213,7 +217,7 @@ namespace MyEngine::Editor::Panels
 					labelPrefix = "[Material] ";
 				else if (filePath.find(".animstate.json") != std::string::npos)
 					labelPrefix = "[Anim SM] ";
-				else if (ext == ".scene" || ext == ".json")
+				else if (isSceneAsset)
 					labelPrefix = "[Scene] ";
 
 				const bool isSelectedAsset = (selectedAssetPath == filePath);
@@ -388,7 +392,7 @@ namespace MyEngine::Editor::Panels
 						if (!ui.editingAnimationStateMachine->LoadFromFile(filePath))
 							ui.editingAnimationStateMachine.reset();
 					}
-					else if (ext == ".scene" || ext == ".json")
+					else if (isSceneAsset)
 					{
 						const std::string beforeState = context.captureSceneState ? context.captureSceneState() : std::string{};
 						selectedEntity = nullptr;
@@ -418,7 +422,7 @@ namespace MyEngine::Editor::Panels
 						ImGui::SetTooltip("Double-click: open in Material Browser");
 					else if (filePath.find(".animstate.json") != std::string::npos)
 						ImGui::SetTooltip("Double-click: open animation state machine asset");
-					else if (ext == ".scene" || ext == ".json")
+					else if (isSceneAsset)
 						ImGui::SetTooltip("Double-click: open scene");
 				}
 			}

@@ -37,12 +37,14 @@
 #include "editor/PlayModeSession.h"
 #include "editor/panels/AnimationStateMachinePanel.h"
 #include "editor/panels/AssetBrowserPanel.h"
+#include "editor/panels/AiAssetGeneratorPanel.h"
 #include "editor/panels/CharacterEditorPanel.h"
 #include "editor/panels/CombatDebugPanel.h"
 #include "editor/panels/InspectorSectionsPanel.h"
 #include "editor/panels/MaterialBrowserPanel.h"
 #include "editor/panels/PerformancePanel.h"
 #include "editor/panels/PhysicsPanel.h"
+#include "editor/panels/SceneTimePanel.h"
 #include "editor/panels/SceneHierarchyPanel.h"
 #include "editor/panels/ScriptingPanel.h"
 #include "editor/panels/ToolbarPanel.h"
@@ -820,10 +822,10 @@ int main(int argc, char** argv)
     // The character uses animations from the akaza animations folder for different movement states.
     // Movement/jump input is handled later in the main loop.
     // ------------------------------------------------------------
+    const std::string defaultCharacterModelPath = "assets/models/akaza (2).fbx";
     std::shared_ptr<Entity> playerEntity;
     {
-        const std::string akazaModelPath = "assets/models/akaza (2).fbx";
-        MyEngine::SkinnedModelData akazaData = MyEngine::AssetManager::LoadSkinnedModel(akazaModelPath);
+        MyEngine::SkinnedModelData akazaData = MyEngine::AssetManager::LoadSkinnedModel(defaultCharacterModelPath);
 
         playerEntity = scene.CreateEntity("Player");
         auto& t = playerEntity->AddComponent<TransformComponent>();
@@ -833,8 +835,8 @@ int main(int argc, char** argv)
         if (!akazaData.meshes.empty() && akazaData.skeleton && akazaData.skeleton->GetBoneCount() > 0)
         {
             // Attach the skinned model with animation capability
-            MyEngine::AssetManager::AttachSkinnedModelToEntity(playerEntity, akazaData, litSkinnedShader, akazaModelPath);
-            std::cout << "[main] Loaded Akaza character from " << akazaModelPath
+            MyEngine::AssetManager::AttachSkinnedModelToEntity(playerEntity, akazaData, litSkinnedShader, defaultCharacterModelPath);
+            std::cout << "[main] Loaded Akaza character from " << defaultCharacterModelPath
                       << " with " << akazaData.skeleton->GetBoneCount() << " bones." << std::endl;
 
             if (playerEntity->HasComponent<AnimationComponent>())
@@ -1578,6 +1580,7 @@ int main(int argc, char** argv)
 
     // Scene simulation state
     bool isPlaying = false;
+    float sceneTimeScale = 1.0f;
 
     // Play/edit mode snapshot/session state is handled by the editor session helper.
     MyEngine::Editor::PlayModeSession playModeSession;
@@ -1662,6 +1665,7 @@ int main(int argc, char** argv)
     auto& showScriptingPanel = editorUI.showScriptingPanel;
     auto& showPerformancePanel = editorUI.showPerformancePanel;
     auto& showPhysicsPanel = editorUI.showPhysicsPanel;
+    auto& showSceneTimePanel = editorUI.showSceneTimePanel;
     auto& showCombatPanel = editorUI.showCombatPanel;
     auto& drawCombatShapesOverlay = editorUI.drawCombatShapesOverlay;
     auto& showCharacterEditorPanel = editorUI.showCharacterEditorPanel;
@@ -1669,6 +1673,7 @@ int main(int argc, char** argv)
     bool characterEditorBoneGizmoActive = false;
     auto& showColliderDebugOverlay = editorUI.showColliderDebugOverlay;
     auto& showAssetBrowser = editorUI.showAssetBrowser;
+    auto& showAiAssetGeneratorPanel = editorUI.showAiAssetGeneratorPanel;
     auto& assetBrowserPath = editorUI.assetBrowserPath;
     auto& showMaterialBrowser = editorUI.showMaterialBrowser;
     auto& showIBLPanel = editorUI.showIBLPanel;
@@ -1686,6 +1691,41 @@ int main(int argc, char** argv)
     auto& matBrowserTextures = editorUI.matBrowserTextures;
     auto& matBrowserTexturesScanned = editorUI.matBrowserTexturesScanned;
     auto& globalScripts = editorUI.globalScripts;
+
+    auto applyViewportHudPreset = [&](int preset)
+    {
+        editorUI.viewportHudPreset = std::clamp(preset, 0, 2);
+        if (editorUI.viewportHudPreset == 0)
+        {
+            editorUI.showViewportHud = true;
+            editorUI.showViewportHudCrosshair = false;
+            editorUI.showViewportHudHints = false;
+            editorUI.viewportHudCompact = true;
+            editorUI.viewportHudUseIcons = false;
+            editorUI.viewportHudAnchorPreset = 0;
+            editorUI.viewportHudOpacity = 0.70f;
+        }
+        else if (editorUI.viewportHudPreset == 1)
+        {
+            editorUI.showViewportHud = true;
+            editorUI.showViewportHudCrosshair = false;
+            editorUI.showViewportHudHints = true;
+            editorUI.viewportHudCompact = false;
+            editorUI.viewportHudUseIcons = true;
+            editorUI.viewportHudAnchorPreset = 0;
+            editorUI.viewportHudOpacity = 0.85f;
+        }
+        else
+        {
+            editorUI.showViewportHud = true;
+            editorUI.showViewportHudCrosshair = true;
+            editorUI.showViewportHudHints = true;
+            editorUI.viewportHudCompact = false;
+            editorUI.viewportHudUseIcons = true;
+            editorUI.viewportHudAnchorPreset = 1;
+            editorUI.viewportHudOpacity = 0.92f;
+        }
+    };
 
 #ifdef USE_IMGUIZMO
     // Gizmo editor state (Translate/Rotate/Scale)
@@ -3714,14 +3754,16 @@ int main(int argc, char** argv)
     // Apply the default character preset to the player (if one exists) so
     // customizations made in the Character Editor persist across runs.
     characterSocketSystem.SetDefaultShader(litShader);
-    if (playerEntity && playerEntity->HasComponent<SkeletonComponent>())
+    auto applyCharacterPreset = [&](const std::shared_ptr<Entity>& entity, const std::string& path)
     {
-        if (!playerEntity->HasComponent<CharacterCustomizationComponent>())
-            playerEntity->AddComponent<CharacterCustomizationComponent>();
-        auto& customization = playerEntity->GetComponent<CharacterCustomizationComponent>();
+        if (!entity || !entity->HasComponent<SkeletonComponent>())
+            return;
+        if (!entity->HasComponent<CharacterCustomizationComponent>())
+            entity->AddComponent<CharacterCustomizationComponent>();
+        auto& customization = entity->GetComponent<CharacterCustomizationComponent>();
         customization.EnsureDefaultBodySliders();
 
-        const std::string presetPath = MyEngine::AssetManager::ResolveAssetPath(MyEngine::CharacterPreset::kDefaultPlayerPresetPath);
+        const std::string presetPath = MyEngine::AssetManager::ResolveAssetPath(path);
         if (!presetPath.empty() && std::filesystem::exists(presetPath))
         {
             if (MyEngine::CharacterPreset::Load(presetPath, customization))
@@ -3729,7 +3771,9 @@ int main(int argc, char** argv)
             else
                 std::cout << "[main] Failed to parse character preset: " << presetPath << std::endl;
         }
-    }
+    };
+    applyCharacterPreset(playerEntity, MyEngine::CharacterPreset::kDefaultPlayerPresetPath);
+
     UpdateWindowTitle(window, currentScenePath);
     editorContext.recentScenes = &recentScenes;
     editorContext.window = window;
@@ -3964,6 +4008,10 @@ int main(int argc, char** argv)
             physicsSystem.fixedTimestep,
             physicsSystem.maxSubsteps,
             replayParticleSeed);
+
+        const float frameDeltaTime = deltaTime;
+        if (isPlaying)
+            deltaTime *= std::clamp(sceneTimeScale, 0.125f, 1.0f);
 
         // --------------------------------------------------------
         // Global controls
@@ -4779,6 +4827,16 @@ int main(int argc, char** argv)
                 }
             }
 
+            auto findFallbackPlayable = [&]() -> std::shared_ptr<Entity>
+            {
+                for (auto& candidate : scene.GetEntities())
+                {
+                    if (candidate && candidate->HasComponent<CharacterControllerComponent>())
+                        return candidate;
+                }
+                return {};
+            };
+
             // Toggle third-person follow camera with V keyboard key or
             // right-stick click on gamepad. Resolved against the live primary
             // camera entity each press (rather than the original `camera`
@@ -4788,18 +4846,7 @@ int main(int argc, char** argv)
                 MyEngine::InputActions::IsGamepadButtonPressed(GLFW_GAMEPAD_BUTTON_RIGHT_THUMB);
             if (toggleFollowCam)
             {
-                std::shared_ptr<Entity> followTarget = playerEntity;
-                if (!followTarget)
-                {
-                    for (auto& candidate : scene.GetEntities())
-                    {
-                        if (candidate && candidate->GetName() == "Player")
-                        {
-                            followTarget = candidate;
-                            break;
-                        }
-                    }
-                }
+                std::shared_ptr<Entity> followTarget = playerEntity ? playerEntity : findFallbackPlayable();
 
                 for (auto& e : scene.GetEntities())
                 {
@@ -5066,6 +5113,13 @@ int main(int argc, char** argv)
         ImGuiID dockspace_id = CreateEditorDockSpace();
         (void)dockspace_id; // Suppress unused warning if docking disabled
 
+        static int appliedHudPreset = editorUI.viewportHudPreset;
+        if (editorUI.viewportHudPreset != appliedHudPreset)
+        {
+            applyViewportHudPreset(editorUI.viewportHudPreset);
+            appliedHudPreset = editorUI.viewportHudPreset;
+        }
+
         MyEngine::Editor::StopPlayPromptContext stopPlayPromptContext;
         stopPlayPromptContext.isPlaying = &isPlaying;
         stopPlayPromptContext.scene = &scene;
@@ -5227,11 +5281,45 @@ int main(int argc, char** argv)
                     ImGui::MenuItem("Skybox", nullptr, &showSkyboxPanel);
                     ImGui::MenuItem("Scripting", nullptr, &showScriptingPanel);
                     ImGui::MenuItem("Performance", nullptr, &showPerformancePanel);
+                    ImGui::MenuItem("Physics", nullptr, &showPhysicsPanel);
+                    ImGui::MenuItem("Scene Time", nullptr, &showSceneTimePanel);
                     ImGui::MenuItem("Combat Debug", nullptr, &showCombatPanel);
                     ImGui::MenuItem("Character Editor", nullptr, &showCharacterEditorPanel);
                     ImGui::MenuItem("Collider Overlay", nullptr, &showColliderDebugOverlay);
                     ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
+                    ImGui::MenuItem("AI Asset Generator", nullptr, &showAiAssetGeneratorPanel);
                     ImGui::MenuItem("Material Browser", nullptr, &showMaterialBrowser);
+                    ImGui::Separator();
+                    float menuUiScale = MyEngine::Editor::GetEditorUiScale();
+                    if (ImGui::SliderFloat("UI Scale", &menuUiScale, 0.80f, 1.35f, "%.2fx"))
+                        MyEngine::Editor::SetEditorUiScale(menuUiScale);
+                    bool compactUi = MyEngine::Editor::IsEditorUiCompactMode();
+                    if (ImGui::MenuItem("Compact Density", nullptr, compactUi))
+                        MyEngine::Editor::SetEditorUiCompactMode(!compactUi);
+                    if (ImGui::MenuItem("Reset UI Appearance"))
+                        MyEngine::Editor::ResetEditorUiAppearance();
+                    if (ImGui::MenuItem("Reset Panel Layout"))
+                        MyEngine::Editor::PanelDockManager::Instance().ResetLayout();
+                    ImGui::Separator();
+                    ImGui::MenuItem("Viewport HUD", nullptr, &editorUI.showViewportHud);
+                    ImGui::MenuItem("Viewport HUD Crosshair", nullptr, &editorUI.showViewportHudCrosshair);
+                    ImGui::MenuItem("Viewport HUD Hints", nullptr, &editorUI.showViewportHudHints);
+                    ImGui::MenuItem("Viewport HUD Dense Layout", nullptr, &editorUI.viewportHudCompact);
+                    ImGui::MenuItem("Viewport HUD Icons", nullptr, &editorUI.viewportHudUseIcons);
+                    const char* hudPresetLabels[] = { "Minimal", "Standard", "Debug" };
+                    ImGui::SetNextItemWidth(180.0f);
+                    int hudPresetIndex = std::clamp(editorUI.viewportHudPreset, 0, 2);
+                    if (ImGui::Combo("Viewport HUD Preset", &hudPresetIndex, hudPresetLabels, IM_ARRAYSIZE(hudPresetLabels)))
+                        applyViewportHudPreset(hudPresetIndex);
+                    if (ImGui::MenuItem("Apply HUD Preset"))
+                        applyViewportHudPreset(editorUI.viewportHudPreset);
+                    const char* hudAnchorLabels[] = { "Top Left", "Top Right", "Bottom Left" };
+                    ImGui::SetNextItemWidth(180.0f);
+                    ImGui::Combo("Viewport HUD Anchor", &editorUI.viewportHudAnchorPreset, hudAnchorLabels, IM_ARRAYSIZE(hudAnchorLabels));
+                    editorUI.viewportHudAnchorPreset = std::clamp(editorUI.viewportHudAnchorPreset, 0, 2);
+                    ImGui::SetNextItemWidth(180.0f);
+                    ImGui::SliderFloat("Viewport HUD Opacity", &editorUI.viewportHudOpacity, 0.35f, 1.0f, "%.2f");
+                    editorUI.viewportHudOpacity = std::clamp(editorUI.viewportHudOpacity, 0.35f, 1.0f);
                     ImGui::Separator();
                     if (ImGui::MenuItem("Bake NavMesh"))
                     {
@@ -5388,6 +5476,11 @@ int main(int argc, char** argv)
             // Asset Browser Panel
             // ============================================================
             MyEngine::Editor::Panels::DrawAssetBrowserPanel(editorContext);
+
+            // ============================================================
+            // AI Asset Generator Panel
+            // ============================================================
+            MyEngine::Editor::Panels::DrawAiAssetGeneratorPanel(editorContext);
 
             // ============================================================
             // Scene Hierarchy Panel
@@ -7520,7 +7613,7 @@ int main(int argc, char** argv)
                 MyEngine::Net::NetPluginRegistry::Clear();
             };
             performancePanelContext.exportPerformanceCsv = exportPerformanceCsv;
-            performancePanelContext.deltaTime = deltaTime;
+            performancePanelContext.deltaTime = frameDeltaTime;
             performancePanelContext.gpuFrameMs = gpuFrameMs;
             performancePanelContext.cpuPhysicsMs = cpuPhysicsMs;
             performancePanelContext.cpuAnimationMs = cpuAnimationMs;
@@ -7571,6 +7664,12 @@ int main(int argc, char** argv)
             physicsPanelContext.setPlaying = setPlaying;
             MyEngine::Editor::Panels::DrawPhysicsPanel(physicsPanelContext);
 
+            MyEngine::Editor::Panels::SceneTimePanelContext sceneTimePanelContext;
+            sceneTimePanelContext.isOpen = &showSceneTimePanel;
+            sceneTimePanelContext.isPlaying = &isPlaying;
+            sceneTimePanelContext.sceneTimeScale = &sceneTimeScale;
+            MyEngine::Editor::Panels::DrawSceneTimePanel(sceneTimePanelContext);
+
             MyEngine::Editor::Panels::CombatDebugPanelContext combatDebugPanelContext;
             combatDebugPanelContext.isOpen = &showCombatPanel;
             combatDebugPanelContext.drawCombatShapesOverlay = &drawCombatShapesOverlay;
@@ -7602,6 +7701,72 @@ int main(int argc, char** argv)
                 MyEngine::Editor::Panels::DrawCharacterEditorPanel(characterEditorPanelContext);
                 selectedEntity = characterEditorPanelContext.selectedEntity;
                 characterEditorBoneGizmoActive = characterEditorPanelContext.boneGizmoActive;
+
+                if (characterEditorPanelContext.requestPromotePlayable && characterEditorPanelContext.scene)
+                {
+                    auto promoted = scene.GetEntitySharedByID(characterEditorPanelContext.promotePlayableEntityID);
+                    if (promoted)
+                    {
+                        if (playerEntity && playerEntity != promoted)
+                        {
+                            if (playerEntity->GetName() == "Player")
+                                playerEntity->SetName("Player (Previous)");
+                            if (playerEntity->GetTag() == "Player")
+                                playerEntity->SetTag("");
+                        }
+
+                        if (!promoted->HasComponent<CharacterControllerComponent>())
+                        {
+                            if (playerEntity && playerEntity->HasComponent<CharacterControllerComponent>())
+                                promoted->AddComponent<CharacterControllerComponent>() = playerEntity->GetComponent<CharacterControllerComponent>();
+                            else
+                                promoted->AddComponent<CharacterControllerComponent>();
+                        }
+                        if (!promoted->HasComponent<RigidbodyComponent>())
+                            promoted->AddComponent<RigidbodyComponent>();
+                        auto& rb = promoted->GetComponent<RigidbodyComponent>();
+                        rb.mass = 1.0f;
+                        rb.useGravity = false;
+                        rb.bounciness = 0.0f;
+                        rb.isKinematic = true;
+                        rb.freezePositionX = false;
+                        rb.freezePositionZ = false;
+
+                        if (!promoted->HasComponent<CapsuleColliderComponent>() && playerEntity && playerEntity->HasComponent<CapsuleColliderComponent>())
+                            promoted->AddComponent<CapsuleColliderComponent>() = playerEntity->GetComponent<CapsuleColliderComponent>();
+                        if (!promoted->HasComponent<CollisionEventsComponent>())
+                            promoted->AddComponent<CollisionEventsComponent>();
+
+                        if (promoted->HasComponent<AnimationComponent>())
+                        {
+                            auto& anim = promoted->GetComponent<AnimationComponent>();
+                            anim.enableRootMotion = true;
+                            if (anim.rootMotionBoneName.empty())
+                                anim.rootMotionBoneName = "Hips";
+                        }
+                        if (!promoted->HasComponent<AnimationStateMachineComponent>() && playerEntity && playerEntity->HasComponent<AnimationStateMachineComponent>())
+                            promoted->AddComponent<AnimationStateMachineComponent>() = playerEntity->GetComponent<AnimationStateMachineComponent>();
+
+                        promoted->SetName("Player");
+                        promoted->SetTag("Player");
+                        playerEntity = promoted;
+                        selectedEntity = promoted.get();
+
+                        for (auto& e : scene.GetEntities())
+                        {
+                            if (!e || !e->HasComponent<CameraComponent>())
+                                continue;
+                            auto& cam = e->GetComponent<CameraComponent>();
+                            if (!cam.isPrimary)
+                                continue;
+                            cam.followTargetID = playerEntity->GetID();
+                            break;
+                        }
+
+                        characterEditorPanelContext.requestPromotePlayable = false;
+                        characterEditorPanelState.statusMessage = "Promoted to playable character.";
+                    }
+                }
             }
         }
 #endif
@@ -7950,7 +8115,7 @@ int main(int argc, char** argv)
         }
 #endif
 
-        frameMsHistory[perfHistoryIndex] = deltaTime * 1000.0f;
+        frameMsHistory[perfHistoryIndex] = frameDeltaTime * 1000.0f;
         physicsMsHistory[perfHistoryIndex] = cpuPhysicsMs;
         animationMsHistory[perfHistoryIndex] = cpuAnimationMs;
         renderMsHistory[perfHistoryIndex] = cpuRenderMs;
@@ -7961,6 +8126,125 @@ int main(int argc, char** argv)
         perfHistoryIndex = (perfHistoryIndex + 1) % kPerfHistory;
 
 #ifdef USE_IMGUI
+        if (editorUI.showViewportHud || editorUI.showViewportHudCrosshair)
+        {
+            int windowW = 0, windowH = 0;
+            glfwGetWindowSize(window, &windowW, &windowH);
+            ImDrawList* hudDrawList = ImGui::GetForegroundDrawList();
+
+            if (editorUI.showViewportHudCrosshair)
+            {
+                const ImVec2 center(windowW * 0.5f, windowH * 0.5f);
+                const bool mouseCaptured = Input::IsMouseCaptured();
+                const ImU32 color = mouseCaptured ? IM_COL32(182, 244, 208, 235) : IM_COL32(232, 238, 248, 230);
+                const ImU32 ringColor = mouseCaptured ? IM_COL32(112, 226, 172, 210) : IM_COL32(120, 170, 255, 210);
+                hudDrawList->AddLine(ImVec2(center.x - 7.0f, center.y), ImVec2(center.x + 7.0f, center.y), color, 1.8f);
+                hudDrawList->AddLine(ImVec2(center.x, center.y - 7.0f), ImVec2(center.x, center.y + 7.0f), color, 1.8f);
+                hudDrawList->AddCircle(center, 10.0f, ringColor, 24, 1.2f);
+            }
+
+            if (editorUI.showViewportHud)
+            {
+                const float menuBarHeight = ImGui::GetFrameHeight();
+                const float toolbarHeight = ImGui::GetFrameHeight() + 12.0f;
+                const float topOffset = showUI ? (menuBarHeight + toolbarHeight + 10.0f) : 10.0f;
+                const float sideMargin = 14.0f;
+                const float bottomMargin = 14.0f;
+                const int anchorPreset = std::clamp(editorUI.viewportHudAnchorPreset, 0, 2);
+                ImVec2 hudPos(sideMargin, topOffset);
+                ImVec2 hudPivot(0.0f, 0.0f);
+                if (anchorPreset == 1)
+                {
+                    hudPos = ImVec2(windowW - sideMargin, topOffset);
+                    hudPivot = ImVec2(1.0f, 0.0f);
+                }
+                else if (anchorPreset == 2)
+                {
+                    hudPos = ImVec2(sideMargin, windowH - bottomMargin);
+                    hudPivot = ImVec2(0.0f, 1.0f);
+                }
+
+                const ImGuiWindowFlags hudFlags = ImGuiWindowFlags_NoDecoration |
+                    ImGuiWindowFlags_NoMove |
+                    ImGuiWindowFlags_NoSavedSettings |
+                    ImGuiWindowFlags_NoFocusOnAppearing |
+                    ImGuiWindowFlags_NoNav |
+                    ImGuiWindowFlags_AlwaysAutoResize |
+                    ImGuiWindowFlags_NoInputs;
+
+                ImGui::SetNextWindowBgAlpha(std::clamp(editorUI.viewportHudOpacity, 0.35f, 1.0f));
+                ImGui::SetNextWindowPos(hudPos, ImGuiCond_Always, hudPivot);
+                if (ImGui::Begin("##ViewportHudOverlay", nullptr, hudFlags))
+                {
+                    const float fps = ImGui::GetIO().Framerate;
+                    const float frameMs = 1000.0f / std::max(fps, 0.001f);
+                    const bool mouseCaptured = Input::IsMouseCaptured();
+                    const float uiScale = MyEngine::Editor::GetEditorUiScale();
+                    const bool compactHud = editorUI.viewportHudCompact || MyEngine::Editor::IsEditorUiCompactMode();
+                    const bool useIcons = editorUI.viewportHudUseIcons;
+                    const float labelWidth = (compactHud ? 96.0f : 114.0f) * uiScale;
+                    const ImVec4 accent = ImVec4(0.40f, 0.74f, 1.00f, 1.0f);
+                    const ImVec4 ok = ImVec4(0.47f, 0.86f, 0.60f, 1.0f);
+                    const ImVec4 warn = ImVec4(0.98f, 0.78f, 0.30f, 1.0f);
+                    const ImVec4 bad = ImVec4(0.95f, 0.42f, 0.42f, 1.0f);
+
+                    ImGui::SetWindowFontScale(compactHud ? 0.93f : 1.0f);
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2((compactHud ? 9.0f : 12.0f) * uiScale, (compactHud ? 6.0f : 9.0f) * uiScale));
+                    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2((compactHud ? 4.0f : 7.0f) * uiScale, (compactHud ? 3.0f : 5.0f) * uiScale));
+
+                    ImGui::PushStyleColor(ImGuiCol_Text, accent);
+                    ImGui::TextUnformatted("Viewport");
+                    ImGui::PopStyleColor();
+                    ImGui::Separator();
+
+                    auto hudRow = [&](const char* label, const char* icon)
+                    {
+                        if (useIcons)
+                            ImGui::TextDisabled("[%s] %s", icon, label);
+                        else
+                            ImGui::TextDisabled("%s", label);
+                        ImGui::SameLine(labelWidth);
+                    };
+
+                    hudRow("Session", "S");
+                    ImGui::TextColored(isPlaying ? ok : accent, "%s", isPlaying ? "PLAY" : "EDIT");
+
+                    hudRow("Input", "I");
+                    ImGui::TextColored(mouseCaptured ? ok : warn, "%s", mouseCaptured ? "CAMERA CONTROL" : "UI INTERACTION");
+
+                    hudRow("Frame", "F");
+                    ImGui::TextColored(frameMs <= 16.7f ? ok : (frameMs <= 25.0f ? warn : bad), "%.1f FPS  |  %.2f ms", fps, frameMs);
+
+                    ImGui::Separator();
+
+                    hudRow("Selection", "E");
+                    if (selectedEntity)
+                        ImGui::TextColored(accent, "%s", selectedEntity->GetName().c_str());
+                    else
+                        ImGui::TextDisabled("none");
+
+                    if (playerEntity && playerEntity->HasComponent<RigidbodyComponent>())
+                    {
+                        const glm::vec3 v = playerEntity->GetComponent<RigidbodyComponent>().velocity;
+                        hudRow("Player speed", "P");
+                        ImGui::Text("%.2f", glm::length(v));
+                    }
+
+                    if (editorUI.showViewportHudHints)
+                    {
+                        ImGui::Separator();
+                        ImGui::TextDisabled("RMB  switch camera/UI mode");
+                        ImGui::TextDisabled("F1   toggle editor UI");
+                        ImGui::TextDisabled("W/E/R gizmo mode");
+                    }
+
+                    ImGui::PopStyleVar(2);
+                    ImGui::SetWindowFontScale(1.0f);
+                }
+                ImGui::End();
+            }
+        }
+
         if (selectedEntity && selectedEntity->HasComponent<TransformComponent>())
         {
             int windowW = 0, windowH = 0;

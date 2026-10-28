@@ -2,7 +2,13 @@
 #include "character/CharacterMaterialAssets.h"
 #include "character/CharacterSocketSystem.h"
 #include "components/AnimationComponent.h"
+#include "components/AnimationStateMachineComponent.h"
+#include "components/CameraComponent.h"
+#include "components/CapsuleColliderComponent.h"
+#include "components/CharacterControllerComponent.h"
 #include "components/CharacterCustomizationComponent.h"
+#include "components/CollisionEventsComponent.h"
+#include "components/RigidbodyComponent.h"
 #include "components/SkeletonComponent.h"
 #include "components/SocketAttachmentComponent.h"
 #include "components/TransformComponent.h"
@@ -10,7 +16,9 @@
 #include "ecs/Scene.h"
 #include "rendering/Skeleton.h"
 #include "systems/AnimationSystem.h"
+#include "systems/CameraSystem.h"
 #include "editor/CharacterPreviewCamera.h"
+#include "editor/PlayModeSession.h"
 #include "editor/panels/CharacterEditorPanel.h"
 
 #include <glm/glm.hpp>
@@ -22,6 +30,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 #include <vector>
 
 namespace
@@ -866,6 +875,75 @@ static bool CharacterMaterialListTest()
 	return true;
 }
 
+static bool PlayablePromotionSelectionRulesTest()
+{
+	auto fail = [](const char* step)
+	{
+		std::cout << "[CharacterEditor] Playable promotion test failed at " << step << std::endl;
+		return false;
+	};
+
+	Scene scene;
+	auto taggedPlayable = scene.CreateEntity("Player");
+	taggedPlayable->SetTag("Player");
+	taggedPlayable->AddComponent<TransformComponent>();
+	taggedPlayable->AddComponent<MyEngine::CharacterControllerComponent>();
+	auto otherController = scene.CreateEntity("OtherController");
+	otherController->AddComponent<TransformComponent>();
+	otherController->AddComponent<MyEngine::CharacterControllerComponent>();
+
+	std::shared_ptr<Entity> restoredPlayer;
+	std::vector<MyEngine::ScriptSystem::GlobalScriptConfig> globalScripts;
+	MyEngine::Editor::PlayModeRestoreContext restoreContext;
+	restoreContext.scene = &scene;
+	restoreContext.playerEntity = &restoredPlayer;
+	restoreContext.selectedEntity = nullptr;
+	restoreContext.defaultShader = nullptr;
+	restoreContext.globalScripts = &globalScripts;
+
+	MyEngine::Editor::PlayModeSession session;
+	session.CaptureSnapshot(scene, {});
+	session.RestoreSnapshot(restoreContext);
+	if (!restoredPlayer || restoredPlayer->GetTag() != "Player") return fail("restore-tagged-player");
+
+	// Snapshot with no Player name/tag should fall back to the first controller.
+	scene.Clear();
+	auto controllerOnly = scene.CreateEntity("ControllerOnly");
+	controllerOnly->AddComponent<TransformComponent>();
+	controllerOnly->AddComponent<MyEngine::CharacterControllerComponent>();
+	auto plain = scene.CreateEntity("Plain");
+	plain->AddComponent<TransformComponent>();
+	session.CaptureSnapshot(scene, {});
+	restoredPlayer.reset();
+	session.RestoreSnapshot(restoreContext);
+	if (!restoredPlayer) return fail("restore-controller-fallback");
+
+	auto firstController = [&]() -> std::shared_ptr<Entity>
+	{
+		for (auto& e : scene.GetEntities())
+		{
+			if (e && e->HasComponent<MyEngine::CharacterControllerComponent>())
+				return e;
+		}
+		return {};
+	};
+	const auto expectedController = firstController();
+	if (!expectedController || restoredPlayer->GetID() != expectedController->GetID()) return fail("controller-match");
+
+	auto camera = scene.CreateEntity("Cam");
+	camera->AddComponent<TransformComponent>();
+	auto& cam = camera->AddComponent<MyEngine::CameraComponent>();
+	cam.isPrimary = true;
+	cam.thirdPerson = true;
+	cam.followTargetID = 999999;
+	MyEngine::CameraSystem cameraSystem;
+	cameraSystem.Update(scene, nullptr, 0.0f, 1.0f);
+	if (cam.followTargetID != expectedController->GetID()) return fail("camera-follow-recovery");
+
+	std::cout << "[CharacterEditor] Playable promotion recovery and camera fallback passed" << std::endl;
+	return true;
+}
+
 bool CharacterEditorSmokeTest()
 {
 	if (!DeltaMatrixCompositionTest()) return false;
@@ -883,5 +961,6 @@ bool CharacterEditorSmokeTest()
 	if (!CharacterAssetSelectionTest()) return false;
 	if (!PrefixedBodySliderTest()) return false;
 	if (!CharacterMaterialListTest()) return false;
+	if (!PlayablePromotionSelectionRulesTest()) return false;
 	return true;
 }

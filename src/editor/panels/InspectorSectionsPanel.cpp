@@ -1689,6 +1689,9 @@ namespace MyEngine::Editor::Panels
 					ImGui::DragFloat("Wall Run Clearance", &controller.wallRunWallClearance, 0.001f, 0.0f, 0.3f, "%.3f");
 					ImGui::DragFloat("Wall Run Contact Grace", &controller.wallRunContactGraceDuration, 0.005f, 0.0f, 0.5f, "%.3f");
 					ImGui::DragFloat("Wall Run Commit", &controller.wallRunCommitDuration, 0.005f, 0.0f, 0.5f, "%.3f");
+					ImGui::SliderFloat("Wall Run End Transition (s)", &controller.wallRunEndTransitionDuration, 0.0f, 2.0f, "%.3f");
+					ImGui::SliderInt("Wall Run Rotate Begin Frame", &controller.wallRunEndRotateBeginFrame, 0, 30);
+					ImGui::SliderFloat("Wall Run End Direction (deg)", &controller.wallRunEndDirectionAngleDegrees, 0.0f, 180.0f, "%.1f");
 					ImGui::DragFloat("Fall Lift", &controller.fallCapsuleLift, 0.01f, 0.0f, 2.0f, "%.3f");
 					ImGui::DragFloat("Max Lift", &controller.maxCapsuleBottomAnimationLift, 0.01f, 0.0f, 2.0f, "%.3f");
 				}

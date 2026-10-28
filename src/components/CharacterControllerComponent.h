@@ -72,6 +72,9 @@ namespace MyEngine
 		float wallRunEndPushOffSpeed = 2.8f;
 		float wallRunEndPushOffUpwardSpeed = 1.6f;
 		float wallRunEndMomentumDuration = 0.24f;
+		float wallRunEndTransitionDuration = 1.50f;
+		float wallRunEndDirectionAngleDegrees = 90.0f;
+		int wallRunEndRotateBeginFrame = 0;
 		float turnSpeed = 12.0f;
 		bool sprintRequested = false;
 		bool slideRequested = false;
@@ -92,6 +95,7 @@ namespace MyEngine
 		bool wallRunAirborneFacingLock = false;
 		int wallRunSide = 0;
 		int wallRunEndRotateDirection = 0;
+		int wallRunEndRotateFrameCounter = 0;
 		glm::vec3 wallRunNormal = glm::vec3(0.0f);
 		glm::vec3 wallRunDirection = glm::vec3(0.0f);
 		glm::vec3 wallRunEndMomentumDirection = glm::vec3(0.0f);

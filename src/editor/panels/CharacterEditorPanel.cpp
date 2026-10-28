@@ -1091,6 +1091,11 @@ namespace MyEngine::Editor::Panels
 		ImGui::Text("Target: %s", target->GetName().c_str());
 		ImGui::SameLine();
 		ImGui::TextDisabled("(%zu bones)", bones.size());
+		if (ImGui::Button("Make Playable Character"))
+		{
+			context.requestPromotePlayable = true;
+			context.promotePlayableEntityID = target->GetID();
+		}
 
 		if (ImGui::CollapsingHeader("Preview Camera", ImGuiTreeNodeFlags_DefaultOpen))
 		{

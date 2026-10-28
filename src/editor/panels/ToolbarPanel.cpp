@@ -2,6 +2,7 @@
 
 #ifdef USE_IMGUI
 #include "editor/EditorStyle.h"
+#include "editor/PanelDockManager.h"
 
 namespace MyEngine::Editor::Panels
 {
@@ -109,10 +110,45 @@ namespace MyEngine::Editor::Panels
 				context.applyWireframe(*context.wireframe);
 		}
 
+		toolbarSectionBreak();
+		toolbarLabel("UI");
+		float uiScale = MyEngine::Editor::GetEditorUiScale();
+		ImGui::SetNextItemWidth(105.0f);
+		if (ImGui::SliderFloat("##ToolbarUiScale", &uiScale, 0.80f, 1.35f, "%.2fx"))
+			MyEngine::Editor::SetEditorUiScale(uiScale);
+		ImGui::SameLine();
+		bool compactMode = MyEngine::Editor::IsEditorUiCompactMode();
+		if (ImGui::Checkbox("Compact", &compactMode))
+			MyEngine::Editor::SetEditorUiCompactMode(compactMode);
+		if (context.ui)
+		{
+			ImGui::SameLine();
+			if (toolbarToggleButton("HUD", context.ui->showViewportHud, 56.0f))
+				context.ui->showViewportHud = !context.ui->showViewportHud;
+			ImGui::SameLine();
+			if (toolbarToggleButton("Crosshair", context.ui->showViewportHudCrosshair, 84.0f))
+				context.ui->showViewportHudCrosshair = !context.ui->showViewportHudCrosshair;
+			ImGui::SameLine();
+			if (toolbarToggleButton("Dense", context.ui->viewportHudCompact, 64.0f))
+				context.ui->viewportHudCompact = !context.ui->viewportHudCompact;
+			ImGui::SameLine();
+			if (toolbarToggleButton("Icons", context.ui->viewportHudUseIcons, 62.0f))
+				context.ui->viewportHudUseIcons = !context.ui->viewportHudUseIcons;
+			ImGui::SameLine();
+			if (ImGui::Button("HUD Preset", ImVec2(78.0f, 0.0f)))
+				context.ui->viewportHudPreset = (context.ui->viewportHudPreset + 1) % 3;
+			ImGui::SameLine();
+			if (ImGui::Button("HUD Anchor", ImVec2(84.0f, 0.0f)))
+				context.ui->viewportHudAnchorPreset = (context.ui->viewportHudAnchorPreset + 1) % 3;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Reset Layout", ImVec2(108.0f, 0.0f)))
+			MyEngine::Editor::PanelDockManager::Instance().ResetLayout();
+
 		ImGui::SameLine();
 		ImGui::Spacing();
 		ImGui::SameLine();
-		ImGui::TextDisabled("Mode: %s | Space: %s | %s",
+		ImGui::TextDisabled("Mode: %s | Space: %s | %s | UI %.2fx%s",
 #ifdef USE_IMGUIZMO
 			(context.getGizmoOperation && context.getGizmoOperation() == 0) ? "Move" : ((context.getGizmoOperation && context.getGizmoOperation() == 1) ? "Rotate" : "Scale"),
 			(context.getGizmoMode && context.getGizmoMode() == 0) ? "World" : "Local",
@@ -120,7 +156,9 @@ namespace MyEngine::Editor::Panels
 			"N/A",
 			"N/A",
 #endif
-			*context.isPlaying ? "Playing" : "Editing");
+			*context.isPlaying ? "Playing" : "Editing",
+			MyEngine::Editor::GetEditorUiScale(),
+			MyEngine::Editor::IsEditorUiCompactMode() ? " (Compact)" : "");
 		ImGui::SameLine();
 		ImGui::Spacing();
 		ImGui::SameLine();

@@ -1,4 +1,5 @@
 #include "EditorStyle.h"
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <cstring>
@@ -11,6 +12,8 @@ namespace MyEngine::Editor
 	// ============================================================================
 
 	static std::unordered_map<std::string, ImVec4> g_ThemeColors;
+	static float g_EditorUiScale = 1.0f;
+	static bool g_EditorUiCompactMode = false;
 
 	// ============================================================================
 	// Color Utilities
@@ -33,6 +36,38 @@ namespace MyEngine::Editor
 		return ImVec4(1, 1, 1, 1); // Default white
 	}
 
+	float GetEditorUiScale()
+	{
+		return g_EditorUiScale;
+	}
+
+	void SetEditorUiScale(float scale)
+	{
+		g_EditorUiScale = std::clamp(scale, 0.80f, 1.35f);
+		if (ImGui::GetCurrentContext())
+			ApplyEditorTheme();
+	}
+
+	bool IsEditorUiCompactMode()
+	{
+		return g_EditorUiCompactMode;
+	}
+
+	void SetEditorUiCompactMode(bool compact)
+	{
+		g_EditorUiCompactMode = compact;
+		if (ImGui::GetCurrentContext())
+			ApplyEditorTheme();
+	}
+
+	void ResetEditorUiAppearance()
+	{
+		g_EditorUiScale = 1.0f;
+		g_EditorUiCompactMode = false;
+		if (ImGui::GetCurrentContext())
+			ApplyEditorTheme();
+	}
+
 	// ============================================================================
 	// Professional Dark Enterprise Theme
 	// ============================================================================
@@ -43,24 +78,27 @@ namespace MyEngine::Editor
 
 		ImGuiStyle& style = ImGui::GetStyle();
 
+		const float compactFactor = g_EditorUiCompactMode ? 0.88f : 1.0f;
+		const float densityScale = g_EditorUiScale * compactFactor;
+
 		// Refined corner radii for professional look
-		style.WindowRounding = Spacing::CornerRadiusLarge;
-		style.ChildRounding = 6.0f;
-		style.FrameRounding = Spacing::CornerRadiusNormal;
-		style.PopupRounding = 6.0f;
-		style.ScrollbarRounding = Spacing::CornerRadiusLarge;
-		style.GrabRounding = Spacing::CornerRadiusNormal;
-		style.TabRounding = Spacing::CornerRadiusNormal;
+		style.WindowRounding = Spacing::CornerRadiusLarge * g_EditorUiScale;
+		style.ChildRounding = 6.0f * g_EditorUiScale;
+		style.FrameRounding = Spacing::CornerRadiusNormal * g_EditorUiScale;
+		style.PopupRounding = 6.0f * g_EditorUiScale;
+		style.ScrollbarRounding = Spacing::CornerRadiusLarge * g_EditorUiScale;
+		style.GrabRounding = Spacing::CornerRadiusNormal * g_EditorUiScale;
+		style.TabRounding = Spacing::CornerRadiusNormal * g_EditorUiScale;
 
 		// Improved spacing hierarchy
-		style.WindowPadding = ImVec2(Spacing::PaddingLarge, Spacing::PaddingLarge);
-		style.FramePadding = ImVec2(Spacing::PaddingLarge - 2.0f, Spacing::PaddingSmall + 2.0f);
-		style.CellPadding = ImVec2(Spacing::PaddingNormal, Spacing::PaddingSmall + 2.0f);
-		style.ItemSpacing = ImVec2(Spacing::SpacingNormal, Spacing::SpacingSmall + 4.0f);
-		style.ItemInnerSpacing = ImVec2(Spacing::SpacingSmall + 4.0f, Spacing::SpacingSmall + 2.0f);
-		style.IndentSpacing = 20.0f;
-		style.ScrollbarSize = 14.0f;
-		style.GrabMinSize = 12.0f;
+		style.WindowPadding = ImVec2(Spacing::PaddingLarge * densityScale, Spacing::PaddingLarge * densityScale);
+		style.FramePadding = ImVec2((Spacing::PaddingLarge - 2.0f) * densityScale, (Spacing::PaddingSmall + 2.0f) * densityScale);
+		style.CellPadding = ImVec2(Spacing::PaddingNormal * densityScale, (Spacing::PaddingSmall + 2.0f) * densityScale);
+		style.ItemSpacing = ImVec2(Spacing::SpacingNormal * densityScale, (Spacing::SpacingSmall + 4.0f) * densityScale);
+		style.ItemInnerSpacing = ImVec2((Spacing::SpacingSmall + 4.0f) * densityScale, (Spacing::SpacingSmall + 2.0f) * densityScale);
+		style.IndentSpacing = 20.0f * densityScale;
+		style.ScrollbarSize = 14.0f * densityScale;
+		style.GrabMinSize = 12.0f * densityScale;
 
 		// Professional border styling
 		style.WindowBorderSize = 1.0f;

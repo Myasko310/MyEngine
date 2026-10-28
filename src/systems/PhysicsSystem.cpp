@@ -1137,6 +1137,35 @@ namespace MyEngine
 		if (!sm.stateMachine)
 			return;
 
+		const float wallRunEndTransitionDuration = std::clamp(controller.wallRunEndTransitionDuration, 0.0f, 2.0f);
+		auto isWallRunState = [](const AnimationStateMachineState& state)
+		{
+			return state.name == "WallRun" ||
+				state.clipName == "Diagonal Wall Run" ||
+				state.clipName.find("Wall Run") != std::string::npos ||
+				state.clipName.find("wall run") != std::string::npos;
+		};
+
+		for (auto& state : sm.stateMachine->states)
+		{
+			if (!isWallRunState(state))
+				continue;
+
+			for (auto& transition : state.transitions)
+			{
+				const bool hasWallRunEndedCondition = std::any_of(
+					transition.conditions.begin(),
+					transition.conditions.end(),
+					[](const AnimationStateMachineCondition& condition)
+					{
+						return condition.parameterName == "IsWallRunning" &&
+							condition.op == AnimationStateMachineConditionOperator::IfFalse;
+					});
+				if (hasWallRunEndedCondition || transition.requiresExitTime)
+					transition.blendDuration = wallRunEndTransitionDuration;
+			}
+		}
+
 		auto setParameterByName = [&](const std::string& parameterName, auto&& applyValue)
 		{
 			if (parameterName.empty())
@@ -1625,6 +1654,7 @@ namespace MyEngine
 						controller.wallRunAirborneFacingLock = false;
 						controller.wallRunEndRotatePending = false;
 						controller.wallRunEndRotateDirection = 0;
+						controller.wallRunEndRotateFrameCounter = 0;
 						controller.wallRunCommitTimer = std::max(controller.wallRunCommitDuration, 0.0f);
 						controller.isGrounded = false;
 						controller.wasGrounded = false;
@@ -1708,6 +1738,7 @@ namespace MyEngine
 					controller.wallRunAirborneFacingLock = true;
 					controller.wallRunEndRotatePending = true;
 					controller.wallRunEndRotateDirection = (controller.wallRunSide < 0) ? 1 : -1;
+					controller.wallRunEndRotateFrameCounter = std::max(controller.wallRunEndRotateBeginFrame, 0);
 					controller.isWallRunning = false;
 					controller.wallRunTimer = 0.0f;
 					controller.wallRunContactGraceTimer = 0.0f;
@@ -1781,6 +1812,7 @@ namespace MyEngine
 					controller.wallRunAirborneFacingLock = false;
 					controller.wallRunEndRotatePending = false;
 					controller.wallRunEndRotateDirection = 0;
+					controller.wallRunEndRotateFrameCounter = 0;
 				}
 			}
 
@@ -1884,11 +1916,19 @@ namespace MyEngine
 			}
 			if (controller.wallRunEndRotatePending && !animationInWallRunState)
 			{
-				const float endTurnOffset = static_cast<float>(controller.wallRunEndRotateDirection) * 1.5707963f;
-				const float newYaw = transform.rotation.y + endTurnOffset;
-				transform.rotation.y = std::atan2(std::sin(newYaw), std::cos(newYaw));
-				controller.wallRunEndRotatePending = false;
-				controller.wallRunEndRotateDirection = 0;
+				if (controller.wallRunEndRotateFrameCounter > 0)
+				{
+					--controller.wallRunEndRotateFrameCounter;
+				}
+				else
+				{
+					const float endTurnOffset = static_cast<float>(controller.wallRunEndRotateDirection) *
+						glm::radians(controller.wallRunEndDirectionAngleDegrees);
+					const float newYaw = transform.rotation.y + endTurnOffset;
+					transform.rotation.y = std::atan2(std::sin(newYaw), std::cos(newYaw));
+					controller.wallRunEndRotatePending = false;
+					controller.wallRunEndRotateDirection = 0;
+				}
 			}
 			const bool inWallRunKickoffWindow = animationInWallRunState || controller.isWallRunning ||
 				(!controller.isGrounded &&

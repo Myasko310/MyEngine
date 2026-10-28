@@ -1,0 +1,124 @@
+{
+  "type": "CharacterPreset",
+  "version": 3,
+  "enabled": true,
+  "bodyMaterial": {
+    "enabled": true,
+    "materialPath": "",
+    "albedoTexturePath": "",
+    "tint": [
+      0.92,
+      0.84,
+      0.90
+    ],
+    "overrideShininess": true,
+    "shininess": 64.0,
+    "overridePBR": true,
+    "metallic": 0.06,
+    "roughness": 0.28,
+    "emissive": [
+      0.02,
+      0.0,
+      0.02
+    ]
+  },
+  "boneOverrides": [
+    {
+      "bone": "Spine",
+      "positionOffset": [
+        0.0,
+        0.01,
+        0.0
+      ],
+      "rotationOffsetDegrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scaleMultiplier": [
+        1.02,
+        1.02,
+        1.02
+      ]
+    },
+    {
+      "bone": "Spine2",
+      "positionOffset": [
+        0.0,
+        0.01,
+        0.0
+      ],
+      "rotationOffsetDegrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scaleMultiplier": [
+        1.03,
+        1.03,
+        1.03
+      ]
+    },
+    {
+      "bone": "Neck",
+      "positionOffset": [
+        0.0,
+        0.005,
+        0.0
+      ],
+      "rotationOffsetDegrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scaleMultiplier": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "bodySliders": [
+    {
+      "name": "Height",
+      "value": 0.26
+    },
+    {
+      "name": "Torso Length",
+      "value": 0.18
+    },
+    {
+      "name": "Torso Bulk",
+      "value": 0.14
+    },
+    {
+      "name": "Shoulder Width",
+      "value": -0.08
+    },
+    {
+      "name": "Arm Length",
+      "value": 0.1
+    },
+    {
+      "name": "Arm Thickness",
+      "value": -0.12
+    },
+    {
+      "name": "Leg Length",
+      "value": 0.22
+    },
+    {
+      "name": "Leg Thickness",
+      "value": -0.1
+    },
+    {
+      "name": "Neck Length",
+      "value": 0.05
+    },
+    {
+      "name": "Chris",
+      "value": 0.12
+    }
+  ],
+  "sockets": []
+}

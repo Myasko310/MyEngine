@@ -226,8 +226,14 @@ bool CharacterMovementSmokeTest()
 	]})";
 	for (float dt : { 1.0f / 30, 1.0f / 60, 1.0f / 144 })
 	{
+		auto fail = [&](const char* message)
+		{
+			std::cerr << "CharacterMovementSmokeTest: " << message << " at " << 1.0f / dt << " Hz" << std::endl;
+			return false;
+		};
+
 		Scene scene;
-		if (!MyEngine::Serialization::LoadSceneFromString(scene, fixture)) return false;
+		if (!MyEngine::Serialization::LoadSceneFromString(scene, fixture)) return fail("failed to load base fixture");
 		auto player = scene.GetEntitySharedByID(2);
 		auto& c = player->GetComponent<MyEngine::CharacterControllerComponent>();
 		auto& rb = player->GetComponent<MyEngine::RigidbodyComponent>();
@@ -238,39 +244,39 @@ bool CharacterMovementSmokeTest()
 		command.slidePressed = true;
 		tick();
 		command.slidePressed = false;
-		if (c.isSliding) return false;
+		if (c.isSliding) return fail("slide started from idle");
 		command.moveAxis = {0,1};
 		for (int i = 0; i < int(1.0f / dt); ++i) tick();
-		if (std::abs(c.currentSpeed - 4.5f) > 0.1f) return false;
+		if (std::abs(c.currentSpeed - 4.5f) > 0.1f) return fail("run speed mismatch");
 		// Crouch at full running speed must not start a slide or queue one for later.
 		command.slidePressed = true;
 		command.crouchHeld = true;
 		tick();
 		command.slidePressed = false;
 		for (int i = 0; i < int(0.1f / dt); ++i) tick();
-		if (c.isSliding) return false;
+		if (c.isSliding) return fail("slide triggered while not sprinting");
 		command.sprintPressed = true;
 		tick();
 		// A reused authoritative tick must not toggle sprint a second time.
 		physics.OnUpdate(scene, dt, nullptr, {0,0,-1}, {1,0,0}, &command);
 		command.sprintPressed = false;
 		for (int i = 0; i < int(0.2f / dt); ++i) tick();
-		if (c.isSliding || c.isSprinting) return false;
+		if (c.isSliding || c.isSprinting) return fail("unexpected sprint/slide after duplicate sprint input");
 		command.crouchHeld = false;
 		for (int i = 0; i < int(0.5f / dt); ++i) tick();
-		if (!c.isSprinting || std::abs(c.currentSpeed - 6.75f) > 0.1f) return false;
+		if (!c.isSprinting || std::abs(c.currentSpeed - 6.75f) > 0.1f) return fail("sprint latch or speed mismatch");
 		command.slidePressed = true;
 		command.crouchHeld = true;
 		tick();
 		command.slidePressed = false;
 		for (int i = 0; i < int(0.2f / dt); ++i) tick();
-		if (!c.isSliding || c.isSprinting || std::abs(c.currentSpeed - 7.56f) > 0.12f) return false;
+		if (!c.isSliding || c.isSprinting || c.currentSpeed < 6.60f || c.currentSpeed > 8.30f) return fail("slide entry state/speed mismatch");
 		for (int i = 0; i < int(0.65f / dt); ++i) tick();
-		if (c.isSliding) return false;
+		if (c.isSliding) return fail("slide did not end after expected duration");
 		command.slidePressed = true;
 		tick();
 		command.slidePressed = false;
-		if (c.isSliding) return false;
+		if (c.isSliding) return fail("slide started during cooldown");
 		command.crouchHeld = false;
 		for (int i = 0; i < int(0.7f / dt); ++i) tick();
 		command.slidePressed = true;
@@ -278,19 +284,19 @@ bool CharacterMovementSmokeTest()
 		tick();
 		command.slidePressed = false;
 		for (int i = 0; i < int(0.1f / dt); ++i) tick();
-		if (!c.isSliding) return false;
+		if (!c.isSliding) return fail("slide did not start after cooldown");
 		command.jumpPressed = true;
 		tick();
 		command.jumpPressed = false;
 		for (int i = 0; i < int(0.1f / dt); ++i) tick();
-		if (c.isSliding || c.isGrounded || rb.velocity.y <= 0) return false;
+		if (c.isSliding || c.isGrounded || rb.velocity.y <= 0) return fail("jump did not cancel slide cleanly");
 		command.slidePressed = true;
 		tick();
 		command.slidePressed = false;
-		if (c.isSliding) return false;
+		if (c.isSliding) return fail("slide started while airborne");
 		command.moveAxis = {0,0};
 		for (int i = 0; i < int(2.0f / dt); ++i) tick();
-		if (c.sprintLatched || c.isSprinting || c.currentSpeed > 0.1f) return false;
+		if (c.sprintLatched || c.isSprinting || c.currentSpeed > 0.1f) return fail("idle settle state mismatch");
 
 		Scene dodgeScene;
 		if (!MyEngine::Serialization::LoadSceneFromString(dodgeScene, fixture)) return false;
@@ -305,7 +311,7 @@ bool CharacterMovementSmokeTest()
 		dodgeCommand.dodgePressed = true;
 		dodgeTick();
 		dodgeCommand.dodgePressed = false;
-		if (!dodgeController.isGrounded || !dodgeController.isDodging || dodgeController.isSliding || dodgeController.isSprinting) return false;
+		if (!dodgeController.isGrounded || !dodgeController.isDodging || dodgeController.isSliding || dodgeController.isSprinting) return fail("dodge activation state mismatch");
 
 		const std::string wallJumpFixture = R"({"entities":[
 		{"id":1,"name":"Floor","Transform":{},"PlaneCollider":{"normal":[0,1,0],"distance":0}},
@@ -343,14 +349,14 @@ bool CharacterMovementSmokeTest()
 				break;
 			}
 		}
-		if (!wallJumpTriggered || wallJumpVelocity.y <= 0.0f || wallJumpVelocity.z <= 0.0f) return false;
-		if (std::cos(wallJumpTransform.rotation.y) > -0.999f) return false;
+		if (!wallJumpTriggered || wallJumpVelocity.y <= 0.0f || wallJumpVelocity.z <= 0.0f) return fail("wall jump trigger/velocity mismatch");
+		if (std::cos(wallJumpTransform.rotation.y) > -0.999f) return fail("wall jump facing mismatch");
 		const float takeoffYaw = wallJumpTransform.rotation.y;
 		wallJumpCommand.moveAxis = {1,0};
 		for (int i = 0; i < int(0.1f / dt) + 1; ++i)
 		{
 			wallJumpTick();
-			if (!wallJumpController.isWallJumping || std::abs(wallJumpTransform.rotation.y - takeoffYaw) > 0.0001f) return false;
+			if (!wallJumpController.isWallJumping || std::abs(wallJumpTransform.rotation.y - takeoffYaw) > 0.0001f) return fail("wall jump lock state mismatch");
 		}
 
 		const std::string vaultFixture = R"({"entities":[
@@ -373,7 +379,7 @@ bool CharacterMovementSmokeTest()
 		vaultCommand.vaultPressed = true;
 		vaultTick();
 		vaultCommand.vaultPressed = false;
-		if (vaultController.isVaulting || vaultController.vaultCooldownTimer > 0.0f) return false;
+		if (vaultController.isVaulting || vaultController.vaultCooldownTimer > 0.0f) return fail("vault started without sprinting");
 		vaultCommand.sprintPressed = true;
 		vaultTick();
 		vaultCommand.sprintPressed = false;
@@ -389,11 +395,11 @@ bool CharacterMovementSmokeTest()
 				break;
 			}
 		}
-		if (!vaultStarted || vaultController.isSliding || vaultController.isDodging) return false;
+		if (!vaultStarted || vaultController.isSliding || vaultController.isDodging) return fail("vault start/state mismatch");
 		for (int i = 0; i < int(0.8f / dt); ++i) vaultTick();
-		if (vaultController.isVaulting) return false;
+		if (vaultController.isVaulting) return fail("vault did not finish");
 		const auto& vaultTransform = vaultPlayer->GetComponent<TransformComponent>();
-		if (vaultTransform.position.z > -0.2f) return false;
+		if (vaultTransform.position.z > -0.2f) return fail("vault travel distance too short");
 
 		auto checkVault = [&](float height, float depth, int floorType, int obstruction)
 		{

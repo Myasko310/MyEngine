@@ -24,14 +24,24 @@ namespace MyEngine
 			bool showScriptingPanel = true;
 			bool showPerformancePanel = true;
 			bool showPhysicsPanel = true;
+			bool showSceneTimePanel = true;
 			bool showCombatPanel = true;
 			bool drawCombatShapesOverlay = true;
 			bool showCharacterEditorPanel = false;
 			bool showColliderDebugOverlay = false;
 			bool showAssetBrowser = true;
+			bool showAiAssetGeneratorPanel = true;
 			bool showMaterialBrowser = false;
 			bool showIBLPanel = false;
 			bool showLayerManager = false;
+			bool showViewportHud = true;
+			bool showViewportHudCrosshair = false;
+			bool showViewportHudHints = true;
+			bool viewportHudCompact = false;
+			bool viewportHudUseIcons = true;
+			int viewportHudAnchorPreset = 0;
+			int viewportHudPreset = 1;
+			float viewportHudOpacity = 0.85f;
 
 			std::string assetBrowserPath = "assets";
 			std::string materialBrowserPath = "assets/materials";

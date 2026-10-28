@@ -131,7 +131,7 @@ namespace MyEngine
                 {
                     if (!candidate || !candidate->HasComponent<TransformComponent>())
                         continue;
-                    if (candidate->GetName() != "Player")
+                    if (!(candidate->GetName() == "Player" || candidate->GetTag() == "Player" || candidate->HasComponent<CharacterControllerComponent>()))
                         continue;
 
                     camera.followTargetID = candidate->GetID();
@@ -189,7 +189,7 @@ namespace MyEngine
                 camera.lockOnTargetID = 0;
             }
 
-            if (camera.enableInput)
+            if (camera.enableInput && window)
             {
 #ifdef USE_IMGUI
                 // Skip keyboard input if ImGui wants to capture it (e.g., typing in a text field)

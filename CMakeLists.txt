@@ -150,6 +150,7 @@ set(SOURCES
     src/core/FixedTimestep.cpp
     src/core/PerformanceMetrics.cpp
     src/core/GameLoop.cpp
+    src/ai/AiAssetGeneration.cpp
     src/network/NetTransport.cpp
     src/network/SocketNetTransport.cpp
     src/network/NetPluginHooks.cpp
@@ -167,12 +168,14 @@ set(SOURCES
     src/editor/FrameTimingDisplay.cpp
     src/editor/panels/AnimationStateMachinePanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp
+    src/editor/panels/AiAssetGeneratorPanel.cpp
     src/editor/panels/CharacterEditorPanel.cpp
     src/editor/panels/CombatDebugPanel.cpp
     src/editor/panels/InspectorSectionsPanel.cpp
     src/editor/panels/MaterialBrowserPanel.cpp
     src/editor/panels/PerformancePanel.cpp
     src/editor/panels/PhysicsPanel.cpp
+    src/editor/panels/SceneTimePanel.cpp
     src/editor/panels/SceneHierarchyPanel.cpp
     src/editor/panels/ScriptingPanel.cpp
     src/editor/panels/ToolbarPanel.cpp
@@ -452,7 +455,9 @@ if(MYENGINE_BUILD_SMOKE_TESTS)
         tests/SunsetSkyboxSmokeTests.cpp
         tests/CharacterMovementSmokeTests.cpp
         tests/CharacterEditorSmokeTests.cpp
+        tests/AiAssetGenerationSmokeTests.cpp
         tests/VaultPresentationSmokeTests.cpp
+        tests/EditorLayoutSmokeTests.cpp
         ${SOURCES_NO_MAIN}
     )
 

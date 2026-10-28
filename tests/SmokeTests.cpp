@@ -3209,6 +3209,8 @@ bool SceneHierarchyIndexSmokeTest();
 bool SunsetSkyboxSmokeTest();
 bool CharacterMovementSmokeTest();
 bool CharacterEditorSmokeTest();
+bool AiAssetGenerationSmokeTest();
+bool EditorLayoutSmokeTest();
 bool VaultContinuitySmokeTest();
 bool VaultApproachSmokeTest();
 bool VaultMovingMeshSmokeTest();
@@ -3261,13 +3263,15 @@ int main()
 	const bool sunsetOk = runTest("SunsetSkyboxSmokeTest", SunsetSkyboxSmokeTest);
 	const bool movementOk = runTest("CharacterMovementSmokeTest", CharacterMovementSmokeTest);
 	const bool characterEditorOk = runTest("CharacterEditorSmokeTest", CharacterEditorSmokeTest);
+	const bool aiAssetGenerationOk = runTest("AiAssetGenerationSmokeTest", AiAssetGenerationSmokeTest);
+	const bool editorLayoutOk = runTest("EditorLayoutSmokeTest", EditorLayoutSmokeTest);
 	const bool vaultContinuityOk = runTest("VaultContinuitySmokeTest", VaultContinuitySmokeTest);
 	const bool vaultApproachOk = runTest("VaultApproachSmokeTest", VaultApproachSmokeTest);
 	const bool vaultMovingMeshOk = runTest("VaultMovingMeshSmokeTest", VaultMovingMeshSmokeTest);
 	const bool vaultCameraOk = runTest("VaultCameraSmokeTest", VaultCameraSmokeTest);
 	const bool vaultTimingOk = runTest("VaultTimingStatisticsSmokeTest", VaultTimingStatisticsSmokeTest);
 	const bool vaultArchOk = runTest("VaultArchSmokeTest", VaultArchSmokeTest);
-	if (!startupArenaOk || !shaderPollingOk || !arenaBroadphaseOk || !arenaDistrictOk || !visibilityOk || !hierarchyIndexOk || !sunsetOk || !movementOk || !characterEditorOk || !vaultContinuityOk || !vaultApproachOk || !vaultMovingMeshOk || !vaultCameraOk || !vaultTimingOk || !vaultArchOk)
+	if (!startupArenaOk || !shaderPollingOk || !arenaBroadphaseOk || !arenaDistrictOk || !visibilityOk || !hierarchyIndexOk || !sunsetOk || !movementOk || !characterEditorOk || !aiAssetGenerationOk || !editorLayoutOk || !vaultContinuityOk || !vaultApproachOk || !vaultMovingMeshOk || !vaultCameraOk || !vaultTimingOk || !vaultArchOk)
 		return 1;
 
 	if (!serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !prefabVariantComputeOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !networkingReplicationOk || !pluginSdkManifestOk || !pluginRuntimeIntegrationOk || !pluginRuntimeStressOk || !terrainSculptingOk || !terrainPerfBaselineOk || !terrainPaintAndIoOk || !terrainUndoPaintOk || !terrainNavPhysicsIntegrationOk || !terrainNavSoakOk || !terrainNavCrowdRepathOk || !renderCommandPlumbingOk || !materialInheritanceOk)

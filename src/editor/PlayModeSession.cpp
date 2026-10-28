@@ -3,6 +3,7 @@
 #include "components/AnimationComponent.h"
 #include "components/AnimationStateMachineComponent.h"
 #include "components/CameraComponent.h"
+#include "components/CharacterControllerComponent.h"
 #include "components/TransformComponent.h"
 #include "core/FileDialog.h"
 #include "serialization/SceneSerializer.h"
@@ -61,10 +62,23 @@ namespace MyEngine::Editor
 			context.playerEntity->reset();
 			for (auto& e : context.scene->GetEntities())
 			{
-				if (e && e->GetName() == "Player")
+				if (!e)
+					continue;
+				if (e->GetName() == "Player" || e->GetTag() == "Player")
 				{
 					*context.playerEntity = e;
 					break;
+				}
+			}
+			if (!*context.playerEntity)
+			{
+				for (auto& e : context.scene->GetEntities())
+				{
+					if (e && e->HasComponent<CharacterControllerComponent>())
+					{
+						*context.playerEntity = e;
+						break;
+					}
 				}
 			}
 		}

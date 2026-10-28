@@ -202,7 +202,10 @@ namespace MyEngine
 		return std::max(0.01f, state.playbackSpeed);
 	}
 
-	static void UpdateAnimationStateMachine(AnimationComponent& anim, AnimationStateMachineComponent& stateMachineComponent)
+	static void UpdateAnimationStateMachine(
+		AnimationComponent& anim,
+		AnimationStateMachineComponent& stateMachineComponent,
+		const CharacterControllerComponent* controller)
 	{
 		if (!stateMachineComponent.stateMachine || !anim.clips || anim.clips->empty())
 			return;
@@ -312,10 +315,48 @@ namespace MyEngine
 			stateMachineComponent.debugPendingStateName = nextState.name;
 			anim.looping = nextState.loop;
 			anim.playbackSpeed = GetEffectiveStatePlaybackSpeed(nextState);
-			const bool sameClipTransition = (nextClipIndex == anim.activeClipIndex);
-			if (!sameClipTransition)
+
+
+			float effectiveBlendDuration = transition.blendDuration;
+			bool isWallRunEndTransition = false;
+			if (controller)
 			{
-				anim.TransitionTo(nextClipIndex, transition.blendDuration);
+				const bool wallRunNamedState = currentState.name == "WallRun";
+				const bool wallRunClipState =
+					currentState.clipName == "Diagonal Wall Run" ||
+					currentState.clipName.find("Wall Run") != std::string::npos ||
+					currentState.clipName.find("wall run") != std::string::npos;
+				if (wallRunNamedState || wallRunClipState)
+				{
+					isWallRunEndTransition = std::any_of(
+						transition.conditions.begin(),
+						transition.conditions.end(),
+						[](const AnimationStateMachineCondition& condition)
+						{
+							return condition.parameterName == "IsWallRunning" &&
+								condition.op == AnimationStateMachineConditionOperator::IfFalse;
+						});
+					if (isWallRunEndTransition || transition.requiresExitTime)
+						effectiveBlendDuration = std::clamp(controller->wallRunEndTransitionDuration, 0.0f, 2.0f);
+				}
+			}
+
+			const bool sameClipTransition = (nextClipIndex == anim.activeClipIndex);
+			const bool allowSameClipWallRunBlend = sameClipTransition && isWallRunEndTransition && effectiveBlendDuration > 0.0001f;
+			if (!sameClipTransition || allowSameClipWallRunBlend)
+			{
+				if (allowSameClipWallRunBlend)
+				{
+					anim.previousClipIndex = anim.activeClipIndex;
+					anim.previousTime = anim.time;
+					anim.blendElapsed = 0.0f;
+					anim.blendDuration = effectiveBlendDuration;
+					anim.blending = true;
+				}
+				else
+				{
+					anim.TransitionTo(nextClipIndex, effectiveBlendDuration);
+				}
 			}
 			else
 			{
@@ -837,8 +878,12 @@ namespace MyEngine
 			if (stateMachineComponent)
 			{
 				const int previousStateIndex = stateMachineComponent->currentStateIndex;
+				const CharacterControllerComponent* controllerForStateMachine =
+					entity->HasComponent<CharacterControllerComponent>()
+					? &entity->GetComponent<CharacterControllerComponent>()
+					: nullptr;
 				if (!stateMachineComponent->suppressStateMachineEvaluation)
-					UpdateAnimationStateMachine(anim, *stateMachineComponent);
+					UpdateAnimationStateMachine(anim, *stateMachineComponent, controllerForStateMachine);
 				stateMachineComponent->currentStateTime = anim.time;
 
 				if (entity->HasComponent<CharacterControllerComponent>() &&

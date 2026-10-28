@@ -15,6 +15,13 @@ namespace MyEngine::Editor
 	// Apply professional dark enterprise theme
 	void ApplyEditorTheme();
 
+	// Runtime UI appearance controls (applies across all editor panels)
+	float GetEditorUiScale();
+	void SetEditorUiScale(float scale);
+	bool IsEditorUiCompactMode();
+	void SetEditorUiCompactMode(bool compact);
+	void ResetEditorUiAppearance();
+
 	// Semantic color accessors (for accessing theme colors)
 	ImVec4 GetThemeColor(const char* semanticName);
 

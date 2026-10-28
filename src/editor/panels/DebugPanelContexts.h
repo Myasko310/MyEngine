@@ -196,6 +196,13 @@ namespace MyEngine
 			std::function<void(bool)> setPlaying;
 		};
 
+		struct SceneTimePanelContext
+		{
+			bool* isOpen = nullptr;
+			bool* isPlaying = nullptr;
+			float* sceneTimeScale = nullptr;
+		};
+
 		struct CombatDebugPanelContext
 		{
 			bool* isOpen = nullptr;
@@ -259,6 +266,10 @@ namespace MyEngine
 			// Set by the panel when a bone gizmo is being shown so the
 			// entity transform gizmo can be suppressed for that frame.
 			bool boneGizmoActive = false;
+			// Request sent by the panel to promote a selected character
+			// to the active playable entity.
+			bool requestPromotePlayable = false;
+			uint32_t promotePlayableEntityID = 0;
 		};
 	}
 }

@@ -1,5 +1,6 @@
 #ifdef USE_IMGUI
 #include "PanelDockManager.h"
+#include <algorithm>
 #include <imgui.h>
 
 namespace MyEngine::Editor
@@ -15,21 +16,25 @@ namespace MyEngine::Editor
 
 	PanelDockManager::PanelDockManager()
 	{
-		// Default panel layouts
-		RegisterPanel("Scene Hierarchy", PanelPosition::LeftSidebar);
-		RegisterPanel("Asset Browser", PanelPosition::LeftSidebar);
-		RegisterPanel("Inspector", PanelPosition::RightSidebar);
-		RegisterPanel("Performance", PanelPosition::BottomPanel);
-		RegisterPanel("Material Browser", PanelPosition::Floating);
-		RegisterPanel("Animation State Machine", PanelPosition::Floating);
-		RegisterPanel("Physics", PanelPosition::Floating);
-		RegisterPanel("Scripting", PanelPosition::Floating);
+		ResetLayout();
 	}
 
 	void PanelDockManager::RegisterPanel(const char* panelName, PanelPosition position)
 	{
-		if (!panelName) return;
-		panels[panelName] = PanelState{ position, ImVec2(400, 600) };
+		if (!panelName)
+			return;
+
+		PanelState state{};
+		state.position = position;
+		if (position == PanelPosition::LeftSidebar || position == PanelPosition::RightSidebar)
+			state.size = ImVec2(300, viewportH - 100.0f);
+		else if (position == PanelPosition::BottomPanel)
+			state.size = ImVec2(viewportW - 625.0f, 90.0f);
+		else
+			state.size = ImVec2(400, 600);
+
+		state.customOffset = ImVec2(0, 0);
+		panels[panelName] = state;
 	}
 
 	ImVec2 PanelDockManager::GetPanelPos(const char* panelName, float viewportWidth, float viewportHeight)
@@ -52,7 +57,17 @@ namespace MyEngine::Editor
 			return ImVec2(320, 120);
 		case PanelPosition::Floating:
 		default:
-			return ImVec2(panel.size.x + panel.customOffset.x, panel.size.y + panel.customOffset.y);
+		{
+			const float clampedWidth = std::max(120.0f, panel.size.x);
+			const float clampedHeight = std::max(90.0f, panel.size.y);
+			const float anchorX = std::max(0.0f, (viewportW - clampedWidth) * 0.5f);
+			const float anchorY = std::max(24.0f, (viewportH - clampedHeight) * 0.5f);
+			const float maxX = std::max(0.0f, viewportW - clampedWidth - 5.0f);
+			const float maxY = std::max(24.0f, viewportH - clampedHeight - 5.0f);
+			const float x = std::clamp(anchorX + panel.customOffset.x, 0.0f, maxX);
+			const float y = std::clamp(anchorY + panel.customOffset.y, 24.0f, maxY);
+			return ImVec2(x, y);
+		}
 		}
 	}
 
@@ -96,10 +111,15 @@ namespace MyEngine::Editor
 
 	void PanelDockManager::ResetLayout()
 	{
-		for (auto& [name, state] : panels)
-		{
-			state.customOffset = ImVec2(0, 0);
-		}
+		panels.clear();
+		RegisterPanel("Scene Hierarchy", PanelPosition::LeftSidebar);
+		RegisterPanel("Asset Browser", PanelPosition::LeftSidebar);
+		RegisterPanel("Inspector", PanelPosition::RightSidebar);
+		RegisterPanel("Performance", PanelPosition::BottomPanel);
+		RegisterPanel("Material Browser", PanelPosition::Floating);
+		RegisterPanel("Animation State Machine", PanelPosition::Floating);
+		RegisterPanel("Physics", PanelPosition::Floating);
+		RegisterPanel("Scripting", PanelPosition::Floating);
 	}
 }
 

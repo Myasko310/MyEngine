@@ -21,6 +21,7 @@ def main() -> int:
 	parser.add_argument("--output_dir", required=True)
 	parser.add_argument("--output_name", required=True)
 	parser.add_argument("--backend", default="hunyuan3d")
+	parser.add_argument("--backend_fallback_chain", default="")
 	parser.add_argument("--result_json", required=True)
 	parser.add_argument("--timeout_ms", type=int, default=300000)
 	parser.add_argument("--require_glb", type=int, default=1)
@@ -61,64 +62,81 @@ def main() -> int:
 				"command_template_source": "missing"
 			})
 
-	command = command_template.format(
-		prompt=args.prompt,
-		output_dir=str(output_dir),
-		output_name=args.output_name,
-		backend=args.backend,
-		timeout_ms=args.timeout_ms,
-	)
+	fallback_chain_tokens = [token.strip() for token in args.backend_fallback_chain.split(",") if token.strip()]
+	backend_candidates = [args.backend] + [token for token in fallback_chain_tokens if token != args.backend]
 
 	command_template_source = "env" if os.environ.get("MYENGINE_TEXT_TO_3D_COMMAND", "").strip() else "default"
 	configured_attempts = max(1, args.retry_count)
-	max_attempts = max(configured_attempts, 2 if used_default_template else configured_attempts)
+	max_attempts_per_backend = max(configured_attempts, 2 if used_default_template else configured_attempts)
 	retry_backoff_ms = max(0, args.retry_backoff_ms)
 	attempts: list[dict] = []
 	proc: Optional[subprocess.CompletedProcess] = None
 	last_launch_error = ""
+	selected_backend = args.backend
+	selected_command = ""
 
-	for attempt_index in range(max_attempts):
-		attempt_no = attempt_index + 1
-		attempt_start = time.perf_counter()
-		try:
-			proc = subprocess.run(
-				command,
-				shell=True,
-				capture_output=True,
-				text=True,
-				timeout=max(1, args.timeout_ms // 1000),
-			)
-			attempts.append({
-				"attempt": attempt_no,
-				"exit_code": proc.returncode,
-				"stderr": proc.stderr,
-				"stdout": proc.stdout,
-				"duration_ms": int((time.perf_counter() - attempt_start) * 1000),
-			})
-			if proc.returncode == 0:
-				break
-			if attempt_no < max_attempts and retry_backoff_ms > 0:
-				time.sleep(retry_backoff_ms / 1000.0)
-		except subprocess.TimeoutExpired:
-			attempts.append({
-				"attempt": attempt_no,
-				"timeout": True,
-				"duration_ms": int((time.perf_counter() - attempt_start) * 1000),
-			})
-			last_launch_error = "Text-to-3D backend command timed out."
-			proc = None
-			if attempt_no < max_attempts and retry_backoff_ms > 0:
-				time.sleep(retry_backoff_ms / 1000.0)
-		except Exception as exc:
-			attempts.append({
-				"attempt": attempt_no,
-				"launch_error": str(exc),
-				"duration_ms": int((time.perf_counter() - attempt_start) * 1000),
-			})
-			last_launch_error = f"Failed to execute text-to-3D backend command: {exc}"
-			proc = None
-			if attempt_no < max_attempts and retry_backoff_ms > 0:
-				time.sleep(retry_backoff_ms / 1000.0)
+	for backend_candidate in backend_candidates:
+		command = command_template.format(
+			prompt=args.prompt,
+			output_dir=str(output_dir),
+			output_name=args.output_name,
+			backend=backend_candidate,
+			timeout_ms=args.timeout_ms,
+		)
+		selected_command = command
+		selected_backend = backend_candidate
+		proc = None
+		last_launch_error = ""
+
+		for attempt_index in range(max_attempts_per_backend):
+			attempt_no = attempt_index + 1
+			attempt_start = time.perf_counter()
+			try:
+				proc = subprocess.run(
+					command,
+					shell=True,
+					capture_output=True,
+					text=True,
+					timeout=max(1, args.timeout_ms // 1000),
+				)
+				attempts.append({
+					"attempt": attempt_no,
+					"backend": backend_candidate,
+					"exit_code": proc.returncode,
+					"stderr": proc.stderr,
+					"stdout": proc.stdout,
+					"duration_ms": int((time.perf_counter() - attempt_start) * 1000),
+				})
+				if proc.returncode == 0:
+					break
+				if attempt_no < max_attempts_per_backend and retry_backoff_ms > 0:
+					time.sleep(retry_backoff_ms / 1000.0)
+			except subprocess.TimeoutExpired:
+				attempts.append({
+					"attempt": attempt_no,
+					"backend": backend_candidate,
+					"timeout": True,
+					"duration_ms": int((time.perf_counter() - attempt_start) * 1000),
+				})
+				last_launch_error = "Text-to-3D backend command timed out."
+				proc = None
+				if attempt_no < max_attempts_per_backend and retry_backoff_ms > 0:
+					time.sleep(retry_backoff_ms / 1000.0)
+			except Exception as exc:
+				attempts.append({
+					"attempt": attempt_no,
+					"backend": backend_candidate,
+					"launch_error": str(exc),
+					"duration_ms": int((time.perf_counter() - attempt_start) * 1000),
+				})
+				last_launch_error = f"Failed to execute text-to-3D backend command: {exc}"
+				proc = None
+				if attempt_no < max_attempts_per_backend and retry_backoff_ms > 0:
+					time.sleep(retry_backoff_ms / 1000.0)
+
+		if proc is not None and proc.returncode == 0:
+			break
+
 
 	if proc is None and attempts:
 		message = last_launch_error or "Text-to-3D backend command failed to launch."
@@ -126,14 +144,15 @@ def main() -> int:
 			"success": False,
 			"message": message,
 			"generated_files": [],
-			"backend": args.backend,
+			"backend": selected_backend,
+			"backend_fallback_chain": backend_candidates,
 			"used_default_template": used_default_template,
 			"fallback_template_path": fallback_template_path,
 			"command_template_source": command_template_source,
-			"command": command,
+			"command": selected_command,
 			"attempt_count": len(attempts),
 			"attempts": attempts,
-			"retry_count": max_attempts,
+			"retry_count": max_attempts_per_backend,
 			"retry_backoff_ms": retry_backoff_ms,
 			"total_duration_ms": int((time.perf_counter() - start_time) * 1000),
 		})
@@ -143,14 +162,15 @@ def main() -> int:
 			"success": False,
 			"message": "Text-to-3D backend command failed without process result.",
 			"generated_files": [],
-			"backend": args.backend,
+			"backend": selected_backend,
+			"backend_fallback_chain": backend_candidates,
 			"used_default_template": used_default_template,
 			"fallback_template_path": fallback_template_path,
 			"command_template_source": command_template_source,
-			"command": command,
+			"command": selected_command,
 			"attempt_count": len(attempts),
 			"attempts": attempts,
-			"retry_count": max_attempts,
+			"retry_count": max_attempts_per_backend,
 			"retry_backoff_ms": retry_backoff_ms,
 			"total_duration_ms": int((time.perf_counter() - start_time) * 1000),
 		})
@@ -163,17 +183,18 @@ def main() -> int:
 			"success": False,
 			"message": message,
 			"generated_files": [],
-			"backend": args.backend,
+			"backend": selected_backend,
+			"backend_fallback_chain": backend_candidates,
 			"used_default_template": used_default_template,
 			"fallback_template_path": fallback_template_path,
 			"command_template_source": command_template_source,
-			"command": command,
+			"command": selected_command,
 			"exit_code": proc.returncode,
 			"stderr": proc.stderr,
 			"stdout": proc.stdout,
 			"attempt_count": len(attempts),
 			"attempts": attempts,
-			"retry_count": max_attempts,
+			"retry_count": max_attempts_per_backend,
 			"retry_backoff_ms": retry_backoff_ms,
 			"total_duration_ms": int((time.perf_counter() - start_time) * 1000),
 		})
@@ -183,17 +204,18 @@ def main() -> int:
 			"success": False,
 			"message": f"Backend command succeeded but GLB was not found at expected path: {glb_candidate}",
 			"generated_files": [],
-			"backend": args.backend,
+			"backend": selected_backend,
+			"backend_fallback_chain": backend_candidates,
 			"used_default_template": used_default_template,
 			"fallback_template_path": fallback_template_path,
 			"command_template_source": command_template_source,
-			"command": command,
+			"command": selected_command,
 			"exit_code": proc.returncode,
 			"stderr": proc.stderr,
 			"stdout": proc.stdout,
 			"attempt_count": len(attempts),
 			"attempts": attempts,
-			"retry_count": max_attempts,
+			"retry_count": max_attempts_per_backend,
 			"retry_backoff_ms": retry_backoff_ms,
 			"total_duration_ms": int((time.perf_counter() - start_time) * 1000),
 		})
@@ -207,17 +229,18 @@ def main() -> int:
 		"message": "Text-to-3D generation completed.",
 		"glb_path": str(glb_candidate) if glb_candidate.exists() else "",
 		"generated_files": generated_files,
-		"backend": args.backend,
+		"backend": selected_backend,
+		"backend_fallback_chain": backend_candidates,
 		"used_default_template": used_default_template,
 		"fallback_template_path": fallback_template_path,
 		"command_template_source": command_template_source,
-		"command": command,
+		"command": selected_command,
 		"exit_code": proc.returncode,
 		"stderr": proc.stderr,
 		"stdout": proc.stdout,
 		"attempt_count": len(attempts),
 		"attempts": attempts,
-		"retry_count": max_attempts,
+		"retry_count": max_attempts_per_backend,
 		"retry_backoff_ms": retry_backoff_ms,
 		"total_duration_ms": int((time.perf_counter() - start_time) * 1000),
 	})

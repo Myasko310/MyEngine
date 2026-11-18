@@ -30,6 +30,7 @@ int main()
 	request.options.textTo3dPythonExe = "python";
 	request.options.textTo3dRunnerScriptPath = "tools/ai/generate_text_to_3d.py";
 	request.options.textTo3dBackend = "hunyuan3d";
+	request.options.textTo3dBackendFallbackChain = "comfyui_local,hunyuan3d";
 	request.options.textTo3dTimeoutMs = 5000;
 	request.options.textTo3dRequireGlbOutput = true;
 
@@ -55,9 +56,21 @@ int main()
 	const bool hasStructuredDiagnostics =
 		result.message.find("template_source=") != std::string::npos ||
 		result.message.find("command=") != std::string::npos;
+	const bool hasFallbackMetadata = result.message.find("backend_chain=") != std::string::npos;
+	const bool hasSelectedBackendMetadata = result.message.find("backend=") != std::string::npos;
 	if (!hasStructuredDiagnostics)
 	{
 		std::cerr << "AiBackendContractTests: missing structured diagnostics in failure message: " << result.message << std::endl;
+		return 1;
+	}
+	if (!hasFallbackMetadata)
+	{
+		std::cerr << "AiBackendContractTests: missing fallback-chain diagnostics in failure message: " << result.message << std::endl;
+		return 1;
+	}
+	if (!hasSelectedBackendMetadata)
+	{
+		std::cerr << "AiBackendContractTests: missing selected-backend diagnostics in failure message: " << result.message << std::endl;
 		return 1;
 	}
 
@@ -94,6 +107,21 @@ int main()
 				std::cerr << "AiBackendContractTests: runner result JSON missing retry tuning telemetry" << std::endl;
 				return 1;
 			}
+			if (json.find("\"backend_fallback_chain\"") == std::string::npos)
+			{
+				std::cerr << "AiBackendContractTests: runner result JSON missing backend_fallback_chain metadata" << std::endl;
+				return 1;
+			}
+			if (json.find("\"backend\"") == std::string::npos)
+			{
+				std::cerr << "AiBackendContractTests: runner result JSON missing selected backend metadata" << std::endl;
+				return 1;
+			}
+			if (json.find("\"backend_fallback_chain\": \"comfyui_local,hunyuan3d\"") == std::string::npos)
+			{
+				std::cerr << "AiBackendContractTests: runner result JSON fallback chain does not match requested order" << std::endl;
+				return 1;
+			}
 			break;
 		}
 	}
@@ -121,6 +149,7 @@ int main()
 	successRequest.options.textTo3dPythonExe = "python";
 	successRequest.options.textTo3dRunnerScriptPath = "tools/ai/generate_text_to_3d.py";
 	successRequest.options.textTo3dBackend = "hunyuan3d";
+	successRequest.options.textTo3dBackendFallbackChain = "comfyui_local,hunyuan3d";
 	successRequest.options.textTo3dTimeoutMs = 5000;
 	successRequest.options.textTo3dRequireGlbOutput = true;
 
@@ -138,6 +167,33 @@ int main()
 	if (successResult.message.find("template_source=") == std::string::npos)
 	{
 		std::cerr << "AiBackendContractTests: configured backend success-path missing template source metadata" << std::endl;
+		return 1;
+	}
+	if (successResult.message.find("backend_chain=") == std::string::npos)
+	{
+		std::cerr << "AiBackendContractTests: configured backend success-path missing fallback-chain metadata" << std::endl;
+		return 1;
+	}
+	if (successResult.message.find("backend=") == std::string::npos)
+	{
+		std::cerr << "AiBackendContractTests: configured backend success-path missing selected backend metadata" << std::endl;
+		return 1;
+	}
+	if (successResult.telemetryDurationMs < 0)
+	{
+		std::cerr << "AiBackendContractTests: configured backend success-path missing telemetry duration" << std::endl;
+		return 1;
+	}
+	if (successResult.telemetryAttemptCount <= 0)
+	{
+		std::cerr << "AiBackendContractTests: configured backend success-path missing telemetry attempt count" << std::endl;
+		return 1;
+	}
+	constexpr int kSuccessDurationBaselineMs = 15000;
+	if (successResult.telemetryDurationMs > kSuccessDurationBaselineMs)
+	{
+		std::cerr << "AiBackendContractTests: configured backend success-path exceeded duration baseline ("
+			<< successResult.telemetryDurationMs << " ms > " << kSuccessDurationBaselineMs << " ms)" << std::endl;
 		return 1;
 	}
 

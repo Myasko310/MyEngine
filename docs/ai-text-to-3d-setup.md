@@ -38,6 +38,12 @@ Wave 4 telemetry features:
 - runner contract includes `attempt_count`, `attempts[].duration_ms`, `retry_count`, `retry_backoff_ms`, `total_duration_ms`
 - bridge health summary includes `duration_ms`
 
+Continuation features:
+- runner supports ordered backend fallback chain via `--backend_fallback_chain`
+- runner and provider diagnostics include selected `backend` and `backend_fallback_chain` / `backend_chain`
+- panel persists generation telemetry history to `tools/hunyuan3d/backend_telemetry_history.json` with rolling retention
+- panel offers auto-recovery actions for common local setup issues (session-level env fixes)
+
 Set these to your local environment if needed.
 
 Contract requirements:
@@ -103,9 +109,10 @@ Then restart Visual Studio so it picks up new environment variables.
 4. Click **Test Runner Command**.
 5. Click **Test Backend Bridge** (must pass before generation).
 6. Review **Backend Health Summary** section (status, mode, template count, duration).
-7. Tune **Retry Count** and **Retry Backoff (ms)** if needed.
-8. Enter prompt and output name.
-9. Click **Generate AI Asset**.
+7. (Optional) Set **Backend fallback chain (comma-separated)** to define ordered backend failover.
+8. Tune **Retry Count** and **Retry Backoff (ms)** if needed.
+9. Enter prompt and output name.
+10. Click **Generate AI Asset**.
 
 On success, generated files are queued into Asset Browser import pipeline and appear under:
 
@@ -139,9 +146,10 @@ You can also export structured health JSON:
 python tools/hunyuan3d/infer_text_to_3d.py --self_check --health_json tools/hunyuan3d/backend_health_summary.json
 ```
 
-### Error includes `template_source=` / `command=` / `stderr=` / `attempts=` / `duration_ms=`
+### Error includes `template_source=` / `backend=` / `backend_chain=` / `command=` / `stderr=` / `attempts=` / `duration_ms=`
 This is structured backend diagnostics from the runner contract. Use it to pinpoint whether failure is:
 - wrong template source (`default` vs `env`),
+- wrong selected backend or fallback ordering (`backend=` / `backend_chain=`),
 - broken backend command path,
 - repeated fallback retry failures (`attempts=` / `retry_count`),
 - overly aggressive or insufficient backoff (`retry_backoff_ms`),
@@ -150,6 +158,11 @@ This is structured backend diagnostics from the runner contract. Use it to pinpo
 
 ### Error: "GLB was not found at expected path"
 Your backend command succeeded but didn’t write `<OutputDir>/<OutputName>.glb`. Fix export path in your Hunyuan infer command.
+
+### Telemetry history / auto-recovery notes
+- The panel writes rolling telemetry history to `tools/hunyuan3d/backend_telemetry_history.json` after generation attempts.
+- Use **Auto-Recovery: Set Session Runner Template** to populate `MYENGINE_TEXT_TO_3D_COMMAND` for the current editor session.
+- Use **Auto-Recovery: Set Session HUNYUAN3D_SCRIPT** when the script env path is missing for the current session.
 
 ### Spawn issues
 In Asset Browser, double-click the generated `.glb` file under `assets/generated/ai/...`.

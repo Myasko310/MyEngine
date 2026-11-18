@@ -132,6 +132,81 @@ namespace MyEngine::Editor::Panels
 			return summary;
 		}
 
+		void TrimTelemetryHistory(std::vector<int>& values, std::size_t retention)
+		{
+			if (retention == 0)
+			{
+				values.clear();
+				return;
+			}
+			if (values.size() > retention)
+				values.erase(values.begin(), values.end() - static_cast<std::ptrdiff_t>(retention));
+		}
+
+		void LoadTelemetryHistory(const std::filesystem::path& historyPath, std::vector<int>& durations, std::vector<int>& attempts, std::size_t retention)
+		{
+			std::error_code ec;
+			if (!std::filesystem::exists(historyPath, ec))
+				return;
+
+			std::ifstream ifs(historyPath);
+			if (!ifs.is_open())
+				return;
+
+			std::string json((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+			rapidjson::Document doc;
+			doc.Parse(json.c_str());
+			if (doc.HasParseError() || !doc.IsObject())
+				return;
+
+			auto readArray = [&](const char* key, std::vector<int>& target)
+			{
+				target.clear();
+				if (!doc.HasMember(key) || !doc[key].IsArray())
+					return;
+				for (const auto& value : doc[key].GetArray())
+				{
+					if (value.IsInt())
+						target.push_back(value.GetInt());
+				}
+				TrimTelemetryHistory(target, retention);
+			};
+
+			readArray("duration_ms_history", durations);
+			readArray("attempt_count_history", attempts);
+		}
+
+		bool SaveTelemetryHistory(const std::filesystem::path& historyPath, const std::vector<int>& durations, const std::vector<int>& attempts, std::size_t retention)
+		{
+			std::error_code ec;
+			if (historyPath.has_parent_path())
+				std::filesystem::create_directories(historyPath.parent_path(), ec);
+
+			std::ofstream ofs(historyPath, std::ios::trunc);
+			if (!ofs.is_open())
+				return false;
+
+			auto writeArray = [&](const char* key, const std::vector<int>& values)
+			{
+				ofs << "\"" << key << "\":[";
+				for (std::size_t i = 0; i < values.size(); ++i)
+				{
+					if (i > 0)
+						ofs << ",";
+					ofs << values[i];
+				}
+				ofs << "]";
+			};
+
+			ofs << "{";
+			ofs << "\"retention\":" << retention << ",";
+			writeArray("duration_ms_history", durations);
+			ofs << ",";
+			writeArray("attempt_count_history", attempts);
+			ofs << "}";
+			return static_cast<bool>(ofs);
+		}
+
 		bool ProbeComfyUiEndpoint(const std::string& baseUrl, std::string& outMessage)
 		{
 			if (baseUrl.empty())
@@ -199,12 +274,15 @@ namespace MyEngine::Editor::Panels
 		static char textTo3dPythonExeBuffer[128] = "python";
 		static char textTo3dRunnerPathBuffer[256] = "tools/ai/generate_text_to_3d.py";
 		static char textTo3dBackendBuffer[64] = "hunyuan3d";
+		static char textTo3dBackendFallbackChainBuffer[128] = "comfyui_local,hunyuan3d";
 		static int textTo3dTimeoutMs = 300000;
 		static int textTo3dRetryCount = 1;
 		static int textTo3dRetryBackoffMs = 250;
 		static bool textTo3dRequireGlb = true;
 		static std::vector<int> backendDurationHistoryMs;
 		static std::vector<int> backendAttemptHistory;
+		static bool telemetryHistoryLoaded = false;
+		static constexpr std::size_t telemetryHistoryRetention = 32;
 		static char comfyEndpointBuffer[256] = "http://127.0.0.1:8188";
 		static char comfyWorkflowPathBuffer[256] = "assets/ai/comfyui_workflow_api.json";
 		static char comfyPromptTokenBuffer[64] = "{{PROMPT}}";
@@ -274,6 +352,8 @@ namespace MyEngine::Editor::Panels
 		ImGui::InputTextWithHint("##textTo3dRunnerPath", "Runner script path", textTo3dRunnerPathBuffer, sizeof(textTo3dRunnerPathBuffer));
 		ImGui::SetNextItemWidth(-1.0f);
 		ImGui::InputTextWithHint("##textTo3dBackend", "Backend id", textTo3dBackendBuffer, sizeof(textTo3dBackendBuffer));
+		ImGui::SetNextItemWidth(-1.0f);
+		ImGui::InputTextWithHint("##textTo3dBackendFallbackChain", "Backend fallback chain (comma-separated)", textTo3dBackendFallbackChainBuffer, sizeof(textTo3dBackendFallbackChainBuffer));
 		ImGui::SliderInt("Text-to-3D Timeout (ms)", &textTo3dTimeoutMs, 1000, 600000);
 		ImGui::SliderInt("Retry Count", &textTo3dRetryCount, 1, 5);
 		ImGui::SliderInt("Retry Backoff (ms)", &textTo3dRetryBackoffMs, 0, 5000);
@@ -343,6 +423,12 @@ namespace MyEngine::Editor::Panels
 
 		const std::filesystem::path backendHealthSummaryPath = ResolvePathFromCurrentOrParents("tools/hunyuan3d/backend_health_summary.json");
 		const BackendHealthSummary backendHealthSummary = LoadBackendHealthSummary(backendHealthSummaryPath);
+		const std::filesystem::path telemetryHistoryPath = ResolvePathFromCurrentOrParents("tools/hunyuan3d/backend_telemetry_history.json");
+		if (!telemetryHistoryLoaded)
+		{
+			LoadTelemetryHistory(telemetryHistoryPath, backendDurationHistoryMs, backendAttemptHistory, telemetryHistoryRetention);
+			telemetryHistoryLoaded = true;
+		}
 
 		const std::string currentComfyEndpoint = comfyEndpointBuffer;
 		const auto now = std::chrono::steady_clock::now();
@@ -592,6 +678,87 @@ namespace MyEngine::Editor::Panels
 						ImGui::TextWrapped("%s", backendHealthSummary.message.c_str());
 				}
 			}
+			ImGui::Separator();
+			ImGui::TextDisabled("Telemetry Samples: duration=%zu, attempts=%zu", backendDurationHistoryMs.size(), backendAttemptHistory.size());
+			if (!backendDurationHistoryMs.empty())
+			{
+				std::vector<float> durationSamples;
+				durationSamples.reserve(backendDurationHistoryMs.size());
+				long long durationTotal = 0;
+				for (int value : backendDurationHistoryMs)
+				{
+					durationSamples.push_back(static_cast<float>(value));
+					durationTotal += value;
+				}
+				auto [durationMinIt, durationMaxIt] = std::minmax_element(backendDurationHistoryMs.begin(), backendDurationHistoryMs.end());
+				const int durationLatest = backendDurationHistoryMs.back();
+				const int durationAverage = static_cast<int>(durationTotal / static_cast<long long>(backendDurationHistoryMs.size()));
+				const int durationRange = *durationMaxIt - *durationMinIt;
+				ImGui::TextDisabled("Duration Trend (ms) latest=%d min=%d max=%d avg=%d range=%d", durationLatest, *durationMinIt, *durationMaxIt, durationAverage, durationRange);
+				if (backendDurationHistoryMs.size() >= 2)
+				{
+					const int durationDelta = backendDurationHistoryMs.back() - *(backendDurationHistoryMs.end() - 2);
+					ImGui::TextDisabled("Duration Direction: %s (delta=%+d ms)", durationDelta > 0 ? "Rising" : (durationDelta < 0 ? "Falling" : "Flat"), durationDelta);
+				}
+				ImGui::PlotLines("##durationTrend", durationSamples.data(), static_cast<int>(durationSamples.size()), 0, nullptr, 0.0f, *std::max_element(durationSamples.begin(), durationSamples.end()), ImVec2(0.0f, 70.0f));
+			}
+			if (!backendAttemptHistory.empty())
+			{
+				std::vector<float> attemptSamples;
+				attemptSamples.reserve(backendAttemptHistory.size());
+				long long attemptTotal = 0;
+				for (int value : backendAttemptHistory)
+				{
+					attemptSamples.push_back(static_cast<float>(value));
+					attemptTotal += value;
+				}
+				auto [attemptMinIt, attemptMaxIt] = std::minmax_element(backendAttemptHistory.begin(), backendAttemptHistory.end());
+				const int attemptLatest = backendAttemptHistory.back();
+				const int attemptAverage = static_cast<int>(attemptTotal / static_cast<long long>(backendAttemptHistory.size()));
+				const int attemptRange = *attemptMaxIt - *attemptMinIt;
+				ImGui::TextDisabled("Attempt Trend latest=%d min=%d max=%d avg=%d range=%d", attemptLatest, *attemptMinIt, *attemptMaxIt, attemptAverage, attemptRange);
+				if (backendAttemptHistory.size() >= 2)
+				{
+					const int attemptDelta = backendAttemptHistory.back() - *(backendAttemptHistory.end() - 2);
+					ImGui::TextDisabled("Attempt Direction: %s (delta=%+d)", attemptDelta > 0 ? "Rising" : (attemptDelta < 0 ? "Falling" : "Flat"), attemptDelta);
+				}
+				ImGui::PlotLines("##attemptTrend", attemptSamples.data(), static_cast<int>(attemptSamples.size()), 0, nullptr, 0.0f, *std::max_element(attemptSamples.begin(), attemptSamples.end()), ImVec2(0.0f, 55.0f));
+			}
+			if (InspectorActionButton("Open Telemetry History JSON"))
+			{
+				if (!OpenPathWithShell(telemetryHistoryPath.generic_string()))
+				{
+					statusMessage = "Failed to open telemetry history JSON.";
+					lastGenerationSucceeded = false;
+				}
+				else
+				{
+					statusMessage = "Opened telemetry history JSON.";
+					lastGenerationSucceeded = true;
+				}
+			}
+			if (InspectorActionButton("Reload Telemetry History"))
+			{
+				LoadTelemetryHistory(telemetryHistoryPath, backendDurationHistoryMs, backendAttemptHistory, telemetryHistoryRetention);
+				telemetryHistoryLoaded = true;
+				statusMessage = "Reloaded telemetry history from JSON.";
+				lastGenerationSucceeded = true;
+			}
+			if (InspectorActionButton("Clear Telemetry History"))
+			{
+				backendDurationHistoryMs.clear();
+				backendAttemptHistory.clear();
+				if (SaveTelemetryHistory(telemetryHistoryPath, backendDurationHistoryMs, backendAttemptHistory, telemetryHistoryRetention))
+				{
+					statusMessage = "Cleared telemetry history.";
+					lastGenerationSucceeded = true;
+				}
+				else
+				{
+					statusMessage = "Failed to persist cleared telemetry history.";
+					lastGenerationSucceeded = false;
+				}
+			}
 		}
 
 		if (!preflightReport.empty() && ImGui::CollapsingHeader("Preflight Report", ImGuiTreeNodeFlags_DefaultOpen))
@@ -600,6 +767,49 @@ namespace MyEngine::Editor::Panels
 		if (!canGenerate)
 		{
 			ImGui::TextColored(ImVec4(1.00f, 0.45f, 0.35f, 1.0f), "%s", preflightIssue.c_str());
+			if (activeProviderId == "local_text_to_3d_glb_v1")
+			{
+				if (!hasTextTo3dCommandEnv && hasDefaultHunyuanTemplate)
+				{
+					if (InspectorActionButton("Auto-Recovery: Set Session Runner Template"))
+					{
+#if defined(_WIN32)
+						const std::string command = "MYENGINE_TEXT_TO_3D_COMMAND=powershell -ExecutionPolicy Bypass -File tools/ai/hunyuan3d_command_template.ps1 -Prompt {prompt} -OutputDir {output_dir} -OutputName {output_name} -Backend {backend} -TimeoutMs {timeout_ms}";
+						const int exitCode = _putenv(command.c_str());
+						if (exitCode == 0)
+						{
+							statusMessage = "Applied MYENGINE_TEXT_TO_3D_COMMAND for current session.";
+							lastGenerationSucceeded = true;
+						}
+						else
+#endif
+						{
+							statusMessage = "Failed to set MYENGINE_TEXT_TO_3D_COMMAND in current session.";
+							lastGenerationSucceeded = false;
+						}
+					}
+				}
+				if (!hunyuanScriptExists)
+				{
+					if (InspectorActionButton("Auto-Recovery: Set Session HUNYUAN3D_SCRIPT"))
+					{
+#if defined(_WIN32)
+						const std::string command = "HUNYUAN3D_SCRIPT=tools/hunyuan3d/infer_text_to_3d.py";
+						const int exitCode = _putenv(command.c_str());
+						if (exitCode == 0)
+						{
+							statusMessage = "Applied HUNYUAN3D_SCRIPT for current session.";
+							lastGenerationSucceeded = true;
+						}
+						else
+#endif
+						{
+							statusMessage = "Failed to set HUNYUAN3D_SCRIPT in current session.";
+							lastGenerationSucceeded = false;
+						}
+					}
+				}
+			}
 			if (InspectorActionButton("Open Setup Guide"))
 			{
 				if (!OpenPathWithShell("docs/ai-text-to-3d-setup.md"))
@@ -650,6 +860,7 @@ namespace MyEngine::Editor::Panels
 			request.options.textTo3dPythonExe = textTo3dPythonExeBuffer;
 			request.options.textTo3dRunnerScriptPath = textTo3dRunnerPathBuffer;
 			request.options.textTo3dBackend = textTo3dBackendBuffer;
+			request.options.textTo3dBackendFallbackChain = textTo3dBackendFallbackChainBuffer;
 			request.options.textTo3dRequireGlbOutput = textTo3dRequireGlb;
 			request.options.textTo3dTimeoutMs = textTo3dTimeoutMs;
 			request.options.textTo3dRetryCount = textTo3dRetryCount;
@@ -659,17 +870,22 @@ namespace MyEngine::Editor::Panels
 			lastGenerationSucceeded = result.success;
 			statusMessage = result.message;
 
+			bool telemetryHistoryChanged = false;
 			if (result.telemetryDurationMs >= 0)
 			{
 				backendDurationHistoryMs.push_back(result.telemetryDurationMs);
-				if (backendDurationHistoryMs.size() > 32)
-					backendDurationHistoryMs.erase(backendDurationHistoryMs.begin());
+				TrimTelemetryHistory(backendDurationHistoryMs, telemetryHistoryRetention);
+				telemetryHistoryChanged = true;
 			}
 			if (result.telemetryAttemptCount > 0)
 			{
 				backendAttemptHistory.push_back(result.telemetryAttemptCount);
-				if (backendAttemptHistory.size() > 32)
-					backendAttemptHistory.erase(backendAttemptHistory.begin());
+				TrimTelemetryHistory(backendAttemptHistory, telemetryHistoryRetention);
+				telemetryHistoryChanged = true;
+			}
+			if (telemetryHistoryChanged && !SaveTelemetryHistory(telemetryHistoryPath, backendDurationHistoryMs, backendAttemptHistory, telemetryHistoryRetention))
+			{
+				statusMessage += " | warning: failed to persist telemetry history";
 			}
 
 			if (result.success)

@@ -19,6 +19,7 @@ namespace MyEngine::AI
 		std::string textTo3dPythonExe = "python";
 		std::string textTo3dRunnerScriptPath = "tools/ai/generate_text_to_3d.py";
 		std::string textTo3dBackend = "hunyuan3d";
+		std::string textTo3dBackendFallbackChain;
 		bool textTo3dRequireGlbOutput = true;
 		int textTo3dTimeoutMs = 300000;
 		int textTo3dRetryCount = 1;

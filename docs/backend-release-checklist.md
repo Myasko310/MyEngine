@@ -6,8 +6,9 @@ Use this checklist before marking backend implementation as release-ready.
 
 - [ ] Runner contract JSON includes: `success`, `message`, `attempt_count`, `attempts`, `total_duration_ms`
 - [ ] Runner retry tuning fields are present: `retry_count`, `retry_backoff_ms`
+- [ ] Runner fallback metadata fields are present: `backend`, `backend_fallback_chain`
 - [ ] Bridge health summary JSON includes: `success`, `mode`, `template_count`, `duration_ms`, `message`
-- [ ] Provider messages surface template source + attempts + duration telemetry
+- [ ] Provider messages surface template source + backend + backend_chain + attempts + duration telemetry
 
 ## Editor UX
 
@@ -15,12 +16,16 @@ Use this checklist before marking backend implementation as release-ready.
 - [ ] Auto backend self-check runs on panel open (text-to-3D provider)
 - [ ] Backend Health Summary section updates after manual/auto checks
 - [ ] Retry Count and Retry Backoff controls are visible and applied
+- [ ] Backend fallback chain input is visible and applied
+- [ ] Telemetry history artifact operations work (open/reload/clear) and persist to JSON
+- [ ] Auto-recovery actions apply session env fixes (`MYENGINE_TEXT_TO_3D_COMMAND`, `HUNYUAN3D_SCRIPT`)
 
 ## Test Coverage
 
 - [ ] `AiBackendContractTests` passes
 - [ ] `MyEngineSmokeTests` passes
 - [ ] Contract test validates success path + health JSON + telemetry keys
+- [ ] Contract test validates fallback metadata in diagnostics and runner JSON (`backend`, `backend_chain`/`backend_fallback_chain`)
 
 ## Build and Runtime
 

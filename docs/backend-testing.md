@@ -37,8 +37,9 @@ ctest --test-dir out/build/x64-debug-clean -C Debug --output-on-failure -R "AiBa
 
 - `AiBackendContractTests` is deterministic and does not require external model weights.
 - Test logic uses a stub command template for success-path verification and validates:
-  - structured runner diagnostics (`template_source`, attempts, durations),
+  - structured runner diagnostics (`template_source`, `backend_chain`, attempts, durations),
   - retry tuning telemetry (`retry_count`, `retry_backoff_ms`, `total_duration_ms`),
+  - fallback-chain contract metadata (`backend_fallback_chain` in runner JSON),
   - backend health summary JSON generation and telemetry fields.
 - `MyEngineSmokeTests` requires the sample plugin artifact and runtime DLL availability; CMake currently handles these copy/dependency steps.
 

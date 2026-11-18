@@ -537,7 +537,10 @@ namespace MyEngine::AI
 				command += " --prompt " + QuoteArg(request.prompt);
 				command += " --output_dir " + QuoteArg(assetDir.generic_string());
 				command += " --output_name " + QuoteArg(promptToken);
-				command += " --backend " + QuoteArg(request.options.textTo3dBackend.empty() ? "hunyuan3d" : request.options.textTo3dBackend);
+				const std::string primaryBackend = request.options.textTo3dBackend.empty() ? "hunyuan3d" : request.options.textTo3dBackend;
+				command += " --backend " + QuoteArg(primaryBackend);
+				if (!request.options.textTo3dBackendFallbackChain.empty())
+					command += " --backend_fallback_chain " + QuoteArg(request.options.textTo3dBackendFallbackChain);
 				command += " --result_json " + QuoteArg(runnerResultPath.generic_string());
 				command += " --timeout_ms " + std::to_string(std::max(1000, request.options.textTo3dTimeoutMs));
 				command += request.options.textTo3dRequireGlbOutput ? " --require_glb 1" : " --require_glb 0";
@@ -581,6 +584,12 @@ namespace MyEngine::AI
 				std::string backendCommand;
 				if (doc.HasMember("command") && doc["command"].IsString())
 					backendCommand = doc["command"].GetString();
+				std::string selectedBackend;
+				if (doc.HasMember("backend") && doc["backend"].IsString())
+					selectedBackend = doc["backend"].GetString();
+				std::string backendFallbackChain;
+				if (doc.HasMember("backend_fallback_chain") && doc["backend_fallback_chain"].IsString())
+					backendFallbackChain = doc["backend_fallback_chain"].GetString();
 				std::string backendStderr;
 				if (doc.HasMember("stderr") && doc["stderr"].IsString())
 					backendStderr = doc["stderr"].GetString();
@@ -604,6 +613,10 @@ namespace MyEngine::AI
 						result.message += " | template_source=default";
 					else if (!commandTemplateSource.empty())
 						result.message += " | template_source=" + commandTemplateSource;
+					if (!selectedBackend.empty())
+						result.message += " | backend=" + selectedBackend;
+					if (!backendFallbackChain.empty())
+						result.message += " | backend_chain=" + backendFallbackChain;
 					if (!backendCommand.empty())
 						result.message += " | command=" + backendCommand;
 					if (!backendStderr.empty())
@@ -622,6 +635,10 @@ namespace MyEngine::AI
 				if (runnerExitCode != 0)
 				{
 					result.message = "Text-to-3D runner exited with non-zero status despite success payload.";
+					if (!selectedBackend.empty())
+						result.message += " | backend=" + selectedBackend;
+					if (!backendFallbackChain.empty())
+						result.message += " | backend_chain=" + backendFallbackChain;
 					if (!backendCommand.empty())
 						result.message += " | command=" + backendCommand;
 					if (!backendStderr.empty())
@@ -692,6 +709,10 @@ namespace MyEngine::AI
 					result.message += " (template_source=default)";
 				else if (!commandTemplateSource.empty())
 					result.message += " (template_source=" + commandTemplateSource + ")";
+				if (!selectedBackend.empty())
+					result.message += " (backend=" + selectedBackend + ")";
+				if (!backendFallbackChain.empty())
+					result.message += " (backend_chain=" + backendFallbackChain + ")";
 				if (attemptCount > 0)
 					result.message += " (attempts=" + std::to_string(attemptCount) + ")";
 				if (totalDurationMs >= 0)

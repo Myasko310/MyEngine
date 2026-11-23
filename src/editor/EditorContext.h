@@ -29,6 +29,7 @@ namespace MyEngine
 			UIState* ui = nullptr;
 			EditorUndo::UndoStack* undoStack = nullptr;
 			bool* isPlaying = nullptr;
+			bool* sparringEnabled = nullptr;
 			bool* wireframe = nullptr;
 			std::string* currentScenePath = nullptr;
 			std::vector<std::string>* recentScenes = nullptr;

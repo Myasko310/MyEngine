@@ -26,7 +26,7 @@ public:
 	// Find a path from `start` to `goal` using A*.
 	// Returns an ordered list of world-space waypoints (including `goal`),
 	// or an empty vector if no path exists or the grid has not been baked.
-	std::vector<glm::vec3> FindPath(glm::vec3 start, glm::vec3 goal) const;
+	std::vector<glm::vec3> FindPath(glm::vec3 start, glm::vec3 goal, const std::vector<glm::vec3>& discouraged = {}) const;
 
 	// Move all NavigationAgentComponents toward their targets.
 	// Call once per frame with the elapsed time.

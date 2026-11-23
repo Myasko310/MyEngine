@@ -10,8 +10,12 @@
 #include "components/CapsuleColliderComponent.h"
 #include "components/MeshColliderComponent.h"
 #include "components/CharacterControllerComponent.h"
+#include "components/ExplorerComponent.h"
+#include "components/SparringPartnerComponent.h"
 #include "components/CollisionEventsComponent.h"
 #include "components/CombatHitboxComponent.h"
+#include "components/CombatAttackComponent.h"
+#include "components/CombatStatsComponent.h"
 #include "components/CombatHurtboxComponent.h"
 #include "components/JointComponent.h"
 #include "components/AnimationStateMachineComponent.h"
@@ -21,6 +25,7 @@
 #include "core/InputActions.h"
 #include "core/PerformanceMetrics.h"
 #include "systems/TerrainSystem.h"
+#include "systems/NavMeshSystem.h"
 #include "network/NetTypes.h"
 
 #include <iostream>
@@ -324,6 +329,8 @@ namespace MyEngine
 				continue;
 
 			auto& controller = entity->GetComponent<CharacterControllerComponent>();
+			if (entity->HasComponent<ExplorerComponent>() || entity->HasComponent<SparringPartnerComponent>())
+				continue;
 			controller.moveInput = moveInput;
 			controller.jumpHeld = jumpDown;
 			// Latch jump input until the next fixed-step character update consumes it.
@@ -594,12 +601,32 @@ namespace MyEngine
 				const auto& otherCapsule = other->GetComponent<CapsuleColliderComponent>();
 				if (otherCapsule.isTrigger)
 					continue;
-				hit = CheckCapsuleCapsuleCollision(
-					segA, segB, radius,
-					other->GetComponent<TransformComponent>().position + otherCapsule.pointA * otherScale,
-					other->GetComponent<TransformComponent>().position + otherCapsule.pointB * otherScale,
-					otherCapsule.radius * glm::compMax(glm::vec2(otherScale.x, otherScale.z)),
-					normal, penetration);
+				const bool character = other->HasComponent<CharacterControllerComponent>();
+				const auto scale = character ? glm::vec3(1.0f) : otherScale;
+				const auto origin = other->GetComponent<TransformComponent>().position;
+				auto a = origin + otherCapsule.pointA * scale, b = origin + otherCapsule.pointB * scale;
+				if (a.y > b.y) std::swap(a, b);
+				if (character) a.y += std::max(other->GetComponent<CharacterControllerComponent>().capsuleBottomAnimationLift, 0.0f);
+				const float r = otherCapsule.radius * std::max(scale.x, scale.z);
+				hit = CheckCapsuleCapsuleCollision(segA, segB, radius, a, b, r, normal, penetration);
+				if (hit)
+				{
+					// The pair solver returns A-to-B; controller depenetration moves A outward.
+					normal = -normal;
+					if (character && entity->HasComponent<CharacterControllerComponent>())
+					{
+						glm::vec3 onSelf, onOther;
+						ClosestPointsBetweenSegments(segA, segB, a, b, onSelf, onOther);
+						auto side = onSelf - onOther;
+						const float dy = side.y;
+						side.y = 0;
+						const float distance = glm::length(side), reach = radius + r;
+						// Preserve vertical motion even for stacked endcaps. Coincident axes
+						// need opposite, stable lateral normals in the two query orders.
+						normal = distance > 0.0001f ? side / distance : glm::vec3(entity->GetID() < other->GetID() ? -1.0f : 1.0f, 0, 0);
+						penetration = std::max(0.0f, std::sqrt(std::max(0.0f, reach * reach - dy * dy)) - distance);
+					}
+				}
 			}
 			else if (other->HasComponent<BoundingSphereComponent>())
 			{
@@ -1286,12 +1313,724 @@ namespace MyEngine
 
 		// Update Fight/Attack parameter from action bindings
 		{
-			const bool isAttacking = InputActions::IsAction("Fight") || InputActions::IsAction("Attack");
+			const bool isAttacking = entity->HasComponent<SparringPartnerComponent>() ?
+				(entity->HasComponent<CombatAttackComponent>() && entity->GetComponent<CombatAttackComponent>().isAttacking) :
+				(!entity->HasComponent<ExplorerComponent>() && (InputActions::IsAction("Fight") || InputActions::IsAction("Attack")));
 			int fightIdx = sm.stateMachine->FindParameterIndex("IsFighting");
 			if (fightIdx >= 0 && static_cast<size_t>(fightIdx) < sm.parameterValues.size())
 			{
 				sm.parameterValues[fightIdx].boolValue = isAttacking;
 			}
+		}
+	}
+
+	static void ObserveEncounter(Scene& scene, EncounterMemory& memory, glm::vec3 position, float dt, ExplorerComponent* explorer = nullptr)
+	{
+		memory.TrackCrossing(position);
+		if (memory.file.empty()) return;
+		memory.sampleDelay -= dt;
+		if (memory.sampleDelay > 0.0f) return;
+		memory.sampleDelay = 0.75f;
+		float nearest = 6.0f;
+		glm::vec3 sighting = position;
+		std::string label;
+		std::vector<std::pair<std::string, glm::vec3>> nearby;
+		for (const auto& e : scene.GetEntities())
+		{
+			if (!e || !e->HasComponent<TransformComponent>() || e->HasComponent<CharacterControllerComponent>()) continue;
+			const auto& t = e->GetComponent<TransformComponent>();
+			if (t.parentID || (e->GetTag().empty() && e->GetName().empty())) continue;
+			const float distance = glm::distance(position, t.position);
+			if (explorer && distance <= 6.0f) nearby.emplace_back((e->GetTag().empty() ? e->GetName() : e->GetTag() + ":" + e->GetName()).substr(0,160), t.position);
+			if (distance >= nearest) continue;
+			nearest = distance;
+			sighting = t.position;
+			label = e->GetTag().empty() ? e->GetName() : e->GetTag() + ":" + e->GetName();
+		}
+		if (explorer && !label.empty() && std::any_of(memory.places.begin(), memory.places.end(), [&](const auto& place) {
+			return place.object == label && glm::distance(place.objectPosition, sighting) > 1.5f;
+		}))
+		{
+			unsigned matches = 0;
+			for (const auto& e : scene.GetEntities())
+			{
+				if (!e || !e->HasComponent<TransformComponent>() || e->GetComponent<TransformComponent>().parentID || e->HasComponent<CharacterControllerComponent>()) continue;
+				if ((e->GetTag().empty() ? e->GetName() : e->GetTag() + ":" + e->GetName()) == label) ++matches;
+			}
+			if (matches == 1) for (auto& place : memory.places)
+			{
+				if (place.object != label || glm::distance(place.objectPosition, sighting) <= 1.5f) continue;
+				if (explorer->revisitingLandmark && !explorer->following && glm::distance(explorer->goal, place.position) < 0.1f)
+				{
+					explorer->goal = position; explorer->route.clear(); explorer->replanDelay = 0;
+				}
+				place.object.clear();
+			}
+		}
+		if (explorer) for (auto& place : memory.places)
+		{
+			if (place.object.empty() || glm::distance(position, place.objectPosition) > 4.0f) { place.missingChecks = 0; continue; }
+			const bool found = std::any_of(nearby.begin(), nearby.end(), [&](const auto& seen) {
+				return seen.first == place.object && glm::distance(place.objectPosition, seen.second) <= 1.5f;
+			});
+			if (found) place.missingChecks = 0;
+			else if (++place.missingChecks >= 3)
+			{
+				if (explorer->revisitingLandmark && !explorer->following && glm::distance(explorer->goal,place.position) < 0.1f)
+				{
+					explorer->hasGoal = explorer->revisitingLandmark = false;
+					explorer->route.clear(); explorer->replanDelay = 0;
+				}
+				place.object.clear(); place.missingChecks = 0;
+			}
+		}
+		memory.Observe(position, label, sighting, explorer != nullptr);
+	}
+
+	static glm::vec3 ChooseRoamingGoal(ExplorerComponent& ai, const glm::vec3& position)
+	{
+		ai.revisitingLandmark = false;
+		ai.landmarkRetries = 0;
+		const auto* grid = ai.navigation;
+		if (ai.memory.loaded && ai.waypoint % 3 == 0)
+		{
+			const EncounterMemory::Place* best = nullptr;
+			float bestScore = -1.0f;
+			for (const auto& place : ai.memory.places)
+			{
+				const float distance = glm::distance(place.position, position);
+				if (distance < 3.0f) continue;
+				if (grid && grid->IsReady())
+				{
+					const auto cell = glm::floor((glm::vec2(place.position.x, place.position.z) - grid->GetOrigin()) / grid->GetCellSize());
+					if (!grid->IsCellWalkable(static_cast<int>(cell.x), static_cast<int>(cell.y))) continue;
+				}
+				const float score = (place.object.empty() ? 1.0f : 2.0f) / (1.0f + distance * 0.02f + place.visits * 0.1f);
+				if (score > bestScore) { bestScore = score; best = &place; }
+			}
+			if (best) { ai.revisitingLandmark = !best->object.empty(); return best->position; }
+		}
+		if (!grid || !grid->IsReady() || ai.waypoint == 0)
+		{
+			static const glm::vec3 offsets[] = {{7, 0, 0}, {7, 0, 6}, {-3, 0, 6}, {-3, 0, -4}, {4, 0, -4}};
+			return ai.origin + offsets[ai.waypoint % 5];
+		}
+		auto sample = [&]() { ai.roamSeed = ai.roamSeed * 1664525u + 1013904223u; return ai.roamSeed >> 8; };
+		glm::vec3 best = position;
+		float bestScore = -1.0f;
+		for (int i = 0; i < 24 && grid->GetCols() > 0 && grid->GetRows() > 0; ++i)
+		{
+			const int col = sample() % grid->GetCols(), row = sample() % grid->GetRows();
+			if (!grid->IsCellWalkable(col, row)) continue;
+			const glm::vec2 p = grid->GetOrigin() + glm::vec2(col + 0.5f, row + 0.5f) * grid->GetCellSize();
+			float score = glm::distance(p, glm::vec2(position.x, position.z));
+			for (const auto& past : ai.recentGoals) score = std::min(score, glm::distance(p, glm::vec2(past.x, past.z)));
+			if (ai.memory.loaded) score /= 1.0f + ai.memory.Familiarity({p.x, position.y, p.y});
+			if (score > bestScore) { bestScore = score; best = {p.x, position.y, p.y}; }
+		}
+		return best;
+	}
+
+	static void ScanExplorerMarkers(Scene& scene, ExplorerComponent& ai, glm::vec3 position)
+	{
+		if (!ai.following && !ai.interest)
+		{
+			float nearest = 14.0f;
+			for (const auto& e : scene.GetEntities())
+			{
+				if (!e || e->GetTag() != "ExplorerPOI" || !e->HasComponent<TransformComponent>() ||
+					std::find(ai.recentInterests.begin(), ai.recentInterests.end(), e->GetID()) != ai.recentInterests.end()) continue;
+				const auto p = e->GetComponent<TransformComponent>().position;
+				const float d = glm::distance(position, p);
+				if (d < nearest) { ai.interest = e->GetID(); ai.goal = p; nearest = d; }
+			}
+			if (ai.interest)
+			{
+				ai.revisitingLandmark = false;
+				ai.recentInterests.push_back(ai.interest);
+				if (ai.recentInterests.size() > 8) ai.recentInterests.erase(ai.recentInterests.begin());
+				ai.route.clear(); ai.hasGoal = true; ai.replanDelay = 0.0f;
+			}
+		}
+		if (ai.entrance || std::abs(ai.goal.y - position.y) < 1.5f) return;
+		std::unordered_map<std::string, const Entity*> ends;
+		float best = std::numeric_limits<float>::max();
+		for (const auto& e : scene.GetEntities())
+		{
+			const std::string prefix = "ExplorerLink:";
+			if (!e || e->GetTag().compare(0, prefix.size(), prefix) != 0 || e->GetTag().size() == prefix.size() || !e->HasComponent<TransformComponent>()) continue;
+			auto pair = ends.emplace(e->GetTag(), e.get());
+			if (pair.second) continue;
+			const Entity* entry = pair.first->second;
+			const Entity* out = e.get();
+			auto a = entry->GetComponent<TransformComponent>().position, b = out->GetComponent<TransformComponent>().position;
+			if (std::abs(a.y - position.y) > std::abs(b.y - position.y)) { std::swap(a, b); std::swap(entry, out); }
+			if (std::abs(a.y - position.y) > 1.25f || std::abs(b.y - ai.goal.y) + 0.75f >= std::abs(position.y - ai.goal.y)) continue;
+			const float cost = glm::distance(position, a) + glm::distance(a, b) + glm::distance(b, ai.goal);
+			if (cost < best) { best = cost; ai.entrance = entry->GetID(); ai.exit = out->GetID(); }
+		}
+		if (ai.entrance) { ai.route.clear(); ai.replanDelay = 0.0f; }
+	}
+
+	static bool ExplorerSlotOpen(const NavMeshSystem* nav, glm::vec3 slot, float radius)
+	{
+		if (!nav || !nav->IsReady()) return true;
+		for (float x : {-radius, radius}) for (float z : {-radius, radius})
+		{
+			const auto cell = glm::floor((glm::vec2(slot.x + x, slot.z + z) - nav->GetOrigin()) / nav->GetCellSize());
+			if (!nav->IsCellWalkable(static_cast<int>(cell.x), static_cast<int>(cell.y))) return false;
+		}
+		return true;
+	}
+
+	static void UpdateExplorerInput(Scene& scene, ExplorerComponent& ai, CharacterControllerComponent& controller, const glm::vec3& position, float radius, float dt)
+	{
+		auto direction = [&](glm::vec3 target) {
+			glm::vec3 delta = target - position;
+			delta.y = 0.0f;
+			return delta;
+		};
+		ai.legTime += dt;
+		ai.checkTimer += dt;
+		ai.replanDelay = std::max(0.0f, ai.replanDelay - dt);
+		ai.probeDelay = std::max(0.0f, ai.probeDelay - dt);
+		controller.jumpHeld = false;
+		controller.wallRunRequested = !controller.isGrounded;
+		controller.crouchHeld = controller.isSliding;
+		ai.requestedPace = 1.0f;
+		bool movingFormation = false;
+		if (ai.following)
+		{
+			const Entity* player = scene.GetEntityByID(ai.playerId);
+			if (!player || !player->HasComponent<TransformComponent>()) ai.SetFollowing(false);
+			else
+			{
+				const glm::vec3 p = player->GetComponent<TransformComponent>().position;
+				ai.lookDirection = direction(p);
+				glm::vec3 destination = p;
+				if (player->HasComponent<RigidbodyComponent>())
+				{
+					glm::vec3 velocity = player->GetComponent<RigidbodyComponent>().velocity;
+					velocity.y = 0.0f;
+					const float speed = glm::length(velocity);
+					if (speed > 0.5f)
+					{
+						movingFormation = true;
+						const glm::vec3 forward = velocity / speed;
+						const glm::vec3 side(forward.z, 0.0f, -forward.x);
+						glm::vec3 slot = p - forward * 1.6f;
+						float best = std::numeric_limits<float>::max();
+						int chosen = ai.followSide;
+						for (int sign : {ai.followSide, -ai.followSide})
+						{
+							const auto candidate = p + side * (1.6f * sign);
+							if (!ExplorerSlotOpen(ai.navigation, candidate, radius) || !ExplorerSlotOpen(ai.navigation, candidate + velocity * 0.35f, radius)) continue;
+							const float score = glm::length(direction(candidate)) + (sign == ai.followSide ? 0.0f : 0.8f);
+							if (score < best) { best = score; chosen = sign; slot = candidate; }
+						}
+						ai.followSide = chosen;
+						const glm::vec3 error = direction(slot);
+						destination = slot + velocity * 0.35f;
+						const float cruise = controller.moveSpeed * (controller.sprintLatched ? controller.sprintMultiplier : 1.0f);
+						ai.requestedPace = std::clamp(glm::length(velocity + error * 1.5f) / std::max(cruise, 0.1f), 0.05f, 1.0f);
+					}
+				}
+				ai.waiting = !movingFormation && glm::length(ai.lookDirection) < (ai.waiting ? 3.0f : 2.0f) && std::abs(p.y - position.y) < 1.5f;
+				if (ai.waiting) { controller.moveInput = glm::vec3(0.0f); ai.hasGoal = false; ai.route.clear(); return; }
+				if (!ai.hasGoal || (ai.replanDelay == 0.0f && glm::distance(destination, ai.goal) > (movingFormation ? 0.25f : 1.0f)))
+				{ ai.goal = destination; ai.hasGoal = true; ai.route.clear(); }
+			}
+		}
+		if (!ai.hasGoal) { ai.goal = ChooseRoamingGoal(ai, position); ai.hasGoal = true; }
+		ai.scanDelay -= dt;
+		if (ai.scanDelay <= 0.0f) { ScanExplorerMarkers(scene, ai, position); ai.scanDelay = 0.8f; }
+		if (ai.interest && glm::distance(position, ai.goal) < 1.5f)
+		{
+			ai.inspectTime += dt;
+			ai.lookDirection = direction(ai.goal);
+			controller.moveInput = glm::vec3(0.0f);
+			if (ai.inspectTime >= 1.5f)
+			{
+				ai.inspectTime = 0.0f;
+				ai.interest = ai.entrance = ai.exit = 0;
+				ai.crossing = ai.hasGoal = false;
+				ai.route.clear();
+			}
+			return;
+		}
+		if (ai.checkTimer >= 0.65f)
+		{
+			glm::vec3 travel = position - ai.checkpoint;
+			travel.y = 0.0f;
+			ai.blockedChecks = glm::length(travel) < 0.3f ? ai.blockedChecks + 1 : 0;
+			ai.checkpoint = position;
+			ai.checkTimer = 0.0f;
+			if ((ai.blockedChecks == 2 && controller.isGrounded) || controller.isWallRunning)
+				controller.jumpRequested = controller.jumpHeld = true;
+		}
+		if ((!ai.following && glm::distance(position, ai.goal) < 0.6f) || (ai.blockedChecks >= 3 && !ai.revisitingLandmark))
+		{
+			ai.route.clear();
+			ai.nextNode = 0;
+			ai.entrance = ai.exit = ai.interest = 0; ai.crossing = false;
+			ai.replanDelay = 0.0f;
+			if (!ai.following)
+			{
+				if (ai.recentGoals.size() == 12) ai.recentGoals.erase(ai.recentGoals.begin());
+				ai.recentGoals.push_back(ai.goal);
+				++ai.waypoint;
+				ai.goal = ChooseRoamingGoal(ai, position);
+			}
+			ai.legTime = ai.checkTimer = 0.0f;
+			ai.blockedChecks = 0;
+			ai.checkpoint = position;
+			if (ai.waypoint == 1 && !controller.sprintLatched) controller.sprintRequested = true;
+			if (ai.waypoint == 2 && controller.isSprinting)
+			{
+				controller.slideRequested = true;
+				controller.slideInputBufferTimer = controller.slideInputBufferDuration;
+			}
+			if (ai.waypoint == 3) controller.dodgeRequested = true;
+		}
+		glm::vec3 target = ai.goal;
+		if (ai.entrance)
+		{
+			const Entity* marker = scene.GetEntityByID(ai.crossing ? ai.exit : ai.entrance);
+			if (!marker || !marker->HasComponent<TransformComponent>() || glm::distance(position, marker->GetComponent<TransformComponent>().position) < 0.85f)
+			{
+				if (ai.crossing || !marker || !marker->HasComponent<TransformComponent>()) { ai.entrance = ai.exit = 0; ai.crossing = false; }
+				else ai.crossing = true;
+				ai.route.clear(); ai.replanDelay = 0.0f;
+				controller.moveInput = glm::vec3(0.0f); return;
+			}
+			target = marker->GetComponent<TransformComponent>().position;
+		}
+		const auto* grid = ai.navigation;
+		if (!ai.crossing && grid && grid->IsReady())
+		{
+			auto walkable = [&](glm::vec3 p) {
+				glm::vec2 cell = glm::floor((glm::vec2(p.x, p.z) - grid->GetOrigin()) / grid->GetCellSize());
+				return grid->IsCellWalkable(static_cast<int>(cell.x), static_cast<int>(cell.y));
+			};
+			const float radius = std::min(0.45f, grid->GetCellSize() * 0.4f);
+			while (ai.nextNode < ai.route.size() && glm::length(direction(ai.route[ai.nextNode])) <= radius)
+				++ai.nextNode;
+			if (ai.nextNode < ai.route.size() && !walkable(ai.route[ai.nextNode])) ai.route.clear();
+			if (ai.nextNode >= ai.route.size() && ai.replanDelay == 0.0f)
+			{
+				ai.route = grid->FindPath(position, target, ai.memory.stalls);
+				ai.nextNode = ai.route.size() > 1 ? 1 : 0;
+				ai.replanDelay = 0.75f;
+				if (ai.route.empty() && walkable(position))
+				{
+					if (!ai.following) { ++ai.waypoint; ai.hasGoal = false; ai.interest = ai.entrance = ai.exit = 0; }
+					ai.legTime = ai.checkTimer = 0.0f;
+					ai.blockedChecks = 0;
+				}
+			}
+			if (ai.nextNode < ai.route.size()) target = ai.route[ai.nextNode];
+			else if (walkable(position))
+			{
+				controller.moveInput = glm::vec3(0.0f);
+				return;
+			}
+		}
+		if (ai.probeDelay == 0.0f && controller.enableVault && controller.enableSprintSlide && controller.isGrounded && !controller.isSliding)
+		{
+			controller.sprintRequested |= !controller.sprintLatched;
+			controller.vaultRequested = true;
+			ai.probeDelay = 0.18f;
+		}
+		const glm::vec3 delta = direction(target);
+		controller.moveInput = delta / std::max(glm::length(delta), 0.001f);
+		const float cruise = std::max(0.1f, controller.moveSpeed * (controller.sprintLatched ? controller.sprintMultiplier : 1.0f));
+		const float braking = std::max(0.5f, controller.braking * 0.45f);
+		if (ai.nextNode + 1 < ai.route.size())
+		{
+			glm::vec3 outgoing = ai.route[ai.nextNode + 1] - target;
+			outgoing.y = 0.0f;
+			const float alignment = glm::dot(controller.moveInput, outgoing / std::max(glm::length(outgoing), 0.001f));
+			const float cornerSpeed = cruise * std::clamp(0.48f + 0.52f * alignment, 0.25f, 1.0f);
+			const float distance = std::max(0.0f, glm::length(delta) - 0.45f);
+			ai.requestedPace = std::min(ai.requestedPace, std::sqrt(cornerSpeed * cornerSpeed + 2.0f * braking * distance) / cruise);
+		}
+		if (!movingFormation)
+		{
+			const float stopRadius = ai.following ? 2.0f : (ai.interest ? 1.5f : 0.6f);
+			const float distance = std::max(0.0f, glm::length(direction(ai.goal)) - stopRadius);
+			ai.requestedPace = std::min(ai.requestedPace, std::max(0.18f, std::sqrt(2.0f * braking * distance) / cruise));
+		}
+		const float remaining = glm::distance(position, target);
+		if (ai.bestDistance < 0.0f || glm::distance(ai.progressTarget, target) > 0.5f || remaining < ai.bestDistance - 0.12f)
+		{
+			ai.bestDistance = remaining; ai.progressTarget = target; ai.noProgress = 0.0f;
+		}
+		else ai.noProgress += dt;
+		if (ai.noProgress >= 2.0f || ai.blockedChecks >= 2)
+		{
+			const bool retryLandmark = ai.revisitingLandmark && !ai.following && !ai.entrance && ai.nextNode < ai.route.size() && ai.landmarkRetries < 3;
+			if (retryLandmark) { ai.memory.NoteStall(ai.route[ai.nextNode]); ++ai.landmarkRetries; }
+			++ai.recoveries;
+			const float sign = ai.recoveries % 2 ? 1.0f : -1.0f;
+			ai.escapeDirection = glm::vec3(-controller.moveInput.z, 0, controller.moveInput.x) * sign;
+			ai.escapeTime = 0.45f;
+			ai.route.clear(); ai.replanDelay = 0.0f; ai.bestDistance = -1.0f;
+			ai.blockedChecks = 0; ai.noProgress = 0.0f;
+			if (!ai.following && !retryLandmark) { ai.revisitingLandmark = false; ai.interest = ai.entrance = ai.exit = 0; ai.crossing = ai.hasGoal = false; ++ai.waypoint; }
+		}
+		if (ai.escapeTime > 0.0f)
+		{
+			ai.escapeTime -= dt;
+			controller.moveInput = ai.escapeDirection;
+		}
+	}
+
+	// Horizontal decks only. The radius-expanded footprint is convex, so checking
+	// both ends of the step verifies reach throughout a constant-velocity window.
+	static float BoardingETA(glm::vec3 dock, glm::vec3 lo, glm::vec3 hi, glm::vec3 velocity, float reach, float stepTime)
+	{
+		const glm::vec2 point(dock.x, dock.z), motion(velocity.x, velocity.z);
+		auto inReach = [&](float t) {
+			const glm::vec2 local = point - motion * t;
+			const glm::vec2 offset = local - glm::clamp(local, glm::vec2(lo.x, lo.z), glm::vec2(hi.x, hi.z));
+			return glm::dot(offset, offset) <= reach * reach;
+		};
+		for (int i = 0; i <= 80; ++i)
+		{
+			const float eta = i * 0.05f;
+			if (inReach(eta) && inReach(eta + stepTime)) return eta;
+		}
+		return std::numeric_limits<float>::infinity();
+	}
+
+	static bool ContinueEncounterJump(EncounterSteering& ai, CharacterControllerComponent& controller, glm::vec3 position, float dt)
+	{
+		if (ai.plannedFlight <= 0) return false;
+		ai.plannedFlight = std::max(0.0f, ai.plannedFlight - dt);
+		if (!controller.isGrounded && !controller.isVaulting && !controller.isWallRunning)
+		{
+			auto toLanding = ai.jumpLanding - position; toLanding.y = 0;
+			controller.moveInput = toLanding / std::max(glm::length(toLanding), 0.3f) * ai.jumpInput;
+			controller.wallRunRequested = false;
+			return true;
+		}
+		ai.plannedFlight = 0;
+		return false;
+	}
+
+	void PhysicsSystem::SteerExplorer(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, float dt) const
+	{
+		auto& ai = entity->GetComponent<ExplorerComponent>();
+		glm::vec3 desired = controller.moveInput;
+		if (ContinueEncounterJump(ai, controller, entity->GetComponent<TransformComponent>().position, dt)) return;
+		float pace = 1.0f;
+		if (controller.isGrounded && !controller.isVaulting && ai.hasGoal && !ai.waiting)
+		{
+			const glm::vec3 p = entity->GetComponent<TransformComponent>().position;
+			glm::vec3 bodyMin, bodyMax;
+			ComputeColliderAABB(scene, entity, bodyMin, bodyMax);
+			const float radius = entity->GetComponent<CapsuleColliderComponent>().radius;
+			const float stepTime = std::clamp((radius + 0.12f) / std::max(0.1f, controller.moveSpeed * 0.65f) + 0.12f, 0.2f, 1.0f);
+			glm::vec3 toward = ai.goal - p; toward.y = 0;
+			toward /= std::max(glm::length(toward), 0.001f);
+			ai.ferryTimer -= dt;
+			if (!ai.ferry && ai.ferryTimer <= 0.0f)
+			{
+				ai.ferryTimer = 0.25f;
+				float best = std::numeric_limits<float>::infinity();
+				for (const auto& deck : scene.GetEntities())
+				{
+					if (!deck || deck->GetTag() != "ExplorerPlatform" || !deck->HasComponent<BoxColliderComponent>() || deck->GetComponent<BoxColliderComponent>().isTrigger || !deck->HasComponent<RigidbodyComponent>()) continue;
+					glm::vec3 lo, hi;
+					if (!ComputeColliderAABB(scene, deck, lo, hi) || std::abs(hi.y - bodyMin.y) > controller.maxStepHeight + 0.1f) continue;
+					glm::vec3 edge = glm::clamp(p, lo, hi) - p; edge.y = 0;
+					const float gap = glm::length(edge);
+					if (gap > radius && !(ai.unsafeEdge && glm::dot(edge, toward) > 0.6f * gap)) continue;
+					const float eta = gap == 0.0f ? -1.0f : BoardingETA(p, lo, hi, deck->GetComponent<RigidbodyComponent>().velocity, radius + 0.12f, stepTime);
+					if (eta < best) { best = eta; ai.ferry = deck->GetID(); ai.ferryTimer = 5.0f; }
+				}
+			}
+			const auto deck = ai.ferry ? scene.GetEntitySharedByID(ai.ferry) : nullptr;
+			glm::vec3 lo, hi;
+			if (deck && ComputeColliderAABB(scene, deck, lo, hi) && std::abs(hi.y - bodyMin.y) <= controller.maxStepHeight + 0.1f)
+			{
+				const bool onDeck = p.x >= lo.x && p.x <= hi.x && p.z >= lo.z && p.z <= hi.z;
+				const float eta = onDeck || !deck->HasComponent<RigidbodyComponent>() ? std::numeric_limits<float>::infinity() :
+					BoardingETA(p, lo, hi, deck->GetComponent<RigidbodyComponent>().velocity, radius + 0.12f, stepTime);
+				if (onDeck || (!ai.riding && ai.ferryTimer > 0.0f && std::isfinite(eta)))
+				{
+					ai.checkpoint = p; ai.noProgress = ai.checkTimer = 0; ai.blockedChecks = 0;
+					controller.jumpRequested = controller.vaultRequested = controller.dodgeRequested = controller.slideRequested = false;
+					glm::vec3 command(0.0f);
+					if (onDeck)
+					{
+						ai.riding = true;
+						float edgeDist = std::numeric_limits<float>::max();
+						for (int axis : {0, 2}) if (std::abs(toward[axis]) > 0.001f)
+							edgeDist = std::min(edgeDist, ((toward[axis] > 0 ? hi[axis] : lo[axis]) - p[axis]) / toward[axis]);
+						if (edgeDist < 8.0f)
+						{
+							const float step = std::max(controller.maxStepHeight, 0.1f);
+							glm::vec3 landing = p + toward * (edgeDist + radius + 0.2f);
+							landing.y += step + 0.1f;
+							glm::vec3 seam = p + toward * (edgeDist + radius + 0.04f);
+							seam.y = landing.y;
+							if (FindVaultLanding(scene, entity, controller, landing, p.y - step) && FindVaultLanding(scene, entity, controller, seam, p.y - step)) command = toward;
+						}
+					}
+					else if (eta == 0.0f)
+					{
+						glm::vec3 center = (hi + lo) * 0.5f - p; center.y = 0;
+						command = center / std::max(glm::length(center), 0.01f);
+					}
+					ai.steering = controller.moveInput = command * 0.65f;
+					return;
+				}
+			}
+			if (ai.ferry) { ai.ferry = 0; ai.riding = false; ai.ferryTimer = 0.5f; }
+		}
+		if (ai.following && glm::length(desired) > 0.1f)
+		{
+			const glm::vec3 p = entity->GetComponent<TransformComponent>().position;
+			const glm::vec3 side(-desired.z, 0, desired.x);
+			const float radius = entity->GetComponent<CapsuleColliderComponent>().radius;
+			float closest = 2.5f;
+			float lateral = 0.0f;
+			for (const auto& other : scene.GetEntities())
+			{
+				if (!other || other == entity || other->GetID() == ai.playerId || !other->HasComponent<CharacterControllerComponent>() || !other->HasComponent<TransformComponent>()) continue;
+				const glm::vec3 relative = other->GetComponent<TransformComponent>().position - p;
+				const float ahead = glm::dot(relative, desired), offset = glm::dot(relative, side);
+				if (std::abs(relative.y) < 1.2f && ahead >= 0.0f && ahead < closest && std::abs(offset) < radius * 2.0f + 0.4f)
+				{ closest = ahead; lateral = offset; }
+			}
+			if (closest < 2.5f)
+			{
+				float sign = lateral > 0.0f ? -1.0f : 1.0f;
+				auto open = [&](float s) {
+					if (!ai.navigation || !ai.navigation->IsReady()) return true;
+					const auto& nav = *ai.navigation;
+					const auto q = p + desired * 0.65f + side * s * std::max(nav.GetCellSize(), radius * 2.5f);
+					const auto c = glm::floor((glm::vec2(q.x, q.z) - nav.GetOrigin()) / nav.GetCellSize());
+					return nav.IsCellWalkable(static_cast<int>(c.x), static_cast<int>(c.y));
+				};
+				if (!open(sign)) sign = -sign;
+				if (open(sign)) { desired = glm::normalize(desired + side * sign); pace = 0.65f; }
+				else pace = std::clamp((closest - 2.0f * radius - 0.25f) / 2.0f, 0.0f, 0.5f);
+			}
+		}
+		SteerTerrain(scene, entity, controller, ai, desired, pace, dt);
+	}
+
+	void PhysicsSystem::SteerTerrain(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, EncounterSteering& ai, glm::vec3 desired, float pace, float dt) const
+	{
+		if (glm::length(desired) < 0.01f) { ai.steering = glm::vec3(0.0f); ai.terrainProbeTimer = 0.0f; return; }
+		const glm::vec3 lateral(desired.z, 0, -desired.x);
+		auto laneDirection = [&](int lane) { return glm::normalize(desired + lateral * (0.65f * lane)); };
+		ai.clearanceTimer -= dt;
+		if (ai.clearanceTimer <= 0.0f || glm::dot(desired, ai.clearanceHeading) < 0.85f)
+		{
+			ai.clearanceTimer = 0.12f;
+			ai.clearanceHeading = desired;
+			glm::vec3 bodyMin, bodyMax;
+			ComputeColliderAABB(scene, entity, bodyMin, bodyMax);
+			const glm::vec3 center = (bodyMin + bodyMax) * 0.5f;
+			const glm::vec3 padding = (bodyMax - bodyMin) * 0.5f + glm::vec3(0.08f, 0, 0.08f);
+			const float speed = std::max(1.0f, controller.moveSpeed * ai.requestedPace);
+			float clearTime[3] = {0.65f, 0.65f, 0.65f};
+			for (const auto& other : scene.GetEntities())
+			{
+				if (!other || other == entity || other->GetTag() == "ExplorerPlatform") continue;
+				if (entity->HasComponent<SparringPartnerComponent>())
+				{
+					const auto& partner = entity->GetComponent<SparringPartnerComponent>();
+					if (partner.counterWindow > 0 && other->GetID() == partner.playerId) continue;
+				}
+				const bool box = other->HasComponent<BoxColliderComponent>();
+				const bool capsule = other->HasComponent<CapsuleColliderComponent>();
+				const bool sphere = other->HasComponent<BoundingSphereComponent>();
+				if (!(box || capsule || sphere) || (box && other->GetComponent<BoxColliderComponent>().isTrigger) ||
+					(capsule && other->GetComponent<CapsuleColliderComponent>().isTrigger) || (sphere && other->GetComponent<BoundingSphereComponent>().isTrigger)) continue;
+				glm::vec3 lo, hi;
+				if (!ComputeColliderAABB(scene, other, lo, hi) || hi.y <= bodyMin.y + controller.maxStepHeight) continue;
+				const glm::vec3 motion = other->HasComponent<RigidbodyComponent>() ? other->GetComponent<RigidbodyComponent>().velocity : glm::vec3(0);
+				if (box && controller.enableVault && controller.enableSprintSlide && hi.y <= bodyMin.y + controller.vaultMaxHeight && glm::length(motion) < 0.1f) continue;
+				lo -= padding; hi += padding;
+				for (int lane = -1; lane <= 1; ++lane)
+				{
+					const glm::vec3 v = laneDirection(lane) * speed - motion;
+					float enter = 0, leave = clearTime[lane + 1];
+					for (int axis = 0; axis < 3 && enter <= leave; ++axis)
+					{
+						if (std::abs(v[axis]) < 0.0001f) { if (center[axis] < lo[axis] || center[axis] > hi[axis]) leave = -1; continue; }
+						const float a = (lo[axis] - center[axis]) / v[axis], b = (hi[axis] - center[axis]) / v[axis];
+						enter = std::max(enter, std::min(a,b)); leave = std::min(leave, std::max(a,b));
+					}
+					if (enter <= leave) clearTime[lane + 1] = enter;
+				}
+			}
+			ai.clearanceLane = 0;
+			for (int lane : {-1, 1}) if (clearTime[lane + 1] > clearTime[ai.clearanceLane + 1] + 0.06f) ai.clearanceLane = lane;
+			ai.clearancePace = std::clamp((clearTime[ai.clearanceLane + 1] - 0.07f) / 0.35f, 0.0f, 1.0f);
+		}
+		desired = laneDirection(ai.clearanceLane);
+		pace = std::min(pace, ai.clearancePace);
+		ai.terrainProbeTimer -= dt;
+		if (controller.isGrounded && !controller.isVaulting && ai.terrainProbeTimer <= 0.0f)
+		{
+			ai.terrainProbeTimer = 0.16f;
+			ai.avoidance = glm::vec3(0.0f);
+			const glm::vec3 p = entity->GetComponent<TransformComponent>().position;
+			const float speed = glm::length(entity->GetComponent<RigidbodyComponent>().velocity);
+			const float ahead = std::clamp(speed * 0.22f + 0.35f, 0.55f, 2.0f);
+			const float step = std::max(controller.maxStepHeight, 0.1f);
+			auto landing = [&](glm::vec3 dir, float distance, float rise, float& height) {
+				glm::vec3 sample = p + dir * distance;
+				sample.y += rise + 0.1f;
+				if (!FindVaultLanding(scene, entity, controller, sample, p.y - step - 0.15f)) return false;
+				height = sample.y - p.y;
+				return height <= rise + 0.05f;
+			};
+			float height = 0.0f;
+			ai.unsafeEdge = !landing(desired, ahead, step, height);
+			if (ai.unsafeEdge)
+			{
+				const float g = std::abs(gravity.y * controller.gravityScale);
+				const float rise = g > 0.01f ? std::min(1.5f, 0.4f * controller.jumpSpeed * controller.jumpSpeed / g) : 0.0f;
+				glm::vec3 velocity = entity->GetComponent<RigidbodyComponent>().velocity;
+				velocity.y = 0.0f;
+				const float horizontalSpeed = glm::length(velocity);
+				const glm::vec3 launch = velocity / std::max(horizontalSpeed, 0.001f);
+				if (rise > step && horizontalSpeed > 0.5f && glm::dot(launch, desired) > 0.9f && pace > 0.8f)
+				{
+					for (float candidateHeight : {rise, 0.5f * rise, 0.0f, -step})
+					{
+						auto flightTime = [&](float h) { return (controller.jumpSpeed + std::sqrt(std::max(0.0f, controller.jumpSpeed * controller.jumpSpeed - 2.0f * g * h))) / g; };
+						float distance = horizontalSpeed * flightTime(candidateHeight);
+						if (distance <= ahead || !landing(launch, distance, rise, height)) continue;
+						const float flight = flightTime(height);
+						distance = horizontalSpeed * flight;
+						float actualHeight = 0.0f;
+						if (!landing(launch, distance, rise, actualHeight) || std::abs(actualHeight - height) > 0.1f) continue;
+						bool clear = true;
+						for (int i = 1; i < 10 && clear; ++i)
+						{
+							const float t = flight * i / 10.0f;
+							glm::vec3 sample = p + velocity * t;
+							sample.y += controller.jumpSpeed * t - 0.5f * g * t * t;
+							glm::vec3 normal; float penetration;
+							clear = !QueryVaultContact(scene, entity, sample, normal, penetration) || penetration <= 0.001f;
+						}
+						if (!clear) continue;
+						ai.jumpLanding = p + launch * distance + glm::vec3(0, actualHeight, 0);
+						ai.plannedFlight = flight + dt;
+						ai.jumpInput = std::min(1.0f, horizontalSpeed / std::max(controller.moveSpeed, 0.1f));
+						controller.jumpRequested = controller.jumpHeld = true;
+						ai.unsafeEdge = false;
+						break;
+					}
+				}
+				if (ai.unsafeEdge)
+				{
+					const glm::vec3 side(-desired.z, 0, desired.x);
+					for (float sign : {1.0f, -1.0f})
+					{
+						const glm::vec3 turn = glm::normalize(desired * 0.35f + side * sign);
+						if (landing(turn, ahead, step, height)) { ai.avoidance = turn; break; }
+					}
+				}
+			}
+		}
+		if (controller.isGrounded && ai.unsafeEdge)
+		{
+			controller.jumpRequested = controller.dodgeRequested = controller.slideRequested = false;
+			desired = ai.avoidance;
+			ai.steering = desired;
+		}
+		else
+		{
+			const glm::vec3 demand = desired * ai.requestedPace;
+			const float rate = glm::length(demand) > glm::length(ai.steering) ? 3.0f : 5.0f;
+			ai.steering = MoveTowards(ai.steering, demand, dt * rate);
+		}
+		controller.moveInput = ai.steering * pace;
+	}
+
+	void PhysicsSystem::SteerPartner(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& ctl, float distance, float dt) const
+	{
+		auto& ai = entity->GetComponent<SparringPartnerComponent>();
+		auto& terrain = ai.traversal;
+		const auto p = entity->GetComponent<TransformComponent>().position;
+		if (ContinueEncounterJump(terrain, ctl, p, dt)) return;
+		const float speed = glm::length(ctl.moveInput);
+		if (speed < 0.01f) { terrain.steering = {}; ai.replan = ai.progressTime = ai.escapeTime = 0; ai.route.clear(); return; }
+		auto dir = ctl.moveInput / speed;
+		const bool closing = glm::dot(dir, ai.facing) > 0.8f;
+		ai.replan -= dt;
+		if (((closing && distance > 3) || (ai.flanking && distance > 2)) && ai.navigation && ai.navigation->IsReady())
+		{
+			if (ai.replan <= 0)
+			{
+				const auto target = p + ai.facing * distance;
+				const auto& grid = *ai.navigation;
+				auto visible = [&](glm::vec3 from, glm::vec3 to) {
+					const int steps = std::clamp(static_cast<int>(std::ceil(glm::distance(from,to) / (0.45f * grid.GetCellSize()))), 1, 512);
+					for (int i = 0; i <= steps; ++i)
+					{
+						const auto q = glm::mix(from,to,static_cast<float>(i)/steps);
+						const auto cell = glm::floor((glm::vec2(q.x,q.z) - grid.GetOrigin()) / grid.GetCellSize());
+						if (!grid.IsCellWalkable(static_cast<int>(cell.x),static_cast<int>(cell.y))) return false;
+					}
+					return true;
+				};
+				const bool previouslyFlanking = ai.flanking;
+				ai.flanking = false;
+				if (ai.flankHoldoff <= 0 && !visible(p,target))
+				{
+					const glm::vec3 side(-ai.facing.z,0,ai.facing.x);
+					for (int sign : {ai.flankSide,-ai.flankSide})
+					{
+						const auto slot = target + side * (2.4f * sign);
+						if (!visible(slot,target)) continue;
+						auto path = grid.FindPath(p,slot,ai.memory.stalls);
+						if (path.empty()) continue;
+						ai.route = std::move(path); ai.flanking = true; ai.flankSide = sign; break;
+					}
+				}
+				if (!ai.flanking) ai.route = grid.FindPath(p,target,ai.memory.stalls);
+				if (ai.flanking != previouslyFlanking) ai.RecordDecision(ai.flanking ? "Cover blocks approach; taking flank" : "Flank ended; resuming pursuit");
+				ai.node = ai.route.size() > 1 ? 1 : 0;
+				ai.replan = 0.75f;
+			}
+			while (ai.node < ai.route.size())
+			{
+				auto next = ai.route[ai.node] - p; next.y = 0;
+				if (glm::length(next) > 0.4f) { dir = glm::normalize(next); break; }
+				++ai.node;
+			}
+		}
+		else { ai.replan = 0; ai.route.clear(); }
+		if (ai.progressTime <= 0) ai.checkpoint = p;
+		ai.progressTime += dt;
+		if (ai.progressTime >= 0.8f)
+		{
+			if (glm::distance(glm::vec2(p.x,p.z), glm::vec2(ai.checkpoint.x,ai.checkpoint.z)) < 0.2f)
+			{
+				if (closing && ai.node < ai.route.size()) ai.memory.NoteStall(ai.route[ai.node]);
+				ai.escape = glm::vec3(-dir.z,0,dir.x) * static_cast<float>(ai.escapeSide);
+				ai.escapeSide = -ai.escapeSide; ai.escapeTime = 0.45f; ai.replan = 0;
+			}
+			ai.progressTime = 0;
+		}
+		if (ai.escapeTime > 0) { dir = ai.escape; ai.escapeTime -= dt; }
+		if (!ctl.isGrounded) { ctl.moveInput = dir * speed; return; }
+		terrain.requestedPace = speed;
+		if (glm::dot(dir, terrain.clearanceHeading) < 0.85f) terrain.terrainProbeTimer = 0;
+		SteerTerrain(scene, entity, ctl, terrain, dir, 1.0f, dt);
+		if (closing && ctl.enableVault && ctl.enableSprintSlide && !terrain.unsafeEdge && !ctl.jumpRequested && glm::length(ctl.moveInput) > 0.1f)
+		{
+			ctl.sprintRequested = !ctl.sprintLatched;
+			ctl.vaultRequested = true;
 		}
 	}
 
@@ -1308,6 +2047,165 @@ namespace MyEngine
 			auto& controller = entity->GetComponent<CharacterControllerComponent>();
 			auto& transform = entity->GetComponent<TransformComponent>();
 			auto& rb = entity->GetComponent<RigidbodyComponent>();
+			if (entity->HasComponent<ExplorerComponent>())
+			{
+				auto& ai = entity->GetComponent<ExplorerComponent>();
+				ObserveEncounter(scene, ai.memory, transform.position, dt, &ai);
+				UpdateExplorerInput(scene, ai, controller, transform.position, entity->GetComponent<CapsuleColliderComponent>().radius, dt);
+				SteerExplorer(scene, entity, controller, dt);
+			}
+			else if (entity->HasComponent<SparringPartnerComponent>())
+			{
+				auto& ai = entity->GetComponent<SparringPartnerComponent>();
+				ObserveEncounter(scene, ai.memory, transform.position, dt);
+				ai.laneDisplayTime = std::max(0.0f, ai.laneDisplayTime - dt);
+				ai.encounterTime += dt;
+				const auto previousMode = ai.footwork;
+				using Mode = SparringPartnerComponent::Footwork;
+				controller.ClearFrameInput();
+				auto player = scene.GetEntitySharedByID(ai.playerId);
+				if (player && player->HasComponent<TransformComponent>())
+				{
+					auto delta = player->GetComponent<TransformComponent>().position - transform.position;
+					delta.y = 0.0f;
+					const float distance = glm::length(delta);
+					if (distance > 0.001f) ai.facing = delta / distance;
+					if (distance > 3.0f) ai.footwork = Mode::Approach;
+					else if (distance < 2.0f) ai.footwork = Mode::Retreat;
+					else if ((ai.footwork == Mode::Approach && distance <= 2.7f) ||
+						(ai.footwork == Mode::Retreat && distance >= 2.3f)) ai.footwork = Mode::Hold;
+					if (ai.footwork != Mode::Hold)
+					{
+						const glm::vec3 side(-ai.facing.z, 0.0f, ai.facing.x);
+						if (ai.memory.loaded && previousMode != ai.footwork)
+						{
+							const auto left = ai.memory.Familiarity(transform.position + side * 3.0f);
+							const auto right = ai.memory.Familiarity(transform.position - side * 3.0f);
+							const bool revisit = ai.spacingDecisions++ % 3 == 0;
+							ai.sideBias = left == right ? 0.0f : ((left > right) == revisit ? 0.12f : -0.12f);
+						}
+						controller.moveInput = ai.facing * (ai.footwork == Mode::Approach ? 0.65f : -0.45f) + side * ai.sideBias;
+					}
+					using Phase = CombatAttackComponent::AttackPhase;
+					ai.flankHoldoff = std::max(0.0f, ai.flankHoldoff - dt);
+					if (ai.DoubledBack(player->GetComponent<TransformComponent>().position) && ai.flanking)
+					{
+						ai.flanking = false; ai.route.clear(); ai.replan = ai.escapeTime = 0; ai.flankHoldoff = 0.8f;
+						ai.RecordDecision("Player doubled back; abandoned flank");
+					}
+					const auto phase = player->HasComponent<CombatAttackComponent>() ? player->GetComponent<CombatAttackComponent>().phase : Phase::Idle;
+					bool committed = phase == Phase::Active;
+					if (phase == Phase::Startup)
+					{
+						const auto& attack = player->GetComponent<CombatAttackComponent>();
+						committed = attack.activeAttackIndex >= 0 && attack.activeAttackIndex < static_cast<int>(attack.attacks.size()) &&
+							attack.phaseFrame >= attack.attacks[attack.activeAttackIndex].startupFrames / 3;
+					}
+					auto& counter = entity->GetComponent<CombatAttackComponent>();
+					ai.patternTime = std::max(0.0f, ai.patternTime - dt);
+					if (ai.counterWindow > 0 && ai.counterWindow <= dt && !ai.counterSpent)
+						ai.counterReason = "Opening expired before a counter was possible";
+					ai.counterWindow = std::max(0.0f, ai.counterWindow - dt);
+					if (ai.responding && (phase == Phase::Recovery || phase == Phase::Idle))
+					{
+						ai.responding = false;
+						ai.counterWindow = phase == Phase::Recovery ? 1.15f : 0.0f;
+						ai.counterReason = ai.counterWindow > 0 ? "Player recovering; closing into hitbox range" : "Windup canceled; no counter opening";
+						ai.RecordDecision(ai.counterReason);
+					}
+					const bool disabled = entity->GetComponent<CombatStatsComponent>().isDead || (player->HasComponent<CombatStatsComponent>() && player->GetComponent<CombatStatsComponent>().isDead);
+					if (disabled || counter.isAttacking || counter.attackRequested) controller.moveInput = glm::vec3(0);
+					else if ((phase == Phase::Startup || phase == Phase::Active) && distance < 3.4f && std::abs(transform.position.y - player->GetComponent<TransformComponent>().position.y) < 1.4f)
+					{
+						if (!ai.responding)
+						{
+							ai.WitnessSwing(player->GetComponent<CombatAttackComponent>().activeAttackIndex);
+							ai.dodgeReason = "Watching windup; holding dodge until commitment";
+							ai.RecordDecision(ai.dodgeReason);
+							ai.evadeSide = ai.ChooseLane();
+							ai.counterWindow = 0;
+							ai.counterSpent = ai.dodgeIssued = false;
+						}
+						ai.responding = true;
+						controller.moveInput = ai.DodgeLane(1) * 0.9f;
+					}
+					else if (ai.counterWindow > 0 && !ai.counterSpent && !controller.isDodging && (phase == Phase::Recovery || phase == Phase::Idle) && player->HasComponent<CombatHurtboxComponent>())
+					{
+						controller.moveInput = ai.facing;
+						const CombatAttackDefinition fallback;
+						const auto& hurt = player->GetComponent<CombatHurtboxComponent>();
+						const auto world = TransformHierarchy::GetWorldMatrix(scene, *entity);
+						const auto hurtPos = TransformHierarchy::GetWorldMatrix(scene, *player) * glm::vec4(hurt.center, 1);
+						const float hitScale = glm::compMax(ExtractWorldScale(scene, *entity));
+						const float hurtRadius = hurt.radius * glm::compMax(ExtractWorldScale(scene, *player));
+						int recovery = 0;
+						if (phase == Phase::Recovery)
+						{
+							const auto& swing = player->GetComponent<CombatAttackComponent>();
+							if (swing.activeAttackIndex >= 0 && swing.activeAttackIndex < static_cast<int>(swing.attacks.size()))
+								recovery = swing.attacks[swing.activeAttackIndex].recoveryFrames - swing.phaseFrame;
+						}
+						int pick = -1;
+						const CombatAttackDefinition* best = nullptr;
+						for (int i = 0; i < std::max(1, static_cast<int>(counter.attacks.size())); ++i)
+						{
+							const auto& candidate = counter.attacks.empty() ? fallback : counter.attacks[i];
+							const auto hitPos = world * glm::vec4(candidate.hitboxCenter, 1);
+							if (glm::distance(hitPos, hurtPos) > candidate.hitboxRadius * hitScale + hurtRadius) continue;
+							const bool fits = candidate.startupFrames + 2 <= recovery;
+							const bool bestFits = best && best->startupFrames + 2 <= recovery;
+							if (!best || (fits && !bestFits) || (fits && bestFits && candidate.damage > best->damage) ||
+								(!fits && !bestFits && candidate.startupFrames < best->startupFrames)) { pick = i; best = &candidate; }
+						}
+						ai.counterReason = !hurt.canBeHit ? "Target cannot be hit" : counter.cooldownTimer > 0 ? "Counter is cooling down" : "Hitboxes out of reach; closing";
+						if (counter.cooldownTimer <= 0 && pick >= 0 && hurt.canBeHit)
+						{
+							counter.selectedAttackIndex = pick;
+							ai.counterReason = best->startupFrames + 2 <= recovery ? "Recovery opening: strongest timely counter" : "Short opening: quickest reachable counter";
+							ai.RecordDecision(ai.counterReason);
+							counter.attackRequested = ai.counterSpent = true;
+							ai.counterTrial = {true, false, false, counter.attackActivationCounter + 1u};
+							controller.attack1Requested = pick == 0;
+							controller.attack2Requested = pick == 1;
+							controller.attack3Requested = pick >= 2;
+							controller.moveInput = glm::vec3(0);
+						}
+					}
+					if (ai.flanking && ai.footwork == Mode::Hold && phase == Phase::Idle && !disabled && !counter.isAttacking && !counter.attackRequested && distance > 2.0f)
+						controller.moveInput = ai.facing * 0.65f;
+					else if (ai.responding || disabled || distance <= 2.0f) ai.flanking = false;
+					SteerPartner(scene, entity, controller, distance, dt);
+					if (ai.responding && committed && !disabled && !ai.dodgeIssued && !counter.isAttacking && controller.enableDodge && controller.isGrounded && !controller.isVaulting && !controller.isSliding && controller.dodgeCooldownTimer <= 0 && !ai.traversal.unsafeEdge)
+					{
+						ai.dodgeReason = "No safe dodge landing";
+						ai.laneStart = transform.position; ai.laneCount = 0; ai.laneDisplayTime = 0.8f;
+						const float stride = std::max(controller.moveSpeed, glm::length(glm::vec2(rb.velocity.x, rb.velocity.z))) * std::clamp(controller.dodgeSpeedMultiplier, 1.2f, 3.5f) * controller.dodgeDuration;
+						for (float sign : {1.0f, -1.0f})
+						{
+							const auto lane = ai.DodgeLane(sign);
+							bool clear = true;
+							for (int i = 1; i <= 5 && clear; ++i)
+							{
+								auto sample = transform.position + lane * (stride * i / 5.0f);
+								sample.y += controller.maxStepHeight + 0.1f;
+								clear = FindVaultLanding(scene, entity, controller, sample, transform.position.y - controller.maxStepHeight);
+							}
+							ai.laneProbes[ai.laneCount++] = {ai.laneStart + lane * stride, clear};
+							if (!clear) continue;
+							controller.moveInput = lane;
+							ai.dodgeReason = ai.repeatCount >= 2 ? "Repeated attack: diagonal dodge toward counter range" : "Nearby attack: lateral dodge";
+							ai.RecordDecision(ai.dodgeReason);
+							controller.jumpRequested = controller.vaultRequested = false;
+							controller.dodgeRequested = ai.dodgeIssued = true;
+							const auto& swing = player->GetComponent<CombatAttackComponent>();
+							ai.actualLane = ai.evadeSide * sign > 0 ? 1 : 0;
+							ai.dodgeTrial = {true, false, false, swing.attackActivationCounter + (phase == Phase::Startup ? 1u : 0u)};
+							break;
+						}
+					}
+				}
+				else ai.footwork = Mode::Hold;
+			}
 			rb.isKinematic = true;
 			controller.previousPhysicsPosition = transform.position;
 			controller.hasPhysicsPosition = true;
@@ -1933,7 +2831,11 @@ namespace MyEngine
 			const bool inWallRunKickoffWindow = animationInWallRunState || controller.isWallRunning ||
 				(!controller.isGrounded &&
 					(controller.wallRunEndMomentumTimer > 0.0f || controller.wallRunCooldownTimer > 0.0f));
-			if (controller.orientToMovement && !controller.isWallJumping && !inWallRunKickoffWindow && !controller.wallRunAirborneFacingLock && glm::length(facing) > 0.1f)
+			if (entity->HasComponent<ExplorerComponent>() && (entity->GetComponent<ExplorerComponent>().waiting || entity->GetComponent<ExplorerComponent>().inspectTime > 0.0f))
+				facing = entity->GetComponent<ExplorerComponent>().lookDirection;
+			const bool spacingPartner = entity->HasComponent<SparringPartnerComponent>();
+			if (spacingPartner) facing = entity->GetComponent<SparringPartnerComponent>().facing;
+			if ((controller.orientToMovement || spacingPartner) && !controller.isWallJumping && !inWallRunKickoffWindow && !controller.wallRunAirborneFacingLock && glm::length(facing) > 0.1f)
 			{
 				facing = glm::normalize(facing);
 				// TransformComponent rotation uses radians; use +Z-forward yaw convention
@@ -2611,9 +3513,8 @@ namespace MyEngine
 		for (const auto& attacker : activeHitboxes)
 		{
 			auto& hitbox = attacker->GetComponent<CombatHitboxComponent>();
-			auto& attackerTransform = attacker->GetComponent<TransformComponent>();
 			const glm::vec3 attackerScale = ExtractWorldScale(scene, *attacker);
-			const glm::vec3 hitCenter = attackerTransform.position + hitbox.center * attackerScale;
+			const glm::vec3 hitCenter = TransformHierarchy::GetWorldMatrix(scene, *attacker) * glm::vec4(hitbox.center, 1);
 			const float hitRadius = hitbox.radius * glm::compMax(attackerScale);
 
 			if (hitRadius <= 0.0f)
@@ -2631,9 +3532,8 @@ namespace MyEngine
 				if (hitbox.team == hurtbox.team)
 					continue;
 
-				auto& targetTransform = target->GetComponent<TransformComponent>();
 				const glm::vec3 targetScale = ExtractWorldScale(scene, *target);
-				const glm::vec3 hurtCenter = targetTransform.position + hurtbox.center * targetScale;
+				const glm::vec3 hurtCenter = TransformHierarchy::GetWorldMatrix(scene, *target) * glm::vec4(hurtbox.center, 1);
 				const float hurtRadius = hurtbox.radius * glm::compMax(targetScale);
 				const glm::vec3 delta = hurtCenter - hitCenter;
 				const float radiusSum = hitRadius + hurtRadius;
@@ -2655,7 +3555,33 @@ namespace MyEngine
 				hurtbox.damageTakenThisStep += hitbox.damage;
 				hurtbox.lastHitByEntityId = attacker->GetID();
 				hurtbox.lastHitActivationId = hitbox.activationId;
+				if (target->HasComponent<SparringPartnerComponent>())
+				{
+					auto& ai = target->GetComponent<SparringPartnerComponent>();
+					if (ai.playerId == attacker->GetID() && ai.dodgeTrial.pending && ai.dodgeTrial.activation == hitbox.activationId) ai.dodgeTrial.hit = true;
+				}
+				if (attacker->HasComponent<SparringPartnerComponent>())
+				{
+					auto& ai = attacker->GetComponent<SparringPartnerComponent>();
+					if (ai.playerId == target->GetID() && ai.counterTrial.pending && ai.counterTrial.activation == hitbox.activationId) ai.counterTrial.hit = true;
+				}
 			}
+		}
+		for (const auto& entity : scene.GetEntities())
+		{
+			if (!entity || !entity->HasComponent<SparringPartnerComponent>()) continue;
+			auto& ai = entity->GetComponent<SparringPartnerComponent>();
+			auto settle = [&](SparringPartnerComponent::Trial& trial, const std::shared_ptr<Entity>& source, bool dodge) {
+				if (!trial.pending) return;
+				if (!source || !source->HasComponent<CombatAttackComponent>() || !source->HasComponent<CombatHitboxComponent>()) { trial = {}; return; }
+				const auto& box = source->GetComponent<CombatHitboxComponent>();
+				const auto& attack = source->GetComponent<CombatAttackComponent>();
+				if (box.active && box.activationId == trial.activation) trial.active = true;
+				using Phase = CombatAttackComponent::AttackPhase;
+				if (attack.phase == Phase::Recovery || (attack.phase == Phase::Idle && !attack.attackRequested)) ai.FinishTrial(trial,dodge);
+			};
+			if (ai.dodgeTrial.pending) settle(ai.dodgeTrial, scene.GetEntitySharedByID(ai.playerId), true);
+			settle(ai.counterTrial, entity, false);
 		}
 	}
 

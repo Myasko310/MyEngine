@@ -51,6 +51,7 @@ namespace MyEngine
 
 		AttackPhase phase = AttackPhase::Idle;
 		int phaseFrame = 0;
+		float fractionalFrame = 0.0f;
 		int activeAttackIndex = -1;
 		float cooldownTimer = 0.0f;
 

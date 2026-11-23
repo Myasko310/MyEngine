@@ -1,6 +1,8 @@
 #include "CameraSystem.h"
 
 #include "components/CameraComponent.h"
+#include "components/SparringPartnerComponent.h"
+#include "components/CombatStatsComponent.h"
 #include "components/CharacterControllerComponent.h"
 #include "components/TransformComponent.h"
 #include "ecs/Scene.h"
@@ -93,7 +95,38 @@ namespace MyEngine
         return best;
     }
 
-     void CameraSystem::Update(Scene& scene, GLFWwindow* window, float deltaTime, float aspectRatio)
+    void CameraSystem::ClearSparringLock()
+    {
+        m_SparringPlayer.reset();
+        m_SparringPartner.reset();
+    }
+
+    static bool CanFramePartner(Scene& scene, const std::shared_ptr<Entity>& player, const std::shared_ptr<Entity>& partner, float range)
+    {
+        if (!player || !partner || !player->HasComponent<TransformComponent>() || !partner->HasComponent<TransformComponent>() ||
+            !partner->HasComponent<SparringPartnerComponent>() || partner->GetComponent<SparringPartnerComponent>().playerId != player->GetID() ||
+            scene.GetEntitySharedByID(player->GetID()) != player || scene.GetEntitySharedByID(partner->GetID()) != partner) return false;
+        if ((partner->HasComponent<CombatStatsComponent>() && partner->GetComponent<CombatStatsComponent>().isDead) ||
+            (player->HasComponent<CombatStatsComponent>() && player->GetComponent<CombatStatsComponent>().isDead)) return false;
+        return glm::distance(player->GetComponent<TransformComponent>().position, partner->GetComponent<TransformComponent>().position) <= range;
+    }
+
+    void CameraSystem::ToggleSparringLock(Scene& scene, const std::shared_ptr<Entity>& player, const std::shared_ptr<Entity>& partner)
+    {
+        const bool release = partner && m_SparringPartner.lock() == partner;
+        ClearSparringLock();
+        if (release) return;
+        for (const auto& e : scene.GetEntities())
+        {
+            if (!e || !e->HasComponent<CameraComponent>() || !e->HasComponent<TransformComponent>()) continue;
+            const auto& cam = e->GetComponent<CameraComponent>();
+            if (!cam.isPrimary) continue;
+            if (CanFramePartner(scene, player, partner, cam.lockOnMaxDistance)) { m_SparringPlayer = player; m_SparringPartner = partner; }
+            break;
+        }
+    }
+
+    void CameraSystem::Update(Scene& scene, GLFWwindow* window, float deltaTime, float aspectRatio)
     {
         for (auto& entity : scene.GetEntities())
         {
@@ -121,6 +154,13 @@ namespace MyEngine
             std::shared_ptr<Entity> followTarget;
             if (camera.thirdPerson)
                 followTarget = TransformHierarchy::FindEntityByID(scene, camera.followTargetID);
+            auto sparringTarget = m_SparringPartner.lock();
+            if (sparringTarget)
+            {
+                auto player = m_SparringPlayer.lock();
+                if (CanFramePartner(scene, player, sparringTarget, camera.lockOnMaxDistance)) followTarget = player;
+                else { ClearSparringLock(); sparringTarget.reset(); }
+            }
             bool hasFollowTarget = followTarget && followTarget->HasComponent<TransformComponent>();
 
             // Auto-recover follow target if third-person is enabled but the saved
@@ -141,8 +181,8 @@ namespace MyEngine
                 }
             }
 
-            std::shared_ptr<Entity> lockOnTarget;
-            if (camera.thirdPerson && camera.lockOnEnabled && hasFollowTarget)
+            std::shared_ptr<Entity> lockOnTarget = sparringTarget;
+            if (!sparringTarget && camera.thirdPerson && camera.lockOnEnabled && hasFollowTarget)
             {
                 if (camera.lockOnTargetID != 0)
                 {
@@ -184,7 +224,7 @@ namespace MyEngine
 
                 camera.lockOnTargetID = lockOnTarget ? lockOnTarget->GetID() : 0;
             }
-            else
+            else if (!sparringTarget)
             {
                 camera.lockOnTargetID = 0;
             }
@@ -262,7 +302,7 @@ namespace MyEngine
                 }
 
                 // Only process mouse look if mouse is captured (camera control mode)
-                if (camera.enableMouseLook && Input::IsMouseCaptured())
+                if (!sparringTarget && camera.enableMouseLook && Input::IsMouseCaptured())
                 {
                     // Use Input's mouse delta (already accumulated per-frame)
                     float deltaX = Input::GetMouseDeltaX();
@@ -291,7 +331,7 @@ namespace MyEngine
                 }
 
                 // Right-stick orbit look for third-person follow mode.
-                if (camera.thirdPerson)
+                if (camera.thirdPerson && !sparringTarget)
                 {
                     const float lookX = InputActions::GetAxis("LookX");
                     const float lookY = InputActions::GetAxis("LookY");
@@ -353,7 +393,7 @@ namespace MyEngine
                     m_FollowHeightVelocity = 0.0f;
                 }
 
-                if (camera.lockOnEnabled && lockOnTarget && lockOnTarget->HasComponent<TransformComponent>())
+                if (lockOnTarget && lockOnTarget->HasComponent<TransformComponent>())
                 {
                     const auto& lockTransform = lockOnTarget->GetComponent<TransformComponent>();
                     glm::vec3 enemyPivot = lockTransform.position + glm::vec3(0.0f, camera.lockOnHeightOffset, 0.0f);
@@ -365,7 +405,7 @@ namespace MyEngine
                         glm::vec3 enemyDir = glm::normalize(flatToEnemy);
                         float desiredYaw = glm::degrees(std::atan2(enemyDir.z, enemyDir.x));
                         const float yawBlend = std::clamp(deltaTime * 10.0f, 0.0f, 1.0f);
-                        camera.yaw = glm::mix(camera.yaw, desiredYaw, yawBlend);
+                        camera.yaw += std::remainder(desiredYaw - camera.yaw, 360.0f) * yawBlend;
                         camera.pitch = glm::mix(camera.pitch, -8.0f, std::clamp(deltaTime * 6.0f, 0.0f, 1.0f));
 
                         glm::vec3 desiredPos = pivot - enemyDir * camera.lockOnCameraDistance;

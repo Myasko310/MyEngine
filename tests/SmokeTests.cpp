@@ -1,4 +1,6 @@
 #include "ecs/Scene.h"
+#include "character/ExplorerEncounter.h"
+#include "network/NetTypes.h"
 #include "ecs/Entity.h"
 #include "systems/ScriptSystem.h"
 #include "serialization/SceneSerializer.h"
@@ -21,6 +23,9 @@
 #include "systems/TerrainSystem.h"
 #include "systems/NavMeshSystem.h"
 #include "systems/PhysicsSystem.h"
+#include "systems/CameraSystem.h"
+#include "components/CameraComponent.h"
+#include "systems/CombatSystem.h"
 #include "components/CapsuleColliderComponent.h"
 #include "components/BoxColliderComponent.h"
 #include "core/Input.h"
@@ -80,6 +85,426 @@ namespace
 	bool NearlyEqual(float a, float b, float eps = 0.0001f)
 	{
 		return std::fabs(a - b) <= eps;
+	}
+
+	bool EncounterMemorySmokeTest()
+	{
+		const auto dir = std::filesystem::temp_directory_path() / ("MyEngineMemory-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+		struct Cleanup { std::filesystem::path dir; ~Cleanup() { std::error_code ec; std::filesystem::remove_all(dir, ec); } } cleanup{dir};
+		const auto explorerFile = dir / "explorer.memory", partnerFile = dir / "sparring.memory";
+		const glm::vec3 lookout(14, 0, 0), lane(-4, 0, 3);
+		MyEngine::EncounterMemory first;
+		if (!first.Load(explorerFile)) return false;
+		first.Observe(lookout, "Stone arch", lookout);
+		first.Observe(lookout, "Stone arch", lookout);
+		if (first.places.size() != 1 || first.places.front().visits != 1 || !first.Save()) return false;
+		if (!first.Load(partnerFile) || !first.places.empty()) return false;
+		first.Observe(lane, "Blue post", lane);
+		const glm::vec3 bottleneck(3.5f, 0, 2.5f);
+		first.NoteStall(bottleneck);
+		if (!first.Save()) return false;
+		Scene scene;
+		auto player = scene.CreateEntity("Player");
+		player->AddComponent<TransformComponent>();
+		player->AddComponent<CapsuleColliderComponent>();
+		player->AddComponent<MyEngine::RigidbodyComponent>();
+		player->AddComponent<MyEngine::CharacterControllerComponent>();
+		auto explorer = MyEngine::ExplorerEncounter::Spawn(scene, player);
+		auto partner = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene, player);
+		auto& ai = explorer->GetComponent<MyEngine::ExplorerComponent>();
+		auto& spar = partner->GetComponent<MyEngine::SparringPartnerComponent>();
+		if (!ai.memory.Load(explorerFile) || !spar.memory.Load(partnerFile) || ai.memory.places.front().object != "Stone arch" || spar.memory.Familiarity(lookout)) return false;
+		if (!ai.memory.stalls.empty() || spar.memory.stalls.size() != 1) return false;
+		NavMeshSystem grid;
+		grid.Bake(scene, {0,0}, {8,6});
+		const glm::vec3 from(0.5f,0,2.5f), to(7.5f,0,2.5f);
+		const auto original = grid.FindPath(from, to);
+		const auto changed = grid.FindPath(from, to, spar.memory.stalls);
+		if (changed.empty() || std::find(original.begin(), original.end(), bottleneck) == original.end() || std::find(changed.begin(), changed.end(), bottleneck) != changed.end()) return false;
+		spar.WitnessSwing(0);
+		if (glm::dot(spar.facing, spar.DodgeLane(1)) > 0.01f) return false;
+		for (float dx : {-0.8f,-0.3f,-0.8f}) spar.memory.TrackCrossing(bottleneck + glm::vec3(dx,0,0));
+		if (spar.memory.stalls.empty()) return false;
+		for (float dx : {-0.3f,0.2f,0.8f}) spar.memory.TrackCrossing(bottleneck + glm::vec3(dx,0,0));
+		if (!spar.memory.stalls.empty() || !spar.memory.Save() || !first.Load(partnerFile) || !first.stalls.empty()) return false;
+		Scene cornerScene;
+		auto corner = cornerScene.CreateEntity("Corner");
+		corner->AddComponent<TransformComponent>().position = {1.5f,0,0.5f};
+		corner->AddComponent<BoxColliderComponent>().halfExtents = {0.4f,1,0.4f};
+		grid.Bake(cornerScene, {0,0}, {2,2});
+		const auto around = grid.FindPath({0.5f,0,0.5f}, {1.5f,0,1.5f});
+		if (around.size() != 3 || around[1].z < 1) return false;
+		spar.WitnessSwing(0);
+		if (glm::dot(spar.facing, spar.DodgeLane(1)) < 0.2f) return false;
+		spar.WitnessSwing(1);
+		if (spar.repeatCount != 1) return false;
+		scene.CreateEntity("Practice bell")->AddComponent<TransformComponent>().position = {2, 0, 1};
+		MyEngine::PhysicsSystem physics;
+		MyEngine::Net::InputCommand input{};
+		physics.OnUpdate(scene, physics.fixedTimestep, nullptr, {0,0,-1}, {1,0,0}, &input);
+		if (ai.goal != lookout || ai.memory.places.back().object != "Practice bell" || spar.sideBias <= 0.0f)
+		{
+			std::cerr << "Memory goal=" << ai.goal.x << ',' << ai.goal.y << ',' << ai.goal.z << " object=" << ai.memory.places.back().object << " lane bias=" << spar.sideBias << '\n';
+			return false;
+		}
+		if (!ai.memory.Save()) { std::cerr << "Could not replace memory file\n"; return false; }
+		ai.memory.Observe({12,0,4}, "Practice bell", {12,0,4});
+		ai.memory.sampleDelay = 0;
+		physics.OnUpdate(scene, physics.fixedTimestep, nullptr, {0,0,-1}, {1,0,0}, &input);
+		for (const auto& place : ai.memory.places)
+			if (place.object == "Practice bell" && glm::distance(place.objectPosition,glm::vec3(2,0,1)) > 0.1f) return false;
+		ai.memory.Observe({3,0,2}, "Missing post", {3,0,2});
+		for (int scan = 1; scan <= 3; ++scan)
+		{
+			ai.memory.sampleDelay = 0;
+			physics.OnUpdate(scene, physics.fixedTimestep, nullptr, {0,0,-1}, {1,0,0}, &input);
+			const bool remembered = std::any_of(ai.memory.places.begin(), ai.memory.places.end(), [](const auto& p) { return p.object == "Missing post"; });
+			if (remembered != (scan < 3)) return false;
+		}
+		MyEngine::SparringPartnerComponent tracker;
+		if (tracker.DoubledBack({0,0,0}) || tracker.DoubledBack({1,0,0}) || !tracker.DoubledBack({0,0,0})) return false;
+		std::ofstream(explorerFile, std::ios::trunc) << "EncounterMemory1 1\n0 0 0 1 \"Legacy\" 1 0 1\n";
+		if (!first.Load(explorerFile) || first.places.size() != 1 || !first.stalls.empty()) return false;
+		std::ofstream(explorerFile, std::ios::trunc) << "EncounterMemory1 999999";
+		return !first.Load(explorerFile) && first.places.empty();
+	}
+
+	bool GroundedSparringReaction(float frameTime, bool longOpening = false)
+	{
+		Scene scene;
+		auto floor = scene.CreateEntity("Arena floor");
+		floor->AddComponent<TransformComponent>().position.y = -0.5f;
+		floor->AddComponent<BoxColliderComponent>().halfExtents = {30, 0.5f, 30};
+		auto player = scene.CreateEntity("Custom Fighter");
+		player->AddComponent<TransformComponent>();
+		auto& capsule = player->AddComponent<CapsuleColliderComponent>();
+		capsule.radius = capsule.pointA.y = 0.35f; capsule.pointB.y = 1.9f;
+		player->AddComponent<MyEngine::RigidbodyComponent>();
+		player->AddComponent<MyEngine::CharacterControllerComponent>();
+		auto partner = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene, player);
+		partner->GetComponent<TransformComponent>().position.x = -2.5f;
+		MyEngine::PhysicsSystem physics;
+		MyEngine::CombatSystem combat;
+		auto tick = [&]() { combat.OnUpdate(scene, frameTime); physics.OnUpdate(scene, frameTime); };
+		for (int i = 0; i < 30; ++i) tick();
+		auto& swing = player->GetComponent<MyEngine::CombatAttackComponent>();
+		swing.attacks[0].recoveryFrames = longOpening ? 150 : 5;
+		swing.attackRequested = true;
+		bool dodged = false, hit = false;
+		for (float t = 0; t < 3; t += frameTime)
+		{
+			tick();
+			dodged |= partner->GetComponent<MyEngine::CharacterControllerComponent>().isDodging;
+			hit |= player->GetComponent<CombatHurtboxComponent>().wasHitThisStep;
+		}
+		if (!dodged || !hit) std::cerr << "Grounded sparring dt=" << frameTime << " dodge=" << dodged << " counter hit=" << hit << '\n';
+		const auto& brain = partner->GetComponent<MyEngine::SparringPartnerComponent>();
+		const auto& counter = partner->GetComponent<MyEngine::CombatAttackComponent>();
+		auto events = [&](const char* text) { return std::count_if(brain.decisions.begin(), brain.decisions.end(), [&](const auto& event) { return event.find(text) != std::string::npos; }); };
+		if (events("Counter outcome: hit") != 1 || events("Dodge outcome:") != 1) return false;
+		return dodged && hit && counter.attackActivationCounter == 1 && counter.selectedAttackIndex == (longOpening ? 1 : 0) &&
+			brain.laneCount > 0 && brain.laneCount <= 2 && brain.laneProbes[brain.laneCount - 1].clear;
+	}
+
+	bool SparringFloorContact(float playerHeight, float partnerHeight)
+	{
+		Scene scene;
+		constexpr float surface = 8.0f;
+		auto floor = scene.CreateEntity("Thin platform");
+		floor->AddComponent<TransformComponent>().position.y = surface - 0.05f;
+		floor->AddComponent<BoxColliderComponent>().halfExtents = {20, 0.05f, 20};
+		auto player = scene.CreateEntity("Player");
+		player->AddComponent<TransformComponent>().position.y = surface + playerHeight;
+		auto& capsule = player->AddComponent<CapsuleColliderComponent>();
+		capsule.pointA = {0,0.35f,0}; capsule.pointB = {0,1.9f,0}; capsule.radius = 0.35f;
+		player->AddComponent<MyEngine::RigidbodyComponent>().isKinematic = true;
+		player->AddComponent<MyEngine::CharacterControllerComponent>();
+		auto partner = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene, player);
+		partner->GetComponent<TransformComponent>().position = {0,surface + partnerHeight,0};
+		MyEngine::PhysicsSystem physics;
+		MyEngine::Net::InputCommand input{};
+		for (int i = 0; i < 100; ++i)
+		{
+			++input.tick;
+			physics.OnUpdate(scene, physics.fixedTimestep, nullptr, {0,0,-1}, {1,0,0}, &input);
+			for (const auto& actor : {player, partner})
+			{
+				const float foot = actor->GetComponent<TransformComponent>().position.y + capsule.pointA.y - capsule.radius;
+				if (!std::isfinite(foot) || foot < surface - 0.04f) { std::cerr << actor->GetName() << " penetrated platform on tick " << i << '\n'; return false; }
+			}
+			if (i == 0 && playerHeight == partnerHeight)
+			{
+				const auto delta = partner->GetComponent<TransformComponent>().position - player->GetComponent<TransformComponent>().position;
+				if (glm::length(glm::vec2(delta.x,delta.z)) < 0.68f) return false;
+			}
+		}
+		return true;
+	}
+
+	bool SparringPartnerSmokeTest()
+	{
+		if (!SparringFloorContact(0,0) || !SparringFloorContact(1.8f,0) || !SparringFloorContact(0,1.8f)) return false;
+		if (!GroundedSparringReaction(1.0f / 60) || !GroundedSparringReaction(1.0f / 144) || !GroundedSparringReaction(1.0f / 60, true)) return false;
+		Scene scene;
+		auto player = scene.CreateEntity("Player");
+		if (MyEngine::ExplorerEncounter::SpawnSparringPartner(scene, player)) return false;
+		player->AddComponent<TransformComponent>();
+		player->AddComponent<CapsuleColliderComponent>();
+		player->AddComponent<MyEngine::RigidbodyComponent>();
+		player->AddComponent<MyEngine::CharacterControllerComponent>().attack1Requested = true;
+		auto partner = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene, player);
+		if (!partner || partner->HasComponent<MyEngine::ExplorerComponent>()) return false;
+		{
+			auto view = scene.CreateEntity("Training camera");
+			auto& pose = view->AddComponent<TransformComponent>();
+			auto& cam = view->AddComponent<MyEngine::CameraComponent>();
+			cam.isPrimary = true;
+			cam.yaw = 0; // The partner spawns behind this view.
+			MyEngine::CameraSystem camera;
+			camera.ToggleSparringLock(scene, player, partner);
+			camera.Update(scene, nullptr, 0.1f, 1.0f);
+			if (pose.position.x <= 0 || cam.thirdPerson || cam.lockOnEnabled) return false;
+			camera.ToggleSparringLock(scene, player, partner);
+			const auto released = pose.position;
+			partner->GetComponent<TransformComponent>().position.z += 1;
+			camera.Update(scene, nullptr, 0.1f, 1.0f);
+			if (pose.position != released) return false;
+			partner->GetComponent<TransformComponent>().position.z -= 1;
+		}
+		auto& ctl = partner->GetComponent<MyEngine::CharacterControllerComponent>();
+		if (ctl.attack1Requested) return false;
+		MyEngine::PhysicsSystem physics;
+		MyEngine::Net::InputCommand input{};
+		input.moveAxis.x = -1.0f;
+		auto step = [&](float separation)
+		{
+			player->GetComponent<TransformComponent>().position = partner->GetComponent<TransformComponent>().position + glm::vec3(separation, 0, 0);
+			++input.tick;
+			physics.OnUpdate(scene, physics.fixedTimestep, nullptr, {0, 0, -1}, {1, 0, 0}, &input);
+		};
+		step(5.0f);
+		if (ctl.moveInput.x <= 0.0f) return false;
+		step(1.5f);
+		if (ctl.moveInput.x >= 0.0f || partner->GetComponent<MyEngine::SparringPartnerComponent>().facing.x <= 0.0f) return false;
+		step(2.5f);
+		if (glm::length(ctl.moveInput) >= 0.001f || ctl.attack1Requested || ctl.attack2Requested || ctl.attack3Requested) return false;
+		auto& brain = partner->GetComponent<MyEngine::SparringPartnerComponent>();
+		auto& swing = player->GetComponent<MyEngine::CombatAttackComponent>();
+		auto& counter = partner->GetComponent<MyEngine::CombatAttackComponent>();
+		using Phase = MyEngine::CombatAttackComponent::AttackPhase;
+		swing.phase = Phase::Startup;
+		step(2.2f);
+		if (!brain.responding || std::abs(ctl.moveInput.z) < 0.2f || counter.attackRequested) { std::cerr << "Evasion failed: " << ctl.moveInput.z << '\n'; return false; }
+		swing.phase = Phase::Idle;
+		step(2.2f);
+		if (brain.counterWindow > 0 || brain.dodgeIssued || brain.decisions.empty()) return false;
+		swing.phase = Phase::Startup;
+		step(2.2f);
+		swing.phase = Phase::Recovery;
+		partner->GetComponent<TransformComponent>().rotation.y = glm::radians(90.0f);
+		step(1.3f);
+		if (!brain.counterSpent || !counter.attackRequested) { std::cerr << "Counter not requested\n"; return false; }
+		MyEngine::CombatSystem combat;
+		bool landed = false;
+		for (int i = 0; i < 90; ++i)
+		{
+			combat.OnUpdate(scene, physics.fixedTimestep);
+			step(1.3f);
+			landed |= player->GetComponent<CombatHurtboxComponent>().wasHitThisStep;
+			if (landed && counter.phase == Phase::Idle) break;
+		}
+		if (!landed || counter.attackActivationCounter != 1) { std::cerr << "Counter landed=" << landed << " activations=" << counter.attackActivationCounter << '\n'; return false; }
+		const auto p = partner->GetComponent<TransformComponent>().position;
+		auto wall = scene.CreateEntity("Sparring wall");
+		wall->AddComponent<TransformComponent>().position = p + glm::vec3(3, 0, 0);
+		wall->AddComponent<BoxColliderComponent>().halfExtents = {0.6f, 2, 2};
+		NavMeshSystem grid;
+		grid.Bake(scene, {-25,-25}, {50,50});
+		brain.navigation = &grid;
+		step(8);
+		bool detour = false;
+		for (const auto& node : brain.route) detour |= std::abs(node.z - p.z) > 2;
+		MyEngine::ExplorerEncounter::RemoveTrainingComponents(scene, brain);
+		if (!detour) std::cerr << "No wall detour: nodes=" << brain.route.size() << " phase=" << static_cast<int>(counter.phase) << '\n';
+		return detour && brain.flanking && !player->HasComponent<MyEngine::CombatAttackComponent>();
+	}
+
+	bool ExplorerEncounterSmokeTest()
+	{
+		Scene scene;
+		auto player = scene.CreateEntity("Player");
+		if (MyEngine::ExplorerEncounter::Spawn(scene, player)) return false;
+		player->AddComponent<TransformComponent>();
+		player->AddComponent<CapsuleColliderComponent>();
+		player->AddComponent<MyEngine::RigidbodyComponent>();
+		auto& human = player->AddComponent<MyEngine::CharacterControllerComponent>();
+		human.moveSpeed = 5.25f;
+		human.attack1Requested = true;
+		auto explorer = MyEngine::ExplorerEncounter::Spawn(scene, player);
+		if (!explorer || explorer == player) return false;
+		const auto& ai = explorer->GetComponent<MyEngine::CharacterControllerComponent>();
+		if (ai.attack1Requested || ai.moveSpeed != human.moveSpeed) return false;
+		const float start = explorer->GetComponent<TransformComponent>().position.x;
+		auto wall = scene.CreateEntity("Explorer detour");
+		wall->AddComponent<TransformComponent>().position = {6.0f, 0.0f, 0.0f};
+		wall->AddComponent<BoxColliderComponent>().halfExtents = {0.5f, 3.0f, 1.5f};
+		NavMeshSystem nav;
+		nav.Bake(scene, {-10, -10}, {30, 30});
+		auto& brain = explorer->GetComponent<MyEngine::ExplorerComponent>();
+		brain.navigation = &nav;
+		MyEngine::PhysicsSystem physics;
+		MyEngine::Net::InputCommand input{};
+		input.moveAxis.x = -1.0f;
+		for (int tick = 0; tick < 30; ++tick)
+		{
+			input.tick = tick;
+			physics.OnUpdate(scene, 1.0f / 60.0f, nullptr, {0, 0, -1}, {1, 0, 0}, &input);
+		}
+		bool detours = false;
+		for (const auto& node : brain.route)
+		{
+			if (node.x >= 5.0f && node.x < 7.0f)
+			{
+				if (std::abs(node.z) <= 1.5f) return false;
+				detours = true;
+			}
+		}
+		if (!detours || brain.nextNode == 0 || explorer->GetComponent<TransformComponent>().position.x <= start ||
+			player->GetComponent<TransformComponent>().position.x >= 0 || ai.attack1Requested) return false;
+
+		auto& pose = explorer->GetComponent<TransformComponent>();
+		brain.goal = pose.position;
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (brain.recentGoals.empty() || brain.waypoint == 0) return false;
+		brain.SetFollowing(true);
+		auto& playerPose = player->GetComponent<TransformComponent>();
+		auto& playerBody = player->GetComponent<MyEngine::RigidbodyComponent>();
+		playerBody.velocity = glm::vec3(0.0f);
+		playerPose.position = pose.position + glm::vec3(0, 0, 1.8f);
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (!brain.waiting || glm::length(ai.moveInput) > 0.001f || brain.lookDirection.z < 1.0f) return false;
+		playerPose.position.z += 5.0f;
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (brain.waiting || !brain.hasGoal || glm::length(ai.moveInput) <= 0.0f || glm::length(ai.moveInput) >= 1.0f) return false;
+		brain.SetFollowing(true);
+		brain.navigation = nullptr;
+		pose.position = playerPose.position + glm::vec3(0, 0, -1.6f);
+		playerBody.velocity = {2, 0, 0};
+		input.moveAxis = {0.4f, 0};
+		physics.OnUpdate(scene, physics.fixedTimestep, nullptr, {0,0,-1}, {1,0,0}, &input);
+		if (brain.waiting || brain.goal.z >= playerPose.position.z - 1.0f || brain.goal.x <= playerPose.position.x ||
+			brain.requestedPace <= 0.0f || brain.requestedPace >= 1.0f) return false;
+		brain.SetFollowing(true);
+		brain.navigation = &nav;
+		playerPose.position = {0, 0, 0}; pose.position = {0, 0, -2};
+		auto sideWall = scene.CreateEntity();
+		sideWall->AddComponent<TransformComponent>().position = {0, 0, -1.6f};
+		sideWall->AddComponent<BoxColliderComponent>().halfExtents = {1, 2, 0.2f};
+		nav.Bake(scene, {-10,-10}, {30,30});
+		physics.OnUpdate(scene, physics.fixedTimestep, nullptr, {0,0,-1}, {1,0,0}, &input);
+		if (brain.followSide != -1) return false;
+		scene.DestroyEntity(sideWall->GetID());
+		playerBody.velocity = glm::vec3(0.0f);
+		brain.SetFollowing(false);
+		if (brain.following || !brain.route.empty() || brain.recentGoals.empty()) return false;
+
+		// A grounded scout at the lip of an isolated narrow pillar has no safe side or forward landing.
+		brain.navigation = nullptr;
+		pose.position = {30, 2, 30};
+		brain.goal = pose.position + glm::vec3(5, 0, 0);
+		brain.hasGoal = true;
+		auto pillar = scene.CreateEntity("Explorer ledge");
+		pillar->AddComponent<TransformComponent>().position = {30, 0, 30};
+		pillar->AddComponent<BoxColliderComponent>().halfExtents = {0.15f, 1.0f, 0.15f};
+		explorer->GetComponent<MyEngine::CharacterControllerComponent>().isGrounded = true;
+		explorer->GetComponent<MyEngine::RigidbodyComponent>().velocity = {6, 0, 0};
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (!brain.unsafeEdge || glm::length(ai.moveInput) >= 0.001f) return false;
+
+		brain.SetFollowing(false);
+		auto marker = [&](const char* tag, glm::vec3 p) {
+			auto e = scene.CreateEntity(); e->SetTag(tag); e->AddComponent<TransformComponent>().position = p; return e;
+		};
+		const glm::vec3 base = pose.position;
+		auto poi = marker("ExplorerPOI", base + glm::vec3(6, 3, 0));
+		auto entry = marker("ExplorerLink:Ramp", base + glm::vec3(2, 0, 0));
+		auto end = marker("ExplorerLink:Ramp", base + glm::vec3(5, 3, 0));
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (brain.interest != poi->GetID() || brain.entrance != entry->GetID() || brain.exit != end->GetID()) return false;
+		pose.position = entry->GetComponent<TransformComponent>().position;
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (!brain.crossing) return false;
+		pose.position = poi->GetComponent<TransformComponent>().position;
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (brain.inspectTime <= 0.0f || glm::length(ai.moveInput) > 0.001f) return false;
+
+		brain.SetFollowing(true);
+		playerPose.position = pose.position + glm::vec3(6, 0, 0);
+		brain.progressTarget = playerPose.position;
+		brain.bestDistance = 5.0f;
+		brain.noProgress = 2.0f;
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (!brain.recoveries || brain.escapeTime <= 0.0f) return false;
+
+		brain.SetFollowing(true);
+		pose.position = {0.5f, 20, 10.5f};
+		playerPose.position = {8.5f, 20, 10.5f};
+		for (float z : {9.0f, 12.0f})
+		{
+			auto boundary = marker("", {4, 20, z});
+			boundary->AddComponent<BoxColliderComponent>().halfExtents = {5, 1, 0.1f};
+		}
+		auto crowd = marker("", {1.25f, 20, 10.5f});
+		crowd->AddComponent<MyEngine::CharacterControllerComponent>();
+		nav.Bake(scene, {-10,-10}, {30,30}); brain.navigation = &nav;
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (brain.waiting || brain.route.empty() || glm::length(ai.moveInput) >= 0.001f) return false;
+		brain.SetFollowing(false);
+		brain.navigation = nullptr;
+		pose.position = {50, 20, 50}; brain.goal = pose.position + glm::vec3(8,0,0); brain.hasGoal = true;
+		auto crossing = marker("", pose.position + glm::vec3(1.0f,0,2));
+		crossing->AddComponent<BoxColliderComponent>().halfExtents = {0.4f,1,0.4f};
+		auto& obstacleBody = crossing->AddComponent<MyEngine::RigidbodyComponent>();
+		obstacleBody.isKinematic = true; obstacleBody.velocity = {0,0,-8};
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (!brain.clearanceLane && brain.clearancePace >= 1.0f) return false;
+		brain.SetFollowing(false);
+		const auto& cap = explorer->GetComponent<CapsuleColliderComponent>();
+		const float foot = (std::min)(cap.pointA.y, cap.pointB.y) - cap.radius;
+		auto deck = marker("ExplorerPlatform", {70,0,70});
+		deck->AddComponent<BoxColliderComponent>().halfExtents = {1,0.2f,1};
+		auto& deckBody = deck->AddComponent<MyEngine::RigidbodyComponent>();
+		deckBody.isKinematic = true; deckBody.velocity = {0.5f,0,0};
+		pose.position = {70,0.2f-foot,70}; brain.goal = pose.position + glm::vec3(8,0,0); brain.hasGoal = true;
+		explorer->GetComponent<MyEngine::CharacterControllerComponent>().isGrounded = true;
+		physics.OnUpdate(scene, physics.fixedTimestep);
+		if (!brain.riding || brain.ferry != deck->GetID() || glm::length(ai.moveInput) >= 0.001f) return false;
+		const glm::vec3 dock(90, 0.2f-foot, 90);
+		auto ferryTick = [&]() {
+			pose.position = dock;
+			explorer->GetComponent<MyEngine::RigidbodyComponent>().velocity = glm::vec3(0);
+			explorer->GetComponent<MyEngine::CharacterControllerComponent>().isGrounded = true;
+			brain.unsafeEdge = true;
+			physics.OnUpdate(scene, physics.fixedTimestep);
+		};
+		brain.SetFollowing(false);
+		brain.goal = dock + glm::vec3(10,0,0); brain.hasGoal = true;
+		deck->GetComponent<TransformComponent>().position = {92,0,90};
+		deckBody.velocity = {1,0,0};
+		auto inbound = marker("ExplorerPlatform", {96,0,90});
+		inbound->AddComponent<BoxColliderComponent>().halfExtents = {1,0.2f,1};
+		auto& inboundBody = inbound->AddComponent<MyEngine::RigidbodyComponent>();
+		inboundBody.isKinematic = true; inboundBody.velocity = {-2,0,0};
+		ferryTick();
+		if (brain.ferry != inbound->GetID() || glm::length(ai.moveInput) > 0.001f) return false;
+		inboundBody.velocity.x = 2;
+		ferryTick();
+		if (brain.ferry != 0) return false;
+		brain.ferryTimer = 0;
+		inbound->GetComponent<TransformComponent>().position.x = 91.25f;
+		inboundBody.velocity.x = -1;
+		ferryTick();
+		return brain.ferry == inbound->GetID() && !brain.riding && ai.moveInput.x > 0.0f;
 	}
 
 	bool SerializerSmokeTest()
@@ -3229,6 +3654,10 @@ int main()
 	};
 
 	const bool serializerOk = runTest("SerializerSmokeTest", SerializerSmokeTest);
+	const bool explorerOk = runTest("ExplorerEncounterSmokeTest", ExplorerEncounterSmokeTest);
+	const bool sparringOk = runTest("SparringPartnerSmokeTest", SparringPartnerSmokeTest);
+	const bool memoryOk = runTest("EncounterMemorySmokeTest", EncounterMemorySmokeTest);
+	if (!memoryOk) return 1;
 	const bool luaApiOk = runTest("LuaApiSmokeTest", LuaApiSmokeTest);
 	const bool luaAudioControlsOk = runTest("LuaAudioControlsSmokeTest", LuaAudioControlsSmokeTest);
 	const bool inputProfilesOk = runTest("InputProfilesSmokeTest", InputProfilesSmokeTest);
@@ -3271,10 +3700,10 @@ int main()
 	const bool vaultCameraOk = runTest("VaultCameraSmokeTest", VaultCameraSmokeTest);
 	const bool vaultTimingOk = runTest("VaultTimingStatisticsSmokeTest", VaultTimingStatisticsSmokeTest);
 	const bool vaultArchOk = runTest("VaultArchSmokeTest", VaultArchSmokeTest);
-	if (!startupArenaOk || !shaderPollingOk || !arenaBroadphaseOk || !arenaDistrictOk || !visibilityOk || !hierarchyIndexOk || !sunsetOk || !movementOk || !characterEditorOk || !aiAssetGenerationOk || !editorLayoutOk || !vaultContinuityOk || !vaultApproachOk || !vaultMovingMeshOk || !vaultCameraOk || !vaultTimingOk || !vaultArchOk)
+	if (!sparringOk || !startupArenaOk || !shaderPollingOk || !arenaBroadphaseOk || !arenaDistrictOk || !visibilityOk || !hierarchyIndexOk || !sunsetOk || !movementOk || !characterEditorOk || !aiAssetGenerationOk || !editorLayoutOk || !vaultContinuityOk || !vaultApproachOk || !vaultMovingMeshOk || !vaultCameraOk || !vaultTimingOk || !vaultArchOk)
 		return 1;
 
-	if (!serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !prefabVariantComputeOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !networkingReplicationOk || !pluginSdkManifestOk || !pluginRuntimeIntegrationOk || !pluginRuntimeStressOk || !terrainSculptingOk || !terrainPerfBaselineOk || !terrainPaintAndIoOk || !terrainUndoPaintOk || !terrainNavPhysicsIntegrationOk || !terrainNavSoakOk || !terrainNavCrowdRepathOk || !renderCommandPlumbingOk || !materialInheritanceOk)
+	if (!explorerOk || !serializerOk || !luaApiOk || !luaAudioControlsOk || !inputProfilesOk || !inputConflictsOk || !prefabOk || !assetDepsOk || !replaySimOk || !prefabVariantMetaOk || !prefabVariantComputeOk || !animationEventsOk || !animationEventBusOk || !renderBackendSelectionOk || !networkingReplicationOk || !pluginSdkManifestOk || !pluginRuntimeIntegrationOk || !pluginRuntimeStressOk || !terrainSculptingOk || !terrainPerfBaselineOk || !terrainPaintAndIoOk || !terrainUndoPaintOk || !terrainNavPhysicsIntegrationOk || !terrainNavSoakOk || !terrainNavCrowdRepathOk || !renderCommandPlumbingOk || !materialInheritanceOk)
 		return 1;
 
 	std::cout << "Smoke tests passed" << std::endl;

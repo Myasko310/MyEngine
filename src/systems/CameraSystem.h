@@ -14,6 +14,8 @@ namespace MyEngine
     {
     public:
         void Update(Scene& scene, GLFWwindow* window, float deltaTime, float aspectRatio);
+        void ToggleSparringLock(Scene& scene, const std::shared_ptr<Entity>& player, const std::shared_ptr<Entity>& partner);
+        void ClearSparringLock();
 
         // Apply interpolation to smooth camera between fixed-timestep updates
         // alpha should be in range [0, 1) representing position within the next physics frame
@@ -34,6 +36,7 @@ namespace MyEngine
         CameraState m_PreviousCameraState;
 
         std::weak_ptr<Entity> m_FollowCamera;
+        std::weak_ptr<Entity> m_SparringPlayer, m_SparringPartner;
         std::weak_ptr<Entity> m_FollowTarget;
         glm::vec3 m_PreviousFollowPivot = glm::vec3(0.0f);
         float m_FollowHeight = 0.0f;

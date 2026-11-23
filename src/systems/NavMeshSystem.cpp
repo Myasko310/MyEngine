@@ -211,7 +211,7 @@ bool NavMeshSystem::IsCellWalkable(int col, int row) const
 // ---------------------------------------------------------------------------
 
 std::vector<glm::vec3> NavMeshSystem::FindPath(glm::vec3 start,
-												 glm::vec3 goal) const
+												 glm::vec3 goal, const std::vector<glm::vec3>& discouraged) const
 {
 	if (!m_Ready) return {};
 
@@ -237,6 +237,16 @@ std::vector<glm::vec3> NavMeshSystem::FindPath(glm::vec3 start,
 	std::vector<float>    gScore(static_cast<size_t>(m_Cols) * m_Rows, 1e30f);
 	std::vector<int>      from  (static_cast<size_t>(m_Cols) * m_Rows, -1);
 	std::vector<bool>     closed(static_cast<size_t>(m_Cols) * m_Rows, false);
+	std::vector<bool> penalized;
+	if (!discouraged.empty())
+	{
+		penalized.resize(closed.size());
+		for (const auto& p : discouraged)
+		{
+			int col, row;
+			if (WorldToCell(p, col, row)) penalized[idx(col,row)] = true;
+		}
+	}
 
 	gScore[idx(sc, sr)] = 0.0f;
 	open.push({ sc, sr, 0.0f, heur(sc, sr) });
@@ -258,9 +268,11 @@ std::vector<glm::vec3> NavMeshSystem::FindPath(glm::vec3 start,
 		{
 			int nc = cur.c + dc[d], nr = cur.r + dr[d];
 			if (!IsCellWalkable(nc, nr)) continue;
+			if (dc[d] && dr[d] && (!IsCellWalkable(nc, cur.r) || !IsCellWalkable(cur.c, nr))) continue;
 			if (closed[idx(nc, nr)])    continue;
 
 			float ng = gScore[idx(cur.c, cur.r)] + cost[d];
+			if (!penalized.empty() && penalized[idx(nc,nr)]) ng += 6.0f;
 			if (ng < gScore[idx(nc, nr)])
 			{
 				gScore[idx(nc, nr)] = ng;

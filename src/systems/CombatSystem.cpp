@@ -5,6 +5,7 @@
 #include "components/CombatHitboxComponent.h"
 #include "components/CombatHurtboxComponent.h"
 #include "components/CombatStatsComponent.h"
+#include "components/SparringPartnerComponent.h"
 #include "components/TransformComponent.h"
 #include "core/Input.h"
 #include "core/InputActions.h"
@@ -315,6 +316,9 @@ namespace MyEngine
 
 	void CombatSystem::UpdateAttackPhases(Scene& scene, float deltaTime)
 	{
+		uint32_t sparringPlayer = 0;
+		for (const auto& e : scene.GetEntities())
+			if (e && e->HasComponent<SparringPartnerComponent>()) { sparringPlayer = e->GetComponent<SparringPartnerComponent>().playerId; break; }
 		for (const auto& entity : scene.GetEntities())
 		{
 			if (!entity ||
@@ -332,11 +336,20 @@ namespace MyEngine
 				continue;
 
 			const bool playerRequestedAttack =
-				(entity->GetName() == "Player" || entity->GetTag() == "Player") &&
-				(InputActions::IsActionPressed("Attack") || Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT));
+				(sparringPlayer ? entity->GetID() == sparringPlayer : (entity->GetName() == "Player" || entity->GetTag() == "Player")) &&
+				(InputActions::IsActionPressed("Attack") || InputActions::IsActionPressed("Fight") ||
+				 InputActions::IsActionPressed("Attack1") || InputActions::IsActionPressed("Attack2") ||
+				 InputActions::IsActionPressed("Attack3") || Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT));
 
 			if (playerRequestedAttack)
+			{
+				if (sparringPlayer)
+				{
+					const int slot = InputActions::IsActionPressed("Attack3") ? 2 : InputActions::IsActionPressed("Attack2") ? 1 : 0;
+					attack.selectedAttackIndex = std::min(slot, static_cast<int>(attack.attacks.size()) - 1);
+				}
 				attack.attackRequested = true;
+			}
 
 			attack.cooldownTimer = std::max(0.0f, attack.cooldownTimer - deltaTime);
 			hitbox.active = false;
@@ -351,6 +364,7 @@ namespace MyEngine
 					attack.attackRequested = false;
 					attack.activeAttackIndex = std::clamp(attack.selectedAttackIndex, 0, static_cast<int>(attack.attacks.size()) - 1);
 					attack.phase = CombatAttackComponent::AttackPhase::Startup;
+					attack.fractionalFrame = 0;
 					attack.phaseFrame = 0;
 					attack.isAttacking = true;
 				}
@@ -359,7 +373,18 @@ namespace MyEngine
 			}
 
 			const CombatAttackDefinition& def = attack.attacks[std::clamp(attack.activeAttackIndex, 0, static_cast<int>(attack.attacks.size()) - 1)];
-			const int frameAdvance = std::max(1, static_cast<int>(std::round(deltaTime * kAttackFrameRate)));
+			if (sparringPlayer == entity->GetID() && attack.phase == CombatAttackComponent::AttackPhase::Startup &&
+				attack.phaseFrame < def.startupFrames / 3 && InputActions::IsActionPressed("Dodge"))
+			{
+				attack.phase = CombatAttackComponent::AttackPhase::Idle;
+				attack.isAttacking = attack.attackRequested = false;
+				attack.phaseFrame = 0; attack.activeAttackIndex = -1;
+				attack.cooldownTimer = std::max(0.15f, def.cooldownSeconds);
+				continue;
+			}
+			attack.fractionalFrame += std::max(0.0f, deltaTime) * kAttackFrameRate;
+			const int frameAdvance = static_cast<int>(attack.fractionalFrame);
+			attack.fractionalFrame -= frameAdvance;
 			attack.phaseFrame += frameAdvance;
 
 			if (attack.phase == CombatAttackComponent::AttackPhase::Startup)

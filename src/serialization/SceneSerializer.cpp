@@ -13,6 +13,7 @@
 #include "components/BoxColliderComponent.h"
 #include "components/CapsuleColliderComponent.h"
 #include "components/CharacterControllerComponent.h"
+#include "components/CharacterCustomizationComponent.h"
 #include "components/PlaneColliderComponent.h"
 #include "components/AudioSourceComponent.h"
 #include "components/AudioListenerComponent.h"
@@ -102,6 +103,34 @@ namespace MyEngine
 				v.w = static_cast<float>(a[3].GetDouble());
 			}
 			return v;
+		}
+
+		static void SerializeCharacterMaterialOverride(PrettyWriter<StringBuffer>& writer, const CharacterMaterialOverride& material)
+		{
+			writer.Key("enabled"); writer.Bool(material.enabled);
+			writer.Key("materialPath"); writer.String(material.materialPath.c_str());
+			writer.Key("albedoTexturePath"); writer.String(material.albedoTexturePath.c_str());
+			writer.Key("tint"); SerializeVec3(writer, material.tint);
+			writer.Key("overrideShininess"); writer.Bool(material.overrideShininess);
+			writer.Key("shininess"); writer.Double(material.shininess);
+			writer.Key("overridePBR"); writer.Bool(material.overridePBR);
+			writer.Key("metallic"); writer.Double(material.metallic);
+			writer.Key("roughness"); writer.Double(material.roughness);
+			writer.Key("emissive"); SerializeVec3(writer, material.emissive);
+		}
+
+		static void DeserializeCharacterMaterialOverride(const Value& value, CharacterMaterialOverride& material)
+		{
+			if (value.HasMember("enabled") && value["enabled"].IsBool()) material.enabled = value["enabled"].GetBool();
+			if (value.HasMember("materialPath") && value["materialPath"].IsString()) material.materialPath = value["materialPath"].GetString();
+			if (value.HasMember("albedoTexturePath") && value["albedoTexturePath"].IsString()) material.albedoTexturePath = value["albedoTexturePath"].GetString();
+			if (value.HasMember("tint")) material.tint = DeserializeVec3(value["tint"]);
+			if (value.HasMember("overrideShininess") && value["overrideShininess"].IsBool()) material.overrideShininess = value["overrideShininess"].GetBool();
+			if (value.HasMember("shininess") && value["shininess"].IsNumber()) material.shininess = static_cast<float>(value["shininess"].GetDouble());
+			if (value.HasMember("overridePBR") && value["overridePBR"].IsBool()) material.overridePBR = value["overridePBR"].GetBool();
+			if (value.HasMember("metallic") && value["metallic"].IsNumber()) material.metallic = static_cast<float>(value["metallic"].GetDouble());
+			if (value.HasMember("roughness") && value["roughness"].IsNumber()) material.roughness = static_cast<float>(value["roughness"].GetDouble());
+			if (value.HasMember("emissive")) material.emissive = DeserializeVec3(value["emissive"]);
 		}
 
 		static const char* ToStateMachineParameterTypeString(MyEngine::AnimationStateMachineParameterType type)
@@ -792,6 +821,82 @@ namespace MyEngine
 					writer.Key("animationSpeedParameter"); writer.String(controller.animationSpeedParameter.c_str());
 					writer.Key("animationGroundedParameter"); writer.String(controller.animationGroundedParameter.c_str());
 					writer.Key("animationJumpTriggerParameter"); writer.String(controller.animationJumpTriggerParameter.c_str());
+					writer.EndObject();
+				}
+
+				if (e->HasComponent<CharacterCustomizationComponent>())
+				{
+					auto& customization = e->GetComponent<CharacterCustomizationComponent>();
+					writer.Key("CharacterCustomization");
+					writer.StartObject();
+					writer.Key("enabled"); writer.Bool(customization.enabled);
+					writer.Key("presetPath"); writer.String(customization.presetPath.c_str());
+
+					writer.Key("boneOverrides");
+					writer.StartArray();
+					for (const auto& [boneName, overrideValue] : customization.boneOverrides)
+					{
+						writer.StartObject();
+						writer.Key("boneName"); writer.String(boneName.c_str());
+						writer.Key("positionOffset"); SerializeVec3(writer, overrideValue.positionOffset);
+						writer.Key("rotationOffsetDegrees"); SerializeVec3(writer, overrideValue.rotationOffsetDegrees);
+						writer.Key("scaleMultiplier"); SerializeVec3(writer, overrideValue.scaleMultiplier);
+						writer.Key("counterScaleChildren"); writer.Bool(overrideValue.counterScaleChildren);
+						writer.EndObject();
+					}
+					writer.EndArray();
+
+					writer.Key("bodySliders");
+					writer.StartArray();
+					for (const auto& slider : customization.bodySliders)
+					{
+						writer.StartObject();
+						writer.Key("name"); writer.String(slider.name.c_str());
+						writer.Key("value"); writer.Double(slider.value);
+						writer.Key("minValue"); writer.Double(slider.minValue);
+						writer.Key("maxValue"); writer.Double(slider.maxValue);
+						writer.Key("customMappings"); writer.Bool(slider.customMappings);
+						writer.Key("mappings");
+						writer.StartArray();
+						for (const auto& mapping : slider.mappings)
+						{
+							writer.StartObject();
+							writer.Key("boneName"); writer.String(mapping.boneName.c_str());
+							writer.Key("positionPerUnit"); SerializeVec3(writer, mapping.positionPerUnit);
+							writer.Key("rotationDegreesPerUnit"); SerializeVec3(writer, mapping.rotationDegreesPerUnit);
+							writer.Key("scalePerUnit"); SerializeVec3(writer, mapping.scalePerUnit);
+							writer.Key("counterScaleChildren"); writer.Bool(mapping.counterScaleChildren);
+							writer.EndObject();
+						}
+						writer.EndArray();
+						writer.EndObject();
+					}
+					writer.EndArray();
+
+					writer.Key("bodyMaterial");
+					writer.StartObject();
+					SerializeCharacterMaterialOverride(writer, customization.bodyMaterial);
+					writer.EndObject();
+
+					writer.Key("sockets");
+					writer.StartArray();
+					for (const auto& socket : customization.sockets)
+					{
+						writer.StartObject();
+						writer.Key("name"); writer.String(socket.name.c_str());
+						writer.Key("boneName"); writer.String(socket.boneName.c_str());
+						writer.Key("meshPath"); writer.String(socket.meshPath.c_str());
+						writer.Key("positionOffset"); SerializeVec3(writer, socket.positionOffset);
+						writer.Key("rotationOffsetDegrees"); SerializeVec3(writer, socket.rotationOffsetDegrees);
+						writer.Key("scale"); SerializeVec3(writer, socket.scale);
+						writer.Key("visible"); writer.Bool(socket.visible);
+						writer.Key("material");
+						writer.StartObject();
+						SerializeCharacterMaterialOverride(writer, socket.material);
+						writer.EndObject();
+						writer.EndObject();
+					}
+					writer.EndArray();
 					writer.EndObject();
 				}
 
@@ -1775,6 +1880,86 @@ namespace MyEngine
 					if (cco.HasMember("animationSpeedParameter") && cco["animationSpeedParameter"].IsString()) controller.animationSpeedParameter = cco["animationSpeedParameter"].GetString();
 					if (cco.HasMember("animationGroundedParameter") && cco["animationGroundedParameter"].IsString()) controller.animationGroundedParameter = cco["animationGroundedParameter"].GetString();
 					if (cco.HasMember("animationJumpTriggerParameter") && cco["animationJumpTriggerParameter"].IsString()) controller.animationJumpTriggerParameter = cco["animationJumpTriggerParameter"].GetString();
+				}
+
+				if (v.HasMember("CharacterCustomization") && v["CharacterCustomization"].IsObject())
+				{
+					auto& customization = ent->AddComponent<CharacterCustomizationComponent>();
+					const auto& czo = v["CharacterCustomization"];
+					if (czo.HasMember("enabled") && czo["enabled"].IsBool()) customization.enabled = czo["enabled"].GetBool();
+					if (czo.HasMember("presetPath") && czo["presetPath"].IsString()) customization.presetPath = czo["presetPath"].GetString();
+
+					if (czo.HasMember("boneOverrides") && czo["boneOverrides"].IsArray())
+					{
+						customization.boneOverrides.clear();
+						for (const auto& entry : czo["boneOverrides"].GetArray())
+						{
+							if (!entry.IsObject() || !entry.HasMember("boneName") || !entry["boneName"].IsString())
+								continue;
+							BoneOverride overrideValue;
+							if (entry.HasMember("positionOffset")) overrideValue.positionOffset = DeserializeVec3(entry["positionOffset"]);
+							if (entry.HasMember("rotationOffsetDegrees")) overrideValue.rotationOffsetDegrees = DeserializeVec3(entry["rotationOffsetDegrees"]);
+							if (entry.HasMember("scaleMultiplier")) overrideValue.scaleMultiplier = DeserializeVec3(entry["scaleMultiplier"]);
+							if (entry.HasMember("counterScaleChildren") && entry["counterScaleChildren"].IsBool()) overrideValue.counterScaleChildren = entry["counterScaleChildren"].GetBool();
+							customization.boneOverrides[entry["boneName"].GetString()] = overrideValue;
+						}
+					}
+
+					if (czo.HasMember("bodySliders") && czo["bodySliders"].IsArray())
+					{
+						customization.bodySliders.clear();
+						for (const auto& entry : czo["bodySliders"].GetArray())
+						{
+							if (!entry.IsObject() || !entry.HasMember("name") || !entry["name"].IsString())
+								continue;
+							BodySlider slider;
+							slider.name = entry["name"].GetString();
+							if (entry.HasMember("value") && entry["value"].IsNumber()) slider.value = static_cast<float>(entry["value"].GetDouble());
+							if (entry.HasMember("minValue") && entry["minValue"].IsNumber()) slider.minValue = static_cast<float>(entry["minValue"].GetDouble());
+							if (entry.HasMember("maxValue") && entry["maxValue"].IsNumber()) slider.maxValue = static_cast<float>(entry["maxValue"].GetDouble());
+							if (entry.HasMember("customMappings") && entry["customMappings"].IsBool()) slider.customMappings = entry["customMappings"].GetBool();
+							if (entry.HasMember("mappings") && entry["mappings"].IsArray())
+							{
+								for (const auto& mappingValue : entry["mappings"].GetArray())
+								{
+									if (!mappingValue.IsObject() || !mappingValue.HasMember("boneName") || !mappingValue["boneName"].IsString())
+										continue;
+									BodySliderBoneMapping mapping;
+									mapping.boneName = mappingValue["boneName"].GetString();
+									if (mappingValue.HasMember("positionPerUnit")) mapping.positionPerUnit = DeserializeVec3(mappingValue["positionPerUnit"]);
+									if (mappingValue.HasMember("rotationDegreesPerUnit")) mapping.rotationDegreesPerUnit = DeserializeVec3(mappingValue["rotationDegreesPerUnit"]);
+									if (mappingValue.HasMember("scalePerUnit")) mapping.scalePerUnit = DeserializeVec3(mappingValue["scalePerUnit"]);
+									if (mappingValue.HasMember("counterScaleChildren") && mappingValue["counterScaleChildren"].IsBool()) mapping.counterScaleChildren = mappingValue["counterScaleChildren"].GetBool();
+									slider.mappings.push_back(std::move(mapping));
+								}
+							}
+							customization.bodySliders.push_back(std::move(slider));
+						}
+					}
+
+					if (czo.HasMember("bodyMaterial") && czo["bodyMaterial"].IsObject())
+						DeserializeCharacterMaterialOverride(czo["bodyMaterial"], customization.bodyMaterial);
+
+					if (czo.HasMember("sockets") && czo["sockets"].IsArray())
+					{
+						customization.sockets.clear();
+						for (const auto& socketValue : czo["sockets"].GetArray())
+						{
+							if (!socketValue.IsObject())
+								continue;
+							BoneSocket socket;
+							if (socketValue.HasMember("name") && socketValue["name"].IsString()) socket.name = socketValue["name"].GetString();
+							if (socketValue.HasMember("boneName") && socketValue["boneName"].IsString()) socket.boneName = socketValue["boneName"].GetString();
+							if (socketValue.HasMember("meshPath") && socketValue["meshPath"].IsString()) socket.meshPath = socketValue["meshPath"].GetString();
+							if (socketValue.HasMember("positionOffset")) socket.positionOffset = DeserializeVec3(socketValue["positionOffset"]);
+							if (socketValue.HasMember("rotationOffsetDegrees")) socket.rotationOffsetDegrees = DeserializeVec3(socketValue["rotationOffsetDegrees"]);
+							if (socketValue.HasMember("scale")) socket.scale = DeserializeVec3(socketValue["scale"]);
+							if (socketValue.HasMember("visible") && socketValue["visible"].IsBool()) socket.visible = socketValue["visible"].GetBool();
+							if (socketValue.HasMember("material") && socketValue["material"].IsObject())
+								DeserializeCharacterMaterialOverride(socketValue["material"], socket.material);
+							customization.sockets.push_back(std::move(socket));
+						}
+					}
 				}
 
 				if (v.HasMember("CombatAttack") && v["CombatAttack"].IsObject())

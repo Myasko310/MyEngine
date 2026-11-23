@@ -24,6 +24,7 @@ namespace MyEngine
 {
 	struct RigidbodyComponent;
 	struct CharacterControllerComponent;
+	struct EncounterSteering;
 
 	class PhysicsSystem : public System
 	{
@@ -226,6 +227,9 @@ namespace MyEngine
 					bool TryBeginVault(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, const glm::vec3& moveInput) const;
 					bool QueryVaultContact(Scene& scene, const std::shared_ptr<Entity>& entity, const glm::vec3& position, glm::vec3& normal, float& penetration, const VaultQueryContext* vaultQuery = nullptr) const;
 					bool FindVaultLanding(Scene& scene, const std::shared_ptr<Entity>& entity, const CharacterControllerComponent& controller, glm::vec3& position, float minimumY, const VaultQueryContext* vaultQuery = nullptr) const;
+					void SteerExplorer(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, float dt) const;
+					void SteerTerrain(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, EncounterSteering& ai, glm::vec3 desired, float pace, float dt) const;
+					void SteerPartner(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, float distance, float dt) const;
 					static glm::vec3 SampleVaultPosition(const CharacterControllerComponent& controller, float t);
 					void UpdateVaultMotion(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb, float dt) const;
 					void UpdateControllerAnimationState(const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller) const;

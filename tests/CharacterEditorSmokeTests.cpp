@@ -15,6 +15,7 @@
 #include "ecs/Entity.h"
 #include "ecs/Scene.h"
 #include "rendering/Skeleton.h"
+#include "serialization/SceneSerializer.h"
 #include "systems/AnimationSystem.h"
 #include "systems/CameraSystem.h"
 #include "editor/CharacterPreviewCamera.h"
@@ -856,6 +857,69 @@ static bool PrefixedBodySliderTest()
 	return true;
 }
 
+static bool CharacterCustomizationSceneRoundTripTest()
+{
+	Scene scene;
+	auto entity = scene.CreateEntity("Customizer");
+	auto& customization = entity->AddComponent<CharacterCustomizationComponent>();
+	customization.enabled = false;
+	customization.presetPath = "assets/characters/body-test.character.json";
+	customization.GetOrCreateOverride("Spine").scaleMultiplier = glm::vec3(1.1f, 1.2f, 0.9f);
+	BodySlider slider;
+	slider.name = "Leg Length";
+	slider.value = 0.65f;
+	slider.minValue = -0.25f;
+	slider.maxValue = 1.5f;
+	slider.customMappings = true;
+	BodySliderBoneMapping mapping;
+	mapping.boneName = "Hips";
+	mapping.positionPerUnit = glm::vec3(0.0f, 0.12f, 0.0f);
+	mapping.scalePerUnit = glm::vec3(0.08f, 0.22f, 0.08f);
+	mapping.counterScaleChildren = true;
+	slider.mappings.push_back(mapping);
+	customization.bodySliders.push_back(slider);
+	customization.bodyMaterial.enabled = true;
+	customization.bodyMaterial.tint = glm::vec3(0.7f, 0.8f, 0.9f);
+	customization.bodyMaterial.overridePBR = true;
+	customization.bodyMaterial.metallic = 0.45f;
+
+	BoneSocket socket;
+	socket.name = "Helmet";
+	socket.boneName = "Head";
+	socket.meshPath = "assets/meshes/helmet.obj";
+	socket.rotationOffsetDegrees = glm::vec3(0.0f, 12.0f, 0.0f);
+	socket.material.enabled = true;
+	socket.material.albedoTexturePath = "assets/textures/helmet.png";
+	customization.sockets.push_back(socket);
+
+	const std::string json = MyEngine::Serialization::SaveSceneToString(scene, {});
+	Scene restoredScene;
+	if (!MyEngine::Serialization::LoadSceneFromString(restoredScene, json, nullptr, nullptr)) return false;
+	std::shared_ptr<Entity> restoredEntity;
+	for (const auto& candidate : restoredScene.GetEntities())
+	{
+		if (candidate && candidate->GetName() == "Customizer")
+		{
+			restoredEntity = candidate;
+			break;
+		}
+	}
+	if (!restoredEntity || !restoredEntity->HasComponent<CharacterCustomizationComponent>()) return false;
+	const auto& restored = restoredEntity->GetComponent<CharacterCustomizationComponent>();
+	if (restored.enabled) return false;
+	if (restored.presetPath != customization.presetPath) return false;
+	if (!restored.FindOverride("Spine") || !NearlyEqual(restored.FindOverride("Spine")->scaleMultiplier, glm::vec3(1.1f, 1.2f, 0.9f))) return false;
+	if (restored.bodySliders.size() != 1) return false;
+	const BodySlider& restoredSlider = restored.bodySliders.front();
+	if (restoredSlider.name != "Leg Length" || !NearlyEqual(restoredSlider.value, 0.65f)) return false;
+	if (!NearlyEqual(restoredSlider.minValue, -0.25f) || !NearlyEqual(restoredSlider.maxValue, 1.5f) || !restoredSlider.customMappings) return false;
+	if (restoredSlider.mappings.size() != 1 || restoredSlider.mappings.front().boneName != "Hips" || !restoredSlider.mappings.front().counterScaleChildren) return false;
+	if (!NearlyEqual(restored.bodyMaterial.tint, glm::vec3(0.7f, 0.8f, 0.9f)) || !restored.bodyMaterial.overridePBR || !NearlyEqual(restored.bodyMaterial.metallic, 0.45f)) return false;
+	if (restored.sockets.size() != 1 || restored.sockets.front().boneName != "Head" || restored.sockets.front().material.albedoTexturePath != "assets/textures/helmet.png") return false;
+	std::cout << "[CharacterEditor] Scene round-trip preserves body proportion customizer state" << std::endl;
+	return true;
+}
+
 static bool CharacterMaterialListTest()
 {
 	namespace fs = std::filesystem;
@@ -960,6 +1024,7 @@ bool CharacterEditorSmokeTest()
 	if (!CharacterPickerTest()) return false;
 	if (!CharacterAssetSelectionTest()) return false;
 	if (!PrefixedBodySliderTest()) return false;
+	if (!CharacterCustomizationSceneRoundTripTest()) return false;
 	if (!CharacterMaterialListTest()) return false;
 	if (!PlayablePromotionSelectionRulesTest()) return false;
 	return true;

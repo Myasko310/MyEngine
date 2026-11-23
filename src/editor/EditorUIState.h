@@ -29,6 +29,8 @@ namespace MyEngine
 			bool drawCombatShapesOverlay = true;
 			bool showCharacterEditorPanel = false;
 			bool showColliderDebugOverlay = false;
+			bool showEncounterRoutes = false;
+			std::vector<std::string> lastSparringDecisions;
 			bool showAssetBrowser = true;
 			bool showAiAssetGeneratorPanel = true;
 			bool showMaterialBrowser = false;

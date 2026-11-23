@@ -1,6 +1,11 @@
 #include "ToolbarPanel.h"
 
 #ifdef USE_IMGUI
+#include <cstdlib>
+#include <cstring>
+#include "components/ExplorerComponent.h"
+#include "components/SparringPartnerComponent.h"
+#include "ecs/Scene.h"
 #include "editor/EditorStyle.h"
 #include "editor/PanelDockManager.h"
 
@@ -63,6 +68,82 @@ namespace MyEngine::Editor::Panels
 		if (ImGui::Button(*context.isPlaying ? "Stop" : "Play", ImVec2(74.0f, 0.0f)) && context.setPlaying)
 			context.setPlaying(!*context.isPlaying);
 		ImGui::PopStyleColor(2);
+
+		ImGui::SameLine();
+		constexpr const char* explorerFlag = "MYENGINE_EXPLORER_ENCOUNTER";
+		const char* value = std::getenv(explorerFlag);
+		const bool explorerEnabled = value && std::strcmp(value, "1") == 0;
+		static bool explorerSettingFailed = false;
+		ImGui::BeginDisabled(*context.isPlaying);
+		if (toolbarToggleButton(explorerEnabled ? "Explorer: On###ExplorerEncounter" : "Explorer: Off###ExplorerEncounter", explorerEnabled))
+		{
+#ifdef _WIN32
+			explorerSettingFailed = _putenv_s(explorerFlag, explorerEnabled ? "" : "1") != 0;
+#else
+			explorerSettingFailed = (explorerEnabled ? unsetenv(explorerFlag) : setenv(explorerFlag, "1", 1)) != 0;
+#endif
+		}
+		ImGui::EndDisabled();
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+			ImGui::SetTooltip("%s", explorerSettingFailed ? "Could not change the explorer encounter setting." :
+				"Spawn a noncombat AI copy of the player on the next Play. Applies only to this editor session.");
+		if (context.sparringEnabled)
+		{
+			ImGui::SameLine();
+			ImGui::BeginDisabled(*context.isPlaying);
+			if (toolbarToggleButton(*context.sparringEnabled ? "Sparring: On###SparringPartner" : "Sparring: Off###SparringPartner", *context.sparringEnabled))
+				*context.sparringEnabled = !*context.sparringEnabled;
+			ImGui::EndDisabled();
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+				ImGui::SetTooltip("Spawn a spacing partner that evades swings and counterattacks on the next Play.");
+			if (*context.isPlaying && *context.sparringEnabled)
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton("AI decisions")) ImGui::OpenPopup("Sparring decisions");
+				if (ImGui::BeginPopup("Sparring decisions"))
+				{
+					const SparringPartnerComponent* brain = nullptr;
+					for (const auto& e : context.scene->GetEntities())
+						if (e && e->HasComponent<SparringPartnerComponent>()) { brain = &e->GetComponent<SparringPartnerComponent>(); break; }
+					if (brain)
+					{
+						ImGui::Text("Dodge: %s", brain->dodgeReason);
+						ImGui::Text("Counter: %s", brain->counterReason);
+						ImGui::Text("Dodge side scores (- / +): %d / %d", brain->laneScore[0], brain->laneScore[1]);
+						ImGui::Text("Recent matching swings: %u", brain->patternTime > 0 ? brain->repeatCount : 0u);
+						ImGui::Text("Remembered stall locations: %u", static_cast<unsigned>(brain->memory.stalls.size()));
+					}
+					else ImGui::TextDisabled("No sparring partner in this scene");
+					ImGui::EndPopup();
+				}
+			}
+		}
+		if (!*context.isPlaying && context.ui && !context.ui->lastSparringDecisions.empty())
+		{
+			static int cursor = 0;
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Decision replay")) { cursor = 0; ImGui::OpenPopup("Last sparring session"); }
+			if (ImGui::BeginPopup("Last sparring session"))
+			{
+				const auto& events = context.ui->lastSparringDecisions;
+				cursor = std::clamp(cursor, 0, static_cast<int>(events.size()) - 1);
+				ImGui::SliderInt("Event", &cursor, 0, static_cast<int>(events.size()) - 1);
+				ImGui::TextUnformatted(events[cursor].c_str());
+				ImGui::EndPopup();
+			}
+		}
+		if (*context.isPlaying && explorerEnabled)
+		{
+			for (const auto& entity : context.scene->GetEntities())
+			{
+				if (!entity || !entity->HasComponent<ExplorerComponent>()) continue;
+				auto& ai = entity->GetComponent<ExplorerComponent>();
+				ImGui::SameLine();
+				if (toolbarToggleButton(ai.following ? "Resume Exploring###ExplorerFollow" : "Follow Me###ExplorerFollow", ai.following))
+					ai.SetFollowing(!ai.following);
+				break;
+			}
+		}
 
 		ImGui::SameLine();
 		ImGui::BeginDisabled(!context.undoStack->CanUndo());

@@ -78,6 +78,8 @@
 #include "components/SkeletonComponent.h"
 #include "components/CharacterCustomizationComponent.h"
 #include "character/CharacterPreset.h"
+#include "character/ExplorerEncounter.h"
+#include <cstdlib>
 #include "character/CharacterSocketSystem.h"
 #include "components/ScriptComponent.h"
 #include "audio/AudioEngine.h"
@@ -3793,6 +3795,31 @@ int main(int argc, char** argv)
 
     // Central play-state switch: snapshot the scene when starting play,
     // and prompt on stop so runtime changes can optionally be saved as copy.
+    std::shared_ptr<Entity> testExplorer;
+    std::shared_ptr<Entity> sparringPartner;
+    bool sparringEnabled = false;
+    auto loadEncounterMemory = [&](MyEngine::EncounterMemory& memory, const char* role)
+    {
+        const auto scenePath = std::filesystem::u8path(currentScenePath);
+        std::error_code ec;
+        const auto absolute = currentScenePath.empty() ? scenePath : std::filesystem::absolute(scenePath, ec);
+        const std::string key = currentScenePath.empty() ? "<unnamed>" : (ec ? scenePath : absolute).lexically_normal().generic_u8string();
+        std::uint64_t hash = 14695981039346656037ull;
+        for (unsigned char byte : key) { hash ^= byte; hash *= 1099511628211ull; }
+        const auto file = std::filesystem::path(".myengine") / "encounter-memory" / std::to_string(hash) / (std::string(role) + ".memory");
+        if (!memory.Load(file)) std::cerr << "[AI memory] Could not read " << file << "; starting fresh.\n";
+    };
+    auto saveEncounterMemories = [&]()
+    {
+        auto save = [](const MyEngine::EncounterMemory& memory)
+        {
+            if (!memory.Save()) std::cerr << "[AI memory] Could not save " << memory.file << '\n';
+        };
+        if (sparringPartner && sparringPartner->HasComponent<MyEngine::SparringPartnerComponent>())
+            save(sparringPartner->GetComponent<MyEngine::SparringPartnerComponent>().memory);
+        if (testExplorer && testExplorer->HasComponent<MyEngine::ExplorerComponent>())
+            save(testExplorer->GetComponent<MyEngine::ExplorerComponent>().memory);
+    };
     auto setPlaying = [&](bool play)
     {
         if (play == isPlaying)
@@ -3802,6 +3829,32 @@ int main(int argc, char** argv)
         {
             playModeSession.CaptureSnapshot(scene, globalScripts);
             isPlaying = true;
+            const char* explorerFlag = std::getenv("MYENGINE_EXPLORER_ENCOUNTER");
+            if (!networkingEnabled && sparringEnabled)
+            {
+                sparringPartner = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene, playerEntity);
+                if (!sparringPartner)
+                    std::cout << "[Sparring] Requires a player with a capsule character controller.\n";
+                else
+                {
+                    if (!navMeshSystem.IsReady()) navMeshSystem.Bake(scene);
+                    auto& partner = sparringPartner->GetComponent<MyEngine::SparringPartnerComponent>();
+                    partner.navigation = &navMeshSystem;
+                    loadEncounterMemory(partner.memory, "sparring");
+                }
+            }
+            if (!networkingEnabled && explorerFlag && std::string(explorerFlag) == "1")
+            {
+                testExplorer = MyEngine::ExplorerEncounter::Spawn(scene, playerEntity);
+                if (!testExplorer)
+                    std::cout << "[Explorer] Test encounter requires a player with a capsule character controller.\n";
+                else
+                {
+                    if (!navMeshSystem.IsReady()) navMeshSystem.Bake(scene);
+                    testExplorer->GetComponent<MyEngine::ExplorerComponent>().navigation = &navMeshSystem;
+                    loadEncounterMemory(testExplorer->GetComponent<MyEngine::ExplorerComponent>().memory, "explorer");
+                }
+            }
 
             // Entering play mode after animation-state editing should always start
             // from a clean runtime pose/evaluation state. The editor preview can
@@ -3870,6 +3923,24 @@ int main(int argc, char** argv)
         else
         {
             isPlaying = false;
+            saveEncounterMemories();
+            cameraSystem.ClearSparringLock();
+            if (sparringPartner)
+            {
+                editorUI.lastSparringDecisions = sparringPartner->GetComponent<MyEngine::SparringPartnerComponent>().decisions;
+                MyEngine::ExplorerEncounter::RemoveTrainingComponents(scene, sparringPartner->GetComponent<MyEngine::SparringPartnerComponent>());
+                if (selectedEntity == sparringPartner.get()) selectedEntity = nullptr;
+                if (scene.GetEntitySharedByID(sparringPartner->GetID()) == sparringPartner)
+                    scene.DestroyEntity(sparringPartner->GetID());
+                sparringPartner.reset();
+            }
+            if (testExplorer)
+            {
+                if (selectedEntity == testExplorer.get()) selectedEntity = nullptr;
+                if (scene.GetEntitySharedByID(testExplorer->GetID()) == testExplorer)
+                    scene.DestroyEntity(testExplorer->GetID());
+                testExplorer.reset();
+            }
             networkTick = 0;
             networkSnapshotTimer = 0.0f;
             if (usingSocketTransport)
@@ -3903,6 +3974,7 @@ int main(int argc, char** argv)
     };
 
     editorContext.isPlaying = &isPlaying;
+    if (!networkingEnabled) editorContext.sparringEnabled = &sparringEnabled;
     editorContext.wireframe = &wireframe;
     editorContext.setPlaying = setPlaying;
     editorContext.applyWireframe = [&](bool enabled)
@@ -4842,10 +4914,14 @@ int main(int argc, char** argv)
             // camera entity each press (rather than the original `camera`
             // reference) since play/stop reload destroys and recreates
             // entities, leaving the setup-time reference stale.
-            const bool toggleFollowCam = Input::IsKeyPressed(GLFW_KEY_V) ||
-                MyEngine::InputActions::IsGamepadButtonPressed(GLFW_GAMEPAD_BUTTON_RIGHT_THUMB);
+            const bool r3Pressed = MyEngine::InputActions::IsGamepadButtonPressed(GLFW_GAMEPAD_BUTTON_RIGHT_THUMB);
+            const bool sparringActive = sparringPartner && scene.GetEntitySharedByID(sparringPartner->GetID()) == sparringPartner;
+            if (r3Pressed && sparringActive)
+                cameraSystem.ToggleSparringLock(scene, playerEntity, sparringPartner);
+            const bool toggleFollowCam = Input::IsKeyPressed(GLFW_KEY_V) || (r3Pressed && !sparringActive);
             if (toggleFollowCam)
             {
+                cameraSystem.ClearSparringLock();
                 std::shared_ptr<Entity> followTarget = playerEntity ? playerEntity : findFallbackPlayable();
 
                 for (auto& e : scene.GetEntities())
@@ -5286,6 +5362,7 @@ int main(int argc, char** argv)
                     ImGui::MenuItem("Combat Debug", nullptr, &showCombatPanel);
                     ImGui::MenuItem("Character Editor", nullptr, &showCharacterEditorPanel);
                     ImGui::MenuItem("Collider Overlay", nullptr, &showColliderDebugOverlay);
+                    ImGui::MenuItem("AI Routes and Dodge Lanes", nullptr, &editorUI.showEncounterRoutes);
                     ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
                     ImGui::MenuItem("AI Asset Generator", nullptr, &showAiAssetGeneratorPanel);
                     ImGui::MenuItem("Material Browser", nullptr, &showMaterialBrowser);
@@ -8245,6 +8322,35 @@ int main(int argc, char** argv)
             }
         }
 
+        if (isPlaying && editorUI.showEncounterRoutes)
+        {
+            int w = 0, h = 0;
+            glfwGetWindowSize(window, &w, &h);
+            auto line = [&](glm::vec3 a, glm::vec3 b, ImU32 color)
+            {
+                a.y += 0.15f; b.y += 0.15f;
+                ImVec2 start, end;
+                if (ProjectWorldPointToScreen(a, view, projection, w, h, start) && ProjectWorldPointToScreen(b, view, projection, w, h, end))
+                    ImGui::GetBackgroundDrawList()->AddLine(start, end, color, 2.5f);
+            };
+            auto route = [&](glm::vec3 p, const std::vector<glm::vec3>& path, std::size_t next, ImU32 color)
+            {
+                for (; next < path.size(); ++next) { line(p, path[next], color); p = path[next]; }
+            };
+            if (testExplorer && testExplorer->HasComponent<MyEngine::ExplorerComponent>())
+            {
+                const auto& ai = testExplorer->GetComponent<MyEngine::ExplorerComponent>();
+                route(testExplorer->GetComponent<TransformComponent>().position, ai.route, ai.nextNode, IM_COL32(64,200,255,230));
+            }
+            if (sparringPartner && sparringPartner->HasComponent<MyEngine::SparringPartnerComponent>())
+            {
+                const auto& ai = sparringPartner->GetComponent<MyEngine::SparringPartnerComponent>();
+                route(sparringPartner->GetComponent<TransformComponent>().position, ai.route, ai.node, IM_COL32(255,190,70,230));
+                if (ai.laneDisplayTime > 0) for (int i = 0; i < ai.laneCount; ++i)
+                    line(ai.laneStart, ai.laneProbes[i].end, ai.laneProbes[i].clear ? IM_COL32(80,255,100,240) : IM_COL32(255,65,65,240));
+            }
+        }
+
         if (selectedEntity && selectedEntity->HasComponent<TransformComponent>())
         {
             int windowW = 0, windowH = 0;
@@ -8441,6 +8547,7 @@ int main(int argc, char** argv)
     // Shutdown
     // ------------------------------------------------------------
     {
+        saveEncounterMemories();
         const auto stats = MyEngine::Performance::PerformanceMetrics::GetAllStats();
         if (!stats.empty())
         {

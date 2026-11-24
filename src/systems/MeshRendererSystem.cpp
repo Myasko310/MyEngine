@@ -10,6 +10,7 @@
 #include "components/AnimationComponent.h"
 #include "components/CharacterCustomizationComponent.h"
 #include "character/CharacterMaterialAssets.h"
+#include "character/SparringRig.h"
 #include "components/SocketAttachmentComponent.h"
 #include "components/TerrainComponent.h"
 #include "core/AssetManager.h"
@@ -436,6 +437,16 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     m_Impl->worldMatrixCache.clear();
     auto worldOf = [&](const Entity& e) -> glm::mat4
     {
+        if (e.HasComponent<MyEngine::SparringRig>())
+        {
+            const auto& rig = e.GetComponent<MyEngine::SparringRig>();
+            if (rig.down && rig.initialized && rig.basePalette.empty())
+            {
+                const auto axis = rig.points[rig.Chest] - rig.points[rig.Hip];
+                const auto rot = glm::length(axis) > .001f ? glm::mat4_cast(glm::rotation(glm::vec3(0,1,0),glm::normalize(axis))) : glm::mat4(1);
+                return TransformHierarchy::GetWorldMatrix(scene,e) * glm::translate(glm::mat4(1),rig.points[rig.Hip]) * rot * glm::translate(glm::mat4(1),-rig.initial[rig.Hip]);
+            }
+        }
         if (!m_Impl->worldMatrixCacheEnabled)
             return TransformHierarchy::GetWorldMatrix(scene, e);
         auto it = m_Impl->worldMatrixCache.find(&e);
@@ -541,15 +552,16 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     glm::vec3 ambientColor = glm::vec3(0.08f);
 
     constexpr int kMaxPointLights = 4;
+    constexpr int kMaxEffectLights = 2;
     constexpr int kMaxSpotLights = 4;
-    static const std::array<std::string, kMaxPointLights> pointLightPosUniformNames = {
-        "u_PointLightPos[0]", "u_PointLightPos[1]", "u_PointLightPos[2]", "u_PointLightPos[3]"
+    static const std::array<std::string, kMaxPointLights + kMaxEffectLights> pointLightPosUniformNames = {
+        "u_PointLightPos[0]", "u_PointLightPos[1]", "u_PointLightPos[2]", "u_PointLightPos[3]", "u_PointLightPos[4]", "u_PointLightPos[5]"
     };
-    static const std::array<std::string, kMaxPointLights> pointLightColorUniformNames = {
-        "u_PointLightColor[0]", "u_PointLightColor[1]", "u_PointLightColor[2]", "u_PointLightColor[3]"
+    static const std::array<std::string, kMaxPointLights + kMaxEffectLights> pointLightColorUniformNames = {
+        "u_PointLightColor[0]", "u_PointLightColor[1]", "u_PointLightColor[2]", "u_PointLightColor[3]", "u_PointLightColor[4]", "u_PointLightColor[5]"
     };
-    static const std::array<std::string, kMaxPointLights> pointLightRangeUniformNames = {
-        "u_PointLightRange[0]", "u_PointLightRange[1]", "u_PointLightRange[2]", "u_PointLightRange[3]"
+    static const std::array<std::string, kMaxPointLights + kMaxEffectLights> pointLightRangeUniformNames = {
+        "u_PointLightRange[0]", "u_PointLightRange[1]", "u_PointLightRange[2]", "u_PointLightRange[3]", "u_PointLightRange[4]", "u_PointLightRange[5]"
     };
     static const std::array<std::string, kMaxPointLights> pointLightCastShadowUniformNames = {
         "u_PointLightCastShadows[0]", "u_PointLightCastShadows[1]", "u_PointLightCastShadows[2]", "u_PointLightCastShadows[3]"
@@ -617,6 +629,9 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
 
     std::vector<PointLightData> pointLights;
     pointLights.reserve(kMaxPointLights);
+    const glm::vec3 viewPos = glm::vec3(glm::inverse(view)[3]);
+    std::array<const MyEngine::LightComponent*, kMaxEffectLights> effects{};
+    std::array<float, kMaxEffectLights> effectScores{};
     std::vector<SpotLightData> spotLights;
     spotLights.reserve(kMaxSpotLights);
     std::array<int, kMaxPointLights> pointShadowMapIndices;
@@ -657,7 +672,14 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         }
         else if (L.type == MyEngine::LightComponent::Type::Point)
         {
-            if (static_cast<int>(pointLights.size()) < kMaxPointLights)
+            if (L.transientEffect)
+            {
+                const auto delta = L.position - viewPos;
+                const float score = L.intensity / (1.f + glm::dot(delta,delta));
+                auto lowest = std::min_element(effectScores.begin(),effectScores.end());
+                if (score > *lowest) { effects[lowest-effectScores.begin()] = &L; *lowest = score; }
+            }
+            else if (static_cast<int>(pointLights.size()) < kMaxPointLights)
                 pointLights.push_back({ L.position, L.color * L.intensity, L.range, L.shadowBias, L.castShadows, L.pointShadowSizeOverride, L.pointShadowPCFSamplesOverride, L.pointShadowPCFRadiusOverride });
         }
         else if (L.type == MyEngine::LightComponent::Type::Spot)
@@ -782,7 +804,6 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
     cameraCuller.Update(cameraVP);
 
     // Extract camera world position
-    glm::vec3 viewPos = glm::vec3(glm::inverse(view)[3]);
 
     // Save caller's FBO and viewport
     GLint callerFBO = 0;
@@ -1609,7 +1630,17 @@ void MeshRendererSystem::Render(Scene& scene, const glm::mat4& view, const glm::
         activeShader->SetFloat("u_ShadowBias", m_Impl ? m_Impl->shadowBias : 0.005f);
 
         // Point lights
-        activeShader->SetInt("u_NumPointLights", static_cast<int>(pointLights.size()));
+        int lightCount = static_cast<int>(pointLights.size());
+        activeShader->SetInt("u_NumScenePointLights", lightCount);
+        for (const auto* effect : effects)
+        {
+            if (!effect) continue;
+            activeShader->SetVec3(pointLightPosUniformNames[lightCount], effect->position);
+            activeShader->SetVec3(pointLightColorUniformNames[lightCount], effect->color * effect->intensity);
+            activeShader->SetFloat(pointLightRangeUniformNames[lightCount], effect->range);
+            ++lightCount;
+        }
+        activeShader->SetInt("u_NumPointLights", lightCount);
         activeShader->SetInt("u_PointShadowPCFSamples", m_Impl ? m_Impl->pointShadowPCFSamples : 20);
         activeShader->SetFloat("u_PointShadowPCFRadius", m_Impl ? m_Impl->pointShadowPCFRadius : 0.02f);
         for (size_t i = 0; i < pointLights.size(); ++i)

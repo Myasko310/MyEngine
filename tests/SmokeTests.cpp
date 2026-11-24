@@ -196,6 +196,8 @@ namespace
 			tick();
 			dodged |= partner->GetComponent<MyEngine::CharacterControllerComponent>().isDodging;
 			hit |= player->GetComponent<CombatHurtboxComponent>().wasHitThisStep;
+			const auto& decisions = partner->GetComponent<MyEngine::SparringPartnerComponent>().decisions;
+			if (!decisions.empty() && decisions.back().find("Counter outcome: hit") != std::string::npos) break;
 		}
 		if (!dodged || !hit) std::cerr << "Grounded sparring dt=" << frameTime << " dodge=" << dodged << " counter hit=" << hit << '\n';
 		const auto& brain = partner->GetComponent<MyEngine::SparringPartnerComponent>();
@@ -241,8 +243,291 @@ namespace
 		return true;
 	}
 
+	bool SparringKnockdown()
+	{
+		Scene scene;
+		auto floor = scene.CreateEntity("Platform");
+		floor->AddComponent<TransformComponent>().position.y = -.25f;
+		floor->AddComponent<BoxColliderComponent>().halfExtents = {20,.25f,20};
+		auto player = scene.CreateEntity("Player");
+		player->AddComponent<TransformComponent>();
+		auto& capsule = player->AddComponent<CapsuleColliderComponent>();
+		capsule.pointA.y = capsule.radius; capsule.pointB.y = 1.5f;
+		player->AddComponent<MyEngine::CharacterControllerComponent>();
+		player->AddComponent<MyEngine::RigidbodyComponent>().isKinematic = true;
+		auto target = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene,player);
+		auto& rig = target->GetComponent<MyEngine::SparringRig>();
+		auto& stats = target->GetComponent<MyEngine::CombatStatsComponent>();
+		auto probe = scene.CreateEntity("Strike");
+		auto& pos = probe->AddComponent<TransformComponent>().position;
+		auto& hit = probe->AddComponent<CombatHitboxComponent>();
+		hit.active = true; hit.team = player->GetComponent<CombatHitboxComponent>().team;
+		MyEngine::PhysicsSystem physics; MyEngine::CombatSystem combat;
+		const float dt = physics.fixedTimestep;
+		pos = target->GetComponent<TransformComponent>().position + rig.rest[rig.Head];
+		hit.radius = .12f; hit.damage = 5; ++hit.activationId;
+		const float start = stats.health;
+		physics.OnUpdate(scene,dt); physics.OnUpdate(scene,dt); combat.OnUpdate(scene,dt);
+		if (rig.down || rig.lastRegion != rig.Head || stats.health != start || stats.lastDamageTaken != 5) return false;
+		for (int n = 2; n <= 4; ++n)
+		{
+			pos = target->GetComponent<TransformComponent>().position + rig.rest[rig.Chest];
+			hit.radius = .6f; hit.damage = n == 2 ? start + 20 : 5; ++hit.activationId;
+			physics.OnUpdate(scene,dt); combat.OnUpdate(scene,dt);
+			if (rig.standingHits != n || rig.down != (n == 4)) return false;
+		}
+		hit.active = false;
+		if (!rig.down || stats.isDead || stats.health != start || stats.lastDamageTaken != hit.damage) return false;
+		for (int i = 0; i < 40; ++i) physics.OnUpdate(scene,dt);
+		if (!rig.initialized || rig.points[rig.Head].y >= rig.initial[rig.Head].y-.2f) return false;
+		for (int i = 0; i < 100; ++i) physics.OnUpdate(scene,dt);
+		if (!rig.down) return false;
+		for (int i = 0; i < 20; ++i) physics.OnUpdate(scene,dt);
+		if (rig.down || stats.isDead || rig.standingHits || stats.posture != 0.f) return false;
+		auto& animator = target->AddComponent<AnimationStateMachineComponent>();
+		animator.stateMachine = std::make_shared<MyEngine::AnimationStateMachine>();
+		animator.stateMachine->parameters.push_back({"Attack1",MyEngine::AnimationStateMachineParameterType::Trigger});
+		const auto playerHealth = player->GetComponent<MyEngine::CombatStatsComponent>().health;
+		bool jabStarted = false;
+		for (int i = 0; i < 400 && player->GetComponent<MyEngine::CombatStatsComponent>().health == playerHealth; ++i)
+		{
+			combat.OnUpdate(scene,dt);
+			if (target->GetComponent<MyEngine::CombatAttackComponent>().phase == MyEngine::CombatAttackComponent::AttackPhase::Startup &&
+				!animator.parameterValues.empty() && animator.parameterValues.front().triggerValue) jabStarted = true;
+			physics.OnUpdate(scene,dt);
+		}
+		if (!jabStarted || player->GetComponent<MyEngine::CombatStatsComponent>().health >= playerHealth) return false;
+		target->GetComponent<MyEngine::SparringPartnerComponent>().infiniteHealth = false;
+		pos = target->GetComponent<TransformComponent>().position + rig.rest[rig.Hip];
+		hit.active = true; hit.damage = stats.health; ++hit.activationId;
+		physics.OnUpdate(scene,dt); combat.OnUpdate(scene,dt); hit.active = false;
+		for (int i = 0; i < 120; ++i) physics.OnUpdate(scene,dt);
+		return stats.isDead && rig.down && rig.initialized;
+	}
+
 	bool SparringPartnerSmokeTest()
 	{
+		for (bool atRange : {false,true})
+		{
+			MyEngine::SparringPartnerComponent brain;
+			const int first = brain.Opening(atRange);
+			for (int string = 0; string < 2; ++string)
+			{
+				const int pattern = brain.Opening(atRange);
+				if (string && pattern == first) return false;
+				bool melee = false, burst = false;
+				for (int beat = 0; beat < 3; ++beat)
+				{
+					if (brain.nextBeat != beat) return false;
+					(brain.combos[pattern][beat].burst ? burst : melee) = true;
+					brain.CommitBeat(pattern);
+				}
+				if (!melee || !burst || brain.combo >= 0) return false;
+			}
+		}
+		auto incomingShot = [](bool sidestep) {
+			Scene scene;
+			auto floor = scene.CreateEntity("Arena"); floor->AddComponent<TransformComponent>().position.y = -.5f;
+			floor->AddComponent<BoxColliderComponent>().halfExtents = {20,.5f,20};
+			auto player = scene.CreateEntity("Fighter"); player->AddComponent<TransformComponent>();
+			auto& capsule = player->AddComponent<CapsuleColliderComponent>(); capsule.pointA.y = capsule.radius; capsule.pointB.y = 1.5f;
+			player->AddComponent<MyEngine::CharacterControllerComponent>(); player->AddComponent<MyEngine::RigidbodyComponent>();
+			auto ai = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene,player);
+			ai->GetComponent<TransformComponent>().position = {0,0,-6};
+			MyEngine::CombatSystem combat; MyEngine::PhysicsSystem physics; MyEngine::Net::InputCommand input{};
+			auto& stats = player->GetComponent<MyEngine::CombatStatsComponent>(); const float health = stats.health;
+			int release = -1; bool startup = false;
+			for (int tick=0; tick<160; ++tick)
+			{
+				combat.OnUpdate(scene,physics.fixedTimestep);
+				startup |= ai->GetComponent<MyEngine::CombatAttackComponent>().phase == MyEngine::CombatAttackComponent::AttackPhase::Startup;
+				for (const auto& e : scene.GetEntities()) if (release < 0 && e->HasComponent<MyEngine::SparringEnergyBurst>() && e->GetComponent<MyEngine::SparringEnergyBurst>().owner == ai->GetID()) release = tick;
+				if (release == tick && (!startup || stats.health != health || glm::distance(ai->GetComponent<TransformComponent>().position,player->GetComponent<TransformComponent>().position)<4)) return false;
+				input.moveAxis.x = release >= 0 && sidestep ? 1.f : 0.f; ++input.tick;
+				physics.OnUpdate(scene,physics.fixedTimestep,nullptr,{0,0,-1},{1,0,0},&input);
+				if (release >= 0 && tick-release > 42) return sidestep ? stats.health == health : stats.health < health && stats.lastHitByEntityId == ai->GetID();
+			}
+			return false;
+		};
+		if (!incomingShot(false) || !incomingShot(true)) { std::cerr << "Partner ranged attack or sidestep failed\n"; return false; }
+		{
+			Scene scene;
+			auto floor = scene.CreateEntity("Dodge arena"); floor->AddComponent<TransformComponent>().position.y = -.5f;
+			floor->AddComponent<BoxColliderComponent>().halfExtents = {20,.5f,20};
+			auto player = scene.CreateEntity("Shooter"); player->AddComponent<TransformComponent>();
+			auto& cap = player->AddComponent<CapsuleColliderComponent>(); cap.pointA.y = cap.radius; cap.pointB.y = 1.5f;
+			player->AddComponent<MyEngine::CharacterControllerComponent>(); player->AddComponent<MyEngine::RigidbodyComponent>();
+			auto partner = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene,player);
+			partner->GetComponent<TransformComponent>().position = {0,0,8};
+			MyEngine::CombatSystem combat; MyEngine::PhysicsSystem physics; const float dt = physics.fixedTimestep;
+			for (int i = 0; i < 8; ++i) { combat.OnUpdate(scene,dt); physics.OnUpdate(scene,dt); }
+			player->GetComponent<MyEngine::CombatAttackComponent>().attackRequested = true;
+			bool dodged = false;
+			for (int i = 0; i < 32; ++i)
+			{
+				combat.OnUpdate(scene,dt); physics.OnUpdate(scene,dt);
+				dodged |= partner->GetComponent<MyEngine::CharacterControllerComponent>().isDodging;
+			}
+			if (!dodged || partner->GetComponent<MyEngine::SparringRig>().standingHits != 0) return false;
+		}
+		auto ranged = [](int slot, bool cover, bool defeated = false) {
+			Scene scene;
+			auto player = scene.CreateEntity("Burst fighter");
+			player->AddComponent<TransformComponent>();
+			player->AddComponent<MyEngine::CharacterControllerComponent>();
+			player->AddComponent<MyEngine::RigidbodyComponent>().isKinematic = true;
+			player->AddComponent<CapsuleColliderComponent>();
+			auto partner = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene,player);
+			partner->GetComponent<TransformComponent>().position = {0,0,5};
+			// Isolate projectile travel from steering and gravity.
+			for (const auto& e : {player,partner}) e->RemoveComponent<MyEngine::CharacterControllerComponent>();
+			if (cover)
+			{
+				auto wall = scene.CreateEntity("Cover");
+				wall->AddComponent<TransformComponent>().position = {0,1,3};
+				wall->AddComponent<BoxColliderComponent>().halfExtents = {1,2,.05f};
+			}
+			MyEngine::PhysicsSystem physics; MyEngine::CombatSystem combat;
+			const float dt = physics.fixedTimestep;
+			combat.OnUpdate(scene,dt);
+			auto& attack = player->GetComponent<MyEngine::CombatAttackComponent>();
+			attack.selectedAttackIndex = slot; attack.attackRequested = true;
+			auto& stats = partner->GetComponent<MyEngine::CombatStatsComponent>();
+			if (defeated)
+			{
+				stats.isDead = true; stats.health = 0; stats.reactionState = MyEngine::CombatStatsComponent::HitReactionState::KnockedDown;
+				partner->GetComponent<MyEngine::SparringRig>().BeginDown();
+			}
+			const float before = stats.health;
+			auto burstCount = [&]() {
+				return std::count_if(scene.GetEntities().begin(),scene.GetEntities().end(),[](const auto& e) { return e && e->template HasComponent<MyEngine::SparringEnergyBurst>(); });
+			};
+			combat.OnUpdate(scene,dt);
+			if (burstCount() != 1 || attack.phase != MyEngine::CombatAttackComponent::AttackPhase::Startup) return false;
+			for (const auto& e : scene.GetEntities()) if (e->HasComponent<MyEngine::SparringEnergyBurst>())
+			{
+				const auto& particles = e->GetComponent<ParticleEmitterComponent>().particles;
+				if (std::count_if(particles.begin(),particles.end(),[](const Particle& p){ return p.alive; }) != (slot == 1 ? 52 : 16)) return false;
+				if (std::none_of(particles.begin(),particles.end(),[](const Particle& p){ return p.alive && p.mark == Particle::Mark::Brush && p.stretch > 1.f; })) return false;
+				if (std::none_of(particles.begin(),particles.end(),[](const Particle& p){ return p.alive && p.mark == Particle::Mark::Soft; })) return false;
+			}
+			const bool rapid = !cover && slot == 0;
+			if (rapid)
+			{
+				attack.attackRequested = true;
+				combat.OnUpdate(scene,dt);
+				if (burstCount() != 2) return false;
+			}
+			int visibleSteps = 0;
+			float recordedDamage = 0;
+			bool sawGlow = false, sawShake = false, sawImpactFrame = false;
+			bool sawLitFlight = false, sawBrightContact = false, sawDimContact = false;
+			const float flightIntensity = slot == 1 ? 6.f : 3.4f;
+			for (int i = 0; i < 65; ++i)
+			{
+				combat.OnUpdate(scene,dt); physics.OnUpdate(scene,dt);
+				recordedDamage += stats.lastDamageTaken;
+				sawShake |= glm::length(MyEngine::SparringImpactShake(scene)) > .0001f;
+				for (const auto& e : scene.GetEntities()) if (e->HasComponent<MyEngine::SparringEnergyBurst>())
+				{
+					if (!e->HasComponent<ParticleEmitterComponent>() || (!visibleSteps && stats.health != before)) return false;
+					const auto& burst = e->GetComponent<MyEngine::SparringEnergyBurst>();
+					const auto& marks = e->GetComponent<ParticleEmitterComponent>().particles;
+					if (!e->HasComponent<MyEngine::LightComponent>()) return false;
+					const auto& light = e->GetComponent<MyEngine::LightComponent>();
+					if (!light.transientEffect || light.castShadows || light.type != MyEngine::LightComponent::Type::Point) return false;
+					if (burst.fade < 0)
+					{
+						if (glm::distance(light.position,e->GetComponent<TransformComponent>().position) > .001f) return false;
+						sawLitFlight |= light.intensity > 0;
+					}
+					else if (burst.impactFlash)
+					{
+						sawBrightContact |= light.intensity > flightIntensity;
+						sawDimContact |= light.intensity < flightIntensity;
+					}
+					sawImpactFrame |= std::any_of(marks.begin(),marks.end(),[](const Particle& p){ return p.alive && p.mark == Particle::Mark::Impact; });
+					if (burst.glowParticle >= 0)
+					{
+						const glm::vec3 expected = TransformHierarchy::GetWorldMatrix(scene,*partner) * glm::vec4(partner->GetComponent<MyEngine::SparringRig>().Pose(*partner)[burst.impactRegion],1);
+						if (glm::distance(expected,e->GetComponent<ParticleEmitterComponent>().particles.at(burst.glowParticle).position) > .001f) return false;
+						sawGlow = true;
+					}
+					++visibleSteps;
+				}
+			}
+			for (const auto& e : scene.GetEntities()) if (e->HasComponent<MyEngine::SparringEnergyBurst>()) return false;
+			if (!sawImpactFrame || sawGlow != !cover || sawShake != (!cover && slot == 1)) return false;
+			if (!sawLitFlight || !sawBrightContact || !sawDimContact) return false;
+			const auto& rig = partner->GetComponent<MyEngine::SparringRig>();
+			if ((rig.burstRecoil.z > 0) == cover || rig.down != defeated || rig.standingHits != (cover || defeated ? 0 : rapid ? 2 : 1)) return false;
+			if (defeated && (!stats.isDead || stats.health != 0 || rig.pendingDamage != 0 || rig.pendingPosture != 0)) return false;
+			if (!cover)
+			{
+				partner->AddComponent<MyEngine::CharacterControllerComponent>();
+				const float z = partner->GetComponent<TransformComponent>().position.z;
+				physics.OnUpdate(scene,dt);
+				if (rig.down ? rig.points[rig.Hip].z <= rig.initial[rig.Hip].z : partner->GetComponent<TransformComponent>().position.z <= z) return false;
+			}
+			return visibleSteps > 1 && stats.health == before && recordedDamage == (cover || defeated ? 0.f : attack.attacks[slot].damage * (rapid ? 2 : 1));
+		};
+		if (!ranged(0,false) || !ranged(1,false) || !ranged(1,true) || !ranged(0,false,true) || !ranged(1,false,true)) { std::cerr << "Sparring energy burst regression\n"; return false; }
+		auto playerContact = [](int slot, bool inRange) {
+			Scene scene;
+			auto player = scene.CreateEntity("Training fighter");
+			player->AddComponent<TransformComponent>();
+			player->AddComponent<MyEngine::CharacterControllerComponent>();
+			player->AddComponent<MyEngine::RigidbodyComponent>().isKinematic = true;
+			player->AddComponent<CapsuleColliderComponent>();
+			auto skeleton = std::make_shared<MyEngine::Skeleton>();
+			for (const char* name : {"RightHand","LeftHand","RightFoot","LeftFoot"})
+			{
+				MyEngine::Bone b; b.name = name; skeleton->AddBone(b);
+			}
+			player->AddComponent<SkeletonComponent>().skeleton = skeleton;
+			auto& anim = player->AddComponent<AnimationComponent>();
+			anim.boneMatrices.assign(4,glm::mat4(1));
+			auto partner = MyEngine::ExplorerEncounter::SpawnSparringPartner(scene,player);
+			anim.boneMatrices[slot == 1 ? 3 : 1] = glm::translate(glm::mat4(1),glm::vec3(0,1.32f,1.5f));
+			partner->GetComponent<TransformComponent>().position.z = inRange ? 1.5f : 6.f;
+			partner->GetComponent<TransformComponent>().position.x = 0;
+			MyEngine::CombatSystem combat; MyEngine::PhysicsSystem physics;
+			const float dt = physics.fixedTimestep;
+			auto& attack = player->GetComponent<MyEngine::CombatAttackComponent>();
+			combat.OnUpdate(scene,dt);
+			if (static_cast<int>(attack.attacks.size()) <= slot) return false;
+			attack.selectedAttackIndex = slot; attack.attacks[slot].startupFrames = 1; attack.attackRequested = true;
+			auto& stats = partner->GetComponent<MyEngine::CombatStatsComponent>();
+			const float health = stats.health;
+			combat.OnUpdate(scene,dt); combat.OnUpdate(scene,dt); physics.OnUpdate(scene,dt); combat.OnUpdate(scene,dt);
+			return stats.health == health && stats.lastDamageTaken == (inRange ? attack.attacks[slot].damage : 0.f) &&
+				!partner->GetComponent<MyEngine::SparringRig>().down && partner->GetComponent<MyEngine::SparringRig>().standingHits == (inRange ? 1 : 0);
+		};
+		if (!playerContact(0,true) || !playerContact(1,true) || !playerContact(2,true) || !playerContact(0,false))
+		{ std::cerr << "Player limb contact against spawned partner failed\n"; return false; }
+		{
+			Scene arena;
+			auto fighter = arena.CreateEntity("Rotated fighter");
+			auto& pose = fighter->AddComponent<TransformComponent>();
+			pose.rotation.y = glm::radians(90.0f);
+			auto sk = std::make_shared<MyEngine::Skeleton>();
+			MyEngine::Bone hand; hand.name = "RightHand"; sk->AddBone(hand);
+			fighter->AddComponent<SkeletonComponent>().skeleton = sk;
+			fighter->AddComponent<AnimationComponent>().boneMatrices = {glm::translate(glm::mat4(1),glm::vec3(0,1,2))};
+			fighter->AddComponent<MyEngine::PlayerStrikeBones>().Bind(*fighter);
+			auto& attack = fighter->AddComponent<MyEngine::CombatAttackComponent>();
+			attack.attacks.emplace_back(); attack.attacks[0].startupFrames = attack.attacks[0].activeFrames = 1;
+			attack.attackRequested = true;
+			fighter->AddComponent<CombatHitboxComponent>();
+			auto target = arena.CreateEntity("At rotated hand");
+			target->AddComponent<TransformComponent>().position = {2,1,0};
+			auto& hurt = target->AddComponent<CombatHurtboxComponent>(); hurt.team = 1; hurt.radius = .1f;
+			MyEngine::CombatSystem combat; MyEngine::PhysicsSystem physics;
+			combat.OnUpdate(arena,physics.fixedTimestep); combat.OnUpdate(arena,physics.fixedTimestep);
+			physics.OnUpdate(arena,physics.fixedTimestep);
+			if (!hurt.wasHitThisStep) { std::cerr << "First active frame missed rotated animated hand\n"; return false; }
+		}
+		if (!SparringKnockdown()) return false;
 		if (!SparringFloorContact(0,0) || !SparringFloorContact(1.8f,0) || !SparringFloorContact(0,1.8f)) return false;
 		if (!GroundedSparringReaction(1.0f / 60) || !GroundedSparringReaction(1.0f / 144) || !GroundedSparringReaction(1.0f / 60, true)) return false;
 		Scene scene;
@@ -261,15 +546,22 @@ namespace
 			cam.isPrimary = true;
 			cam.yaw = 0; // The partner spawns behind this view.
 			MyEngine::CameraSystem camera;
-			camera.ToggleSparringLock(scene, player, partner);
+			camera.CyclePlayCamera(scene, player, partner);
 			camera.Update(scene, nullptr, 0.1f, 1.0f);
 			if (pose.position.x <= 0 || cam.thirdPerson || cam.lockOnEnabled) return false;
-			camera.ToggleSparringLock(scene, player, partner);
+			camera.CyclePlayCamera(scene, player, partner);
+			if (!cam.thirdPerson || cam.followTargetID != player->GetID() || cam.lockOnEnabled) return false;
+			camera.CyclePlayCamera(scene, player, partner);
+			if (cam.thirdPerson) return false;
 			const auto released = pose.position;
 			partner->GetComponent<TransformComponent>().position.z += 1;
 			camera.Update(scene, nullptr, 0.1f, 1.0f);
 			if (pose.position != released) return false;
 			partner->GetComponent<TransformComponent>().position.z -= 1;
+			camera.CyclePlayCamera(scene, player, nullptr);
+			if (!cam.thirdPerson) return false;
+			camera.CyclePlayCamera(scene, player, nullptr);
+			if (cam.thirdPerson) return false;
 		}
 		auto& ctl = partner->GetComponent<MyEngine::CharacterControllerComponent>();
 		if (ctl.attack1Requested) return false;
@@ -282,7 +574,7 @@ namespace
 			++input.tick;
 			physics.OnUpdate(scene, physics.fixedTimestep, nullptr, {0, 0, -1}, {1, 0, 0}, &input);
 		};
-		step(5.0f);
+		step(11.0f);
 		if (ctl.moveInput.x <= 0.0f) return false;
 		step(1.5f);
 		if (ctl.moveInput.x >= 0.0f || partner->GetComponent<MyEngine::SparringPartnerComponent>().facing.x <= 0.0f) return false;

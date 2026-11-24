@@ -14,7 +14,7 @@ namespace MyEngine
     {
     public:
         void Update(Scene& scene, GLFWwindow* window, float deltaTime, float aspectRatio);
-        void ToggleSparringLock(Scene& scene, const std::shared_ptr<Entity>& player, const std::shared_ptr<Entity>& partner);
+        void CyclePlayCamera(Scene& scene, const std::shared_ptr<Entity>& player, const std::shared_ptr<Entity>& partner);
         void ClearSparringLock();
 
         // Apply interpolation to smooth camera between fixed-timestep updates

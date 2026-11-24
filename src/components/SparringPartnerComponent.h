@@ -20,6 +20,29 @@ namespace MyEngine
 		glm::vec3 checkpoint{0}, escape{0};
 		int escapeSide = 1;
 		bool addedAttack = false, addedHitbox = false, addedHurtbox = false, addedStats = false;
+		bool addedStrikeBones = false;
+		bool infiniteHealth = true;
+		static constexpr float openingDelay = .70f;
+		static constexpr float repeatDelay = 1.10f;
+		float initiativeDelay = openingDelay;
+		bool closingForJab = false;
+		bool rangedAttack = false;
+		struct Beat { int slot; bool burst; };
+		inline static constexpr Beat combos[4][3] = {
+			{{0,false},{1,false},{1,true}}, {{0,false},{0,true},{1,false}},
+			{{0,true},{0,false},{1,false}}, {{1,true},{0,true},{0,false}}
+		};
+		int combo = -1, nextBeat = 0;
+		unsigned closeStrings = 0, rangedStrings = 0;
+		float followupTime = 0;
+		int Opening(bool ranged) const { return ranged ? 2 + int(rangedStrings%2) : int(closeStrings%2); }
+		void CommitBeat(int pattern)
+		{
+			if (combo < 0) { ++(pattern >= 2 ? rangedStrings : closeStrings); combo = pattern; }
+			if (++nextBeat == 3) { EndCombo(); initiativeDelay = repeatDelay; }
+			else { followupTime = 2.f; initiativeDelay = 0; }
+		}
+		void EndCombo() { combo = -1; nextBeat = 0; followupTime = 0; }
 		bool responding = false, counterSpent = false;
 		bool dodgeIssued = false;
 		struct Trial { bool pending = false, active = false, hit = false; std::uint32_t activation = 0; } dodgeTrial, counterTrial;

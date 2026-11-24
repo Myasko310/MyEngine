@@ -65,9 +65,11 @@ uniform int       u_DebugViewMode;
 #define MAX_SPOT_LIGHTS 4
 
 uniform int u_NumPointLights;
-uniform vec3 u_PointLightPos[MAX_POINT_LIGHTS];
-uniform vec3 u_PointLightColor[MAX_POINT_LIGHTS];
-uniform float u_PointLightRange[MAX_POINT_LIGHTS];
+uniform int u_NumScenePointLights;
+const int MAX_EFFECT_LIGHTS = 2;
+uniform vec3 u_PointLightPos[MAX_POINT_LIGHTS + MAX_EFFECT_LIGHTS];
+uniform vec3 u_PointLightColor[MAX_POINT_LIGHTS + MAX_EFFECT_LIGHTS];
+uniform float u_PointLightRange[MAX_POINT_LIGHTS + MAX_EFFECT_LIGHTS];
 uniform bool u_PointLightCastShadows[MAX_POINT_LIGHTS];
 uniform samplerCube u_PointShadowMap[MAX_POINT_LIGHTS];
 uniform float u_PointShadowFarPlane[MAX_POINT_LIGHTS];
@@ -380,7 +382,7 @@ void main()
 		vec3 kDp = (vec3(1.0) - kSp) * (1.0 - metallic);
 
 		float NdotLp = max(dot(N, Lp), 0.0);
-		float pointShadow = PointShadowCalculation(i, u_PointLightPos[i], N);
+		float pointShadow = i < u_NumScenePointLights ? PointShadowCalculation(i, u_PointLightPos[i], N) : 0.0;
 		Lo += (kDp * albedo / PI + specularP) * radianceP * NdotLp * (1.0 - pointShadow);
 	}
 

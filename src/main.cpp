@@ -4909,17 +4909,10 @@ int main(int argc, char** argv)
                 return {};
             };
 
-            // Toggle third-person follow camera with V keyboard key or
-            // right-stick click on gamepad. Resolved against the live primary
-            // camera entity each press (rather than the original `camera`
-            // reference) since play/stop reload destroys and recreates
-            // entities, leaving the setup-time reference stale.
             const bool r3Pressed = MyEngine::InputActions::IsGamepadButtonPressed(GLFW_GAMEPAD_BUTTON_RIGHT_THUMB);
-            const bool sparringActive = sparringPartner && scene.GetEntitySharedByID(sparringPartner->GetID()) == sparringPartner;
-            if (r3Pressed && sparringActive)
-                cameraSystem.ToggleSparringLock(scene, playerEntity, sparringPartner);
-            const bool toggleFollowCam = Input::IsKeyPressed(GLFW_KEY_V) || (r3Pressed && !sparringActive);
-            if (toggleFollowCam)
+            if (r3Pressed)
+                cameraSystem.CyclePlayCamera(scene, playerEntity ? playerEntity : findFallbackPlayable(), sparringPartner);
+            else if (Input::IsKeyPressed(GLFW_KEY_V))
             {
                 cameraSystem.ClearSparringLock();
                 std::shared_ptr<Entity> followTarget = playerEntity ? playerEntity : findFallbackPlayable();
@@ -5117,6 +5110,11 @@ int main(int argc, char** argv)
         navMeshSystem.Update(scene, deltaTime);
 
         glm::mat4 view = cameraSystem.GetViewMatrix();
+        if (isPlaying && sparringPartner)
+        {
+            const auto shake = MyEngine::SparringImpactShake(scene);
+            view = glm::translate(glm::mat4(1.0f), glm::vec3(shake, 0.0f)) * view;
+        }
         glm::mat4 projection = cameraSystem.GetProjectionMatrix();
 
         MyEngine::Editor::Panels::CharacterEditorPanelContext previewContext;

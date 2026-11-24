@@ -103,6 +103,7 @@ namespace MyEngine
 
 			static uint64_t MakePairKey(uint32_t idA, uint32_t idB);
 			void ProcessCombatHitboxes(Scene& scene);
+			void UpdateSparringBursts(Scene& scene, float dt);
 			static void FireEnterEvent(const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b, bool isTrigger);
 			static void FireExitEvent(const std::shared_ptr<Entity>& a, const std::shared_ptr<Entity>& b, bool isTrigger);
 
@@ -230,6 +231,7 @@ namespace MyEngine
 					void SteerExplorer(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, float dt) const;
 					void SteerTerrain(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, EncounterSteering& ai, glm::vec3 desired, float pace, float dt) const;
 					void SteerPartner(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, float distance, float dt) const;
+					void StepSparringRagdoll(Scene& scene, const std::shared_ptr<Entity>& entity, float dt);
 					static glm::vec3 SampleVaultPosition(const CharacterControllerComponent& controller, float t);
 					void UpdateVaultMotion(Scene& scene, const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller, RigidbodyComponent& rb, float dt) const;
 					void UpdateControllerAnimationState(const std::shared_ptr<Entity>& entity, CharacterControllerComponent& controller) const;

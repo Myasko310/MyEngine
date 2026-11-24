@@ -1,6 +1,8 @@
 #pragma once
 
 #include "ecs/Scene.h"
+#include "character/CombatShapes.h"
+#include "character/SparringEnergyBurst.h"
 #include "components/AnimationComponent.h"
 #include "components/AnimationStateMachineComponent.h"
 #include "components/CapsuleColliderComponent.h"
@@ -69,11 +71,14 @@ namespace MyEngine::ExplorerEncounter
 		auto copy = SpawnCopy(scene, player, "Sparring Partner (Test)", -4.0f);
 		if (!copy) return nullptr;
 		auto& ai = copy->AddComponent<SparringPartnerComponent>();
+		copy->GetComponent<CharacterControllerComponent>().dodgeCooldown *= .7f;
 		ai.playerId = player->GetID();
 		ai.addedAttack = !player->HasComponent<CombatAttackComponent>();
 		ai.addedHitbox = !player->HasComponent<CombatHitboxComponent>();
 		ai.addedHurtbox = !player->HasComponent<CombatHurtboxComponent>();
 		ai.addedStats = !player->HasComponent<CombatStatsComponent>();
+		ai.addedStrikeBones = !player->HasComponent<PlayerStrikeBones>();
+		if (ai.addedStrikeBones) player->AddComponent<PlayerStrikeBones>().Bind(*player);
 		if (ai.addedAttack) player->AddComponent<CombatAttackComponent>();
 		if (ai.addedHitbox) player->AddComponent<CombatHitboxComponent>();
 		if (ai.addedHurtbox) player->AddComponent<CombatHurtboxComponent>().center.y = 1.0f;
@@ -84,16 +89,22 @@ namespace MyEngine::ExplorerEncounter
 		hurt.team = player->GetComponent<CombatHitboxComponent>().team == 0 ? 1 : 0;
 		hurt.center.y = 1.0f;
 		copy->AddComponent<CombatStatsComponent>();
+		copy->AddComponent<SparringRig>().Bind(*copy);
 		return copy;
 	}
 
 	inline void RemoveTrainingComponents(Scene& scene, const SparringPartnerComponent& ai)
 	{
+		std::vector<uint32_t> bursts;
+		for (const auto& e : scene.GetEntities())
+			if (e && e->HasComponent<SparringEnergyBurst>() && (e->GetComponent<SparringEnergyBurst>().owner == ai.playerId || e->GetComponent<SparringEnergyBurst>().target == ai.playerId)) bursts.push_back(e->GetID());
+		for (auto id : bursts) scene.DestroyEntity(id);
 		auto player = scene.GetEntitySharedByID(ai.playerId);
 		if (!player) return;
 		if (ai.addedAttack) player->RemoveComponent<CombatAttackComponent>();
 		if (ai.addedHitbox) player->RemoveComponent<CombatHitboxComponent>();
 		if (ai.addedHurtbox) player->RemoveComponent<CombatHurtboxComponent>();
 		if (ai.addedStats) player->RemoveComponent<CombatStatsComponent>();
+		if (ai.addedStrikeBones) player->RemoveComponent<PlayerStrikeBones>();
 	}
 }

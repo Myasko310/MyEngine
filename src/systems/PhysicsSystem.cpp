@@ -1,4 +1,6 @@
 #include "PhysicsSystem.h"
+#include "character/CombatShapes.h"
+#include "character/SparringEnergyBurst.h"
 #include "ecs/Scene.h"
 #include "ecs/Entity.h"
 #include "ecs/TransformHierarchy.h"
@@ -108,6 +110,7 @@ namespace MyEngine
 		}
 
 		ProcessCombatHitboxes(scene);
+		UpdateSparringBursts(scene,dt);
 	}
 
 	void PhysicsSystem::ApplyForces(Scene& scene, float dt)
@@ -1844,7 +1847,7 @@ namespace MyEngine
 				if (entity->HasComponent<SparringPartnerComponent>())
 				{
 					const auto& partner = entity->GetComponent<SparringPartnerComponent>();
-					if (partner.counterWindow > 0 && other->GetID() == partner.playerId) continue;
+					if ((partner.counterWindow > 0 || partner.closingForJab) && other->GetID() == partner.playerId) continue;
 				}
 				const bool box = other->HasComponent<BoxColliderComponent>();
 				const bool capsule = other->HasComponent<CapsuleColliderComponent>();
@@ -2027,10 +2030,77 @@ namespace MyEngine
 		terrain.requestedPace = speed;
 		if (glm::dot(dir, terrain.clearanceHeading) < 0.85f) terrain.terrainProbeTimer = 0;
 		SteerTerrain(scene, entity, ctl, terrain, dir, 1.0f, dt);
-		if (closing && ctl.enableVault && ctl.enableSprintSlide && !terrain.unsafeEdge && !ctl.jumpRequested && glm::length(ctl.moveInput) > 0.1f)
+		if (closing && !(ai.closingForJab && distance < 2.5f) && ctl.enableVault && ctl.enableSprintSlide && !terrain.unsafeEdge && !ctl.jumpRequested && glm::length(ctl.moveInput) > 0.1f)
 		{
 			ctl.sprintRequested = !ctl.sprintLatched;
 			ctl.vaultRequested = true;
+		}
+	}
+
+	void PhysicsSystem::StepSparringRagdoll(Scene& scene, const std::shared_ptr<Entity>& entity, float dt)
+	{
+		auto& rig = entity->GetComponent<SparringRig>();
+		auto& ctl = entity->GetComponent<CharacterControllerComponent>();
+		auto& rb = entity->GetComponent<RigidbodyComponent>();
+		auto& capsule = entity->GetComponent<CapsuleColliderComponent>();
+		auto& transform = entity->GetComponent<TransformComponent>();
+		const auto world = TransformHierarchy::GetWorldMatrix(scene,*entity), inverse = glm::inverse(world);
+		if (!rig.initialized)
+		{
+			rig.initial = rig.previous = rig.points = rig.Pose(*entity);
+			if (entity->HasComponent<AnimationComponent>()) rig.basePalette = entity->GetComponent<AnimationComponent>().boneMatrices;
+			rig.savedTrigger = capsule.isTrigger; capsule.isTrigger = true;
+			for (int j = 0; j < SparringRig::Count; ++j) rig.previous[j].z += dt * (0.5f + rig.rest[j].y);
+			rig.initialized = true;
+			ctl.isDodging = ctl.isSliding = ctl.isWallRunning = ctl.isVaulting = ctl.sprintLatched = false;
+			auto& ai = entity->GetComponent<SparringPartnerComponent>();
+			ai.counterWindow = ai.escapeTime = 0; ai.responding = ai.flanking = false; ai.route.clear();
+		}
+		ctl.ClearFrameInput(); ctl.capsuleBottomAnimationLift = 0;
+		rb.isKinematic = true; rb.velocity = rb.acceleration = glm::vec3(0);
+		rig.downTime += dt;
+		const auto g = glm::vec3(inverse * glm::vec4(gravity,0));
+		const auto impactStep = glm::vec3(inverse * glm::vec4(rig.burstRecoil * dt,0));
+		rig.burstRecoil = glm::vec3(0);
+		for (int j = 0; j < SparringRig::Count; ++j)
+		{
+			const auto p = rig.points[j];
+			rig.points[j] += (p - rig.previous[j]) * .96f + g * dt * dt + impactStep;
+			rig.previous[j] = p;
+		}
+		for (int pass = 0; pass < 5; ++pass) for (int j = 1; j < SparringRig::Count; ++j)
+		{
+			const int k = rig.parent[j];
+			const auto d = rig.points[j] - rig.points[k];
+			const float len = glm::length(d);
+			if (len < .001f) continue;
+			const auto correction = d * (.5f * (1 - glm::distance(rig.initial[j],rig.initial[k]) / len));
+			rig.points[j] -= correction; rig.points[k] += correction;
+		}
+		const auto savedCapsule = capsule;
+		const float scale = glm::compMax(ExtractWorldScale(scene,*entity));
+		for (int j = 0; j < SparringRig::Count; ++j)
+		{
+			glm::vec3 p = world * glm::vec4(rig.points[j],1);
+			capsule.radius = rig.radius[j] * scale;
+			capsule.pointA = glm::vec3(0); capsule.pointB = glm::vec3(0,.001f,0);
+			glm::vec3 normal; float depth;
+			if (QueryVaultContact(scene,entity,p,normal,depth) && depth > 0) p += normal * depth;
+			rig.points[j] = glm::vec3(inverse * glm::vec4(p,1));
+		}
+		capsule = savedCapsule;
+		auto& stats = entity->GetComponent<CombatStatsComponent>();
+		if (!stats.isDead && rig.downTime >= SparringRig::recoverySeconds)
+		{
+			glm::vec3 p = world * glm::vec4(rig.points[SparringRig::Hip],1);
+			p.y += 1.0f;
+			if (!FindVaultLanding(scene,entity,ctl,p,p.y-2.0f)) return;
+			transform.position = p; ctl.hasPhysicsPosition = false;
+			capsule.isTrigger = rig.savedTrigger; rig.down = rig.initialized = false;
+			rig.standingHits = 0; rig.burstRecoil = glm::vec3(0); stats.posture = 0;
+			entity->GetComponent<SparringPartnerComponent>().initiativeDelay = .65f;
+			if (entity->HasComponent<AnimationComponent>()) entity->GetComponent<AnimationComponent>().boneMatrices = rig.basePalette;
+			stats.reactionState = CombatStatsComponent::HitReactionState::None; stats.reactionTimer = 0;
 		}
 	}
 
@@ -2047,6 +2117,10 @@ namespace MyEngine
 			auto& controller = entity->GetComponent<CharacterControllerComponent>();
 			auto& transform = entity->GetComponent<TransformComponent>();
 			auto& rb = entity->GetComponent<RigidbodyComponent>();
+			if (entity->HasComponent<SparringRig>() && entity->GetComponent<SparringRig>().down)
+			{
+				StepSparringRagdoll(scene, entity, dt); continue;
+			}
 			if (entity->HasComponent<ExplorerComponent>())
 			{
 				auto& ai = entity->GetComponent<ExplorerComponent>();
@@ -2058,6 +2132,8 @@ namespace MyEngine
 			{
 				auto& ai = entity->GetComponent<SparringPartnerComponent>();
 				ObserveEncounter(scene, ai.memory, transform.position, dt);
+				const bool wasClosingForJab = ai.closingForJab;
+				ai.closingForJab = false;
 				ai.laneDisplayTime = std::max(0.0f, ai.laneDisplayTime - dt);
 				ai.encounterTime += dt;
 				const auto previousMode = ai.footwork;
@@ -2099,7 +2175,7 @@ namespace MyEngine
 					{
 						const auto& attack = player->GetComponent<CombatAttackComponent>();
 						committed = attack.activeAttackIndex >= 0 && attack.activeAttackIndex < static_cast<int>(attack.attacks.size()) &&
-							attack.phaseFrame >= attack.attacks[attack.activeAttackIndex].startupFrames / 3;
+							attack.phaseFrame >= std::max(1,attack.attacks[attack.activeAttackIndex].startupFrames / 5);
 					}
 					auto& counter = entity->GetComponent<CombatAttackComponent>();
 					ai.patternTime = std::max(0.0f, ai.patternTime - dt);
@@ -2114,8 +2190,36 @@ namespace MyEngine
 						ai.RecordDecision(ai.counterReason);
 					}
 					const bool disabled = entity->GetComponent<CombatStatsComponent>().isDead || (player->HasComponent<CombatStatsComponent>() && player->GetComponent<CombatStatsComponent>().isDead);
+					const bool evadeSwing = (phase == Phase::Startup || phase == Phase::Active) && distance < 4.5f &&
+						std::abs(transform.position.y - player->GetComponent<TransformComponent>().position.y) < 1.4f;
+					if (distance < 3.4f && (phase != Phase::Idle || ai.counterWindow > 0)) ai.initiativeDelay = SparringPartnerComponent::openingDelay;
+					else ai.initiativeDelay = std::max(0.f, ai.initiativeDelay-dt);
+					const bool freeToAct = !disabled && !counter.isAttacking && !counter.attackRequested;
+					const glm::vec3 burstLane = freeToAct && controller.enableDodge && controller.isGrounded && !controller.isDodging &&
+						controller.dodgeCooldownTimer <= 0 && entity->HasComponent<CombatHurtboxComponent>() ? IncomingBurstLane(scene,*entity) : glm::vec3(0);
+					const bool evadeBurst = glm::dot(burstLane,burstLane) > .5f;
+					if (disabled || evadeBurst || evadeSwing) ai.EndCombo();
+					if (ai.combo >= 0 && freeToAct && (ai.followupTime -= dt) <= 0) { ai.EndCombo(); ai.initiativeDelay = SparringPartnerComponent::openingDelay; }
+					const int pattern = ai.combo >= 0 ? ai.combo : ai.Opening(distance >= 3.4f);
+					const auto beat = ai.combos[pattern][ai.nextBeat];
+					const int slot = std::min(beat.slot,std::max(0,static_cast<int>(counter.attacks.size())-1));
+					auto requestBeat = [&]() {
+						counter.selectedAttackIndex = slot; counter.attackRequested = true; ai.rangedAttack = beat.burst;
+						ai.CommitBeat(pattern); controller.moveInput = glm::vec3(0);
+						ai.RecordDecision(beat.burst ? "Combo: winding up a burst" : "Combo: striking in reach");
+					};
 					if (disabled || counter.isAttacking || counter.attackRequested) controller.moveInput = glm::vec3(0);
-					else if ((phase == Phase::Startup || phase == Phase::Active) && distance < 3.4f && std::abs(transform.position.y - player->GetComponent<TransformComponent>().position.y) < 1.4f)
+					else if (evadeBurst) controller.moveInput = glm::vec3(0);
+					else if (!evadeSwing && beat.burst && distance <= 9.f && std::abs(transform.position.y-player->GetComponent<TransformComponent>().position.y) < 3.f && !ai.flanking &&
+						player->HasComponent<CombatHurtboxComponent>() && player->GetComponent<CombatHurtboxComponent>().canBeHit && ClearBurstLane(scene,*entity,*player))
+					{
+						controller.moveInput = glm::vec3(0);
+						if (ai.initiativeDelay <= 0 && counter.cooldownTimer <= 0 && !controller.isVaulting && !controller.isDodging && !controller.isSliding)
+						{
+							requestBeat();
+						}
+					}
+					else if (evadeSwing)
 					{
 						if (!ai.responding)
 						{
@@ -2127,7 +2231,7 @@ namespace MyEngine
 							ai.counterSpent = ai.dodgeIssued = false;
 						}
 						ai.responding = true;
-						controller.moveInput = ai.DodgeLane(1) * 0.9f;
+						controller.moveInput = ai.DodgeLane(1);
 					}
 					else if (ai.counterWindow > 0 && !ai.counterSpent && !controller.isDodging && (phase == Phase::Recovery || phase == Phase::Idle) && player->HasComponent<CombatHurtboxComponent>())
 					{
@@ -2165,24 +2269,36 @@ namespace MyEngine
 							ai.RecordDecision(ai.counterReason);
 							counter.attackRequested = ai.counterSpent = true;
 							ai.counterTrial = {true, false, false, counter.attackActivationCounter + 1u};
-							controller.attack1Requested = pick == 0;
-							controller.attack2Requested = pick == 1;
-							controller.attack3Requested = pick >= 2;
 							controller.moveInput = glm::vec3(0);
+						}
+					}
+					else if (!beat.burst && phase == Phase::Idle && ai.initiativeDelay <= 0 && controller.isGrounded && !controller.isDodging &&
+						!controller.isVaulting && !controller.isSliding && !counter.attacks.empty() && player->HasComponent<CombatHurtboxComponent>())
+					{
+						const auto& hurt = player->GetComponent<CombatHurtboxComponent>();
+						const auto& jab = counter.attacks[slot];
+						const auto reach = CombatShapes::WorldSphere(TransformHierarchy::GetWorldMatrix(scene,*entity),jab.hitboxCenter,jab.hitboxRadius);
+						const auto body = CombatShapes::WorldSphere(TransformHierarchy::GetWorldMatrix(scene,*player),hurt.center,hurt.radius);
+						ai.closingForJab = true;
+						controller.moveInput = ai.facing;
+						if (hurt.canBeHit && counter.cooldownTimer <= 0 && glm::distance(reach.center,body.center) <= reach.radius + body.radius)
+						{
+							requestBeat();
 						}
 					}
 					if (ai.flanking && ai.footwork == Mode::Hold && phase == Phase::Idle && !disabled && !counter.isAttacking && !counter.attackRequested && distance > 2.0f)
 						controller.moveInput = ai.facing * 0.65f;
 					else if (ai.responding || disabled || distance <= 2.0f) ai.flanking = false;
+					if (ai.closingForJab != wasClosingForJab) ai.traversal.clearanceTimer = 0;
 					SteerPartner(scene, entity, controller, distance, dt);
-					if (ai.responding && committed && !disabled && !ai.dodgeIssued && !counter.isAttacking && controller.enableDodge && controller.isGrounded && !controller.isVaulting && !controller.isSliding && controller.dodgeCooldownTimer <= 0 && !ai.traversal.unsafeEdge)
+					if ((evadeBurst || (ai.responding && committed && !ai.dodgeIssued)) && !disabled && !counter.isAttacking && !controller.isDodging && controller.enableDodge && controller.isGrounded && !controller.isVaulting && !controller.isSliding && controller.dodgeCooldownTimer <= 0 && !ai.traversal.unsafeEdge)
 					{
 						ai.dodgeReason = "No safe dodge landing";
 						ai.laneStart = transform.position; ai.laneCount = 0; ai.laneDisplayTime = 0.8f;
 						const float stride = std::max(controller.moveSpeed, glm::length(glm::vec2(rb.velocity.x, rb.velocity.z))) * std::clamp(controller.dodgeSpeedMultiplier, 1.2f, 3.5f) * controller.dodgeDuration;
 						for (float sign : {1.0f, -1.0f})
 						{
-							const auto lane = ai.DodgeLane(sign);
+							const auto lane = evadeBurst ? burstLane * sign * ai.evadeSide : ai.DodgeLane(sign);
 							bool clear = true;
 							for (int i = 1; i <= 5 && clear; ++i)
 							{
@@ -2193,10 +2309,12 @@ namespace MyEngine
 							ai.laneProbes[ai.laneCount++] = {ai.laneStart + lane * stride, clear};
 							if (!clear) continue;
 							controller.moveInput = lane;
-							ai.dodgeReason = ai.repeatCount >= 2 ? "Repeated attack: diagonal dodge toward counter range" : "Nearby attack: lateral dodge";
+							ai.dodgeReason = evadeBurst ? "Incoming burst: dodge across flight path" : ai.repeatCount >= 2 ? "Repeated attack: diagonal dodge toward counter range" : "Nearby attack: lateral dodge";
 							ai.RecordDecision(ai.dodgeReason);
 							controller.jumpRequested = controller.vaultRequested = false;
-							controller.dodgeRequested = ai.dodgeIssued = true;
+							controller.dodgeRequested = true;
+							if (evadeBurst) break;
+							ai.dodgeIssued = true;
 							const auto& swing = player->GetComponent<CombatAttackComponent>();
 							ai.actualLane = ai.evadeSide * sign > 0 ? 1 : 0;
 							ai.dodgeTrial = {true, false, false, swing.attackActivationCounter + (phase == Phase::Startup ? 1u : 0u)};
@@ -2735,6 +2853,12 @@ namespace MyEngine
 			}
 
 			glm::vec3 horizontalDisplacement(rb.velocity.x * dt, 0.0f, rb.velocity.z * dt);
+			if (entity->HasComponent<SparringRig>())
+			{
+				auto& recoil = entity->GetComponent<SparringRig>().burstRecoil;
+				horizontalDisplacement += glm::vec3(recoil.x,0,recoil.z) * dt;
+				recoil *= std::exp(-8.0f * dt);
+			}
 			if (glm::length(horizontalDisplacement) > 0.0001f)
 			{
 				glm::vec3 startPosition = transform.position;
@@ -3513,11 +3637,11 @@ namespace MyEngine
 		for (const auto& attacker : activeHitboxes)
 		{
 			auto& hitbox = attacker->GetComponent<CombatHitboxComponent>();
-			const glm::vec3 attackerScale = ExtractWorldScale(scene, *attacker);
-			const glm::vec3 hitCenter = TransformHierarchy::GetWorldMatrix(scene, *attacker) * glm::vec4(hitbox.center, 1);
-			const float hitRadius = hitbox.radius * glm::compMax(attackerScale);
+			if (attacker->HasComponent<SparringRig>() && attacker->GetComponent<SparringRig>().down) continue;
+			const int slot = attacker->HasComponent<CombatAttackComponent>() ? attacker->GetComponent<CombatAttackComponent>().activeAttackIndex : -1;
+			const auto strikes = CombatShapes::SampleStrikes(scene,*attacker,slot,hitbox.center,hitbox.radius);
 
-			if (hitRadius <= 0.0f)
+			if (strikes.spheres[0].radius <= 0.0f)
 				continue;
 
 			for (const auto& target : hurtboxes)
@@ -3528,18 +3652,32 @@ namespace MyEngine
 				auto& hurtbox = target->GetComponent<CombatHurtboxComponent>();
 				if (!hurtbox.canBeHit || hurtbox.radius <= 0.0f)
 					continue;
+				if (target->HasComponent<SparringRig>() && target->GetComponent<CombatStatsComponent>().isDead) continue;
 
 				if (hitbox.team == hurtbox.team)
 					continue;
 
-				const glm::vec3 targetScale = ExtractWorldScale(scene, *target);
-				const glm::vec3 hurtCenter = TransformHierarchy::GetWorldMatrix(scene, *target) * glm::vec4(hurtbox.center, 1);
-				const float hurtRadius = hurtbox.radius * glm::compMax(targetScale);
-				const glm::vec3 delta = hurtCenter - hitCenter;
-				const float radiusSum = hitRadius + hurtRadius;
-
-				if (glm::dot(delta, delta) > radiusSum * radiusSum)
-					continue;
+				int region = -1;
+				float nearest = std::numeric_limits<float>::max();
+				CombatShapes::ForEachHurtSphere(scene,*target,hurtbox,[&](int j, const CombatShapes::Sphere& sphere) {
+					for (int side = 0; side < strikes.count; ++side)
+					{
+						const auto& strike = strikes.spheres[side];
+						const auto delta = sphere.center - strike.center;
+						const float d = glm::dot(delta,delta), reach = sphere.radius + strike.radius;
+						if (d <= reach * reach && d < nearest) { nearest = d; region = j; }
+					}
+				});
+				if (nearest == std::numeric_limits<float>::max()) continue;
+				if (attacker->HasComponent<PlayerStrikeBones>())
+				{
+					const auto& press = attacker->GetComponent<PlayerStrikeBones>().meleePress;
+					if (press && press->target == target->GetID())
+					{
+						if (press->damageApplied) continue;
+						press->damageApplied = true;
+					}
+				}
 
 				const uint64_t directedPairKey = (static_cast<uint64_t>(attacker->GetID()) << 32) |
 					static_cast<uint64_t>(target->GetID());
@@ -3555,6 +3693,20 @@ namespace MyEngine
 				hurtbox.damageTakenThisStep += hitbox.damage;
 				hurtbox.lastHitByEntityId = attacker->GetID();
 				hurtbox.lastHitActivationId = hitbox.activationId;
+				if (region >= 0)
+				{
+					auto& rig = target->GetComponent<SparringRig>();
+					float posture = hitbox.damage;
+					if (attacker->HasComponent<CombatAttackComponent>())
+					{
+						const auto& attack = attacker->GetComponent<CombatAttackComponent>();
+						if (attack.activeAttackIndex >= 0 && attack.activeAttackIndex < static_cast<int>(attack.attacks.size())) posture = attack.attacks[attack.activeAttackIndex].postureDamage;
+					}
+					rig.pendingDamage += hitbox.damage; rig.pendingPosture += posture;
+					rig.CountHit(); rig.lastAttacker = attacker->GetID(); rig.lastRegion = region;
+					const auto origin = TransformHierarchy::GetWorldMatrix(scene,*attacker)[3];
+					rig.Push(glm::vec3(TransformHierarchy::GetWorldMatrix(scene,*target)[3]-origin),posture >= 20.f ? 8.f : 4.f);
+				}
 				if (target->HasComponent<SparringPartnerComponent>())
 				{
 					auto& ai = target->GetComponent<SparringPartnerComponent>();
@@ -3583,6 +3735,97 @@ namespace MyEngine
 			if (ai.dodgeTrial.pending) settle(ai.dodgeTrial, scene.GetEntitySharedByID(ai.playerId), true);
 			settle(ai.counterTrial, entity, false);
 		}
+	}
+
+	void PhysicsSystem::UpdateSparringBursts(Scene& scene, float dt)
+	{
+		std::vector<uint32_t> expired;
+		for (const auto& e : scene.GetEntities())
+		{
+			if (!e || !e->HasComponent<SparringEnergyBurst>()) continue;
+			auto& burst = e->GetComponent<SparringEnergyBurst>();
+			auto target = scene.GetEntitySharedByID(burst.target);
+			if (!target || !target->HasComponent<CombatHurtboxComponent>() || (!target->HasComponent<SparringRig>() && !target->HasComponent<PlayerStrikeBones>())) { expired.push_back(e->GetID()); continue; }
+			auto regionCenter = [&](int j) {
+				return glm::vec3(TransformHierarchy::GetWorldMatrix(scene,*target) * glm::vec4(target->GetComponent<SparringRig>().Pose(*target)[j],1));
+			};
+			if (burst.fade >= 0)
+			{
+				burst.fade -= dt;
+				UpdateBurstLight(e->GetComponent<LightComponent>(),burst,e->GetComponent<TransformComponent>().position);
+				if (burst.fade <= 0) expired.push_back(e->GetID());
+				else if (burst.glowParticle >= 0)
+					e->GetComponent<ParticleEmitterComponent>().particles[burst.glowParticle].position = regionCenter(burst.impactRegion);
+				continue;
+			}
+			auto& pos = e->GetComponent<TransformComponent>().position;
+			Ray ray{pos,burst.direction};
+			float distance = std::min(burst.remaining,dt * burst.speed);
+			bool blocked = false;
+			for (const auto& obstacle : scene.GetEntities())
+			{
+				if (!obstacle || obstacle->GetID() == burst.owner || obstacle == target || !obstacle->HasComponent<BoxColliderComponent>()) continue;
+				if (BurstBoxContact(scene,*obstacle,ray,distance)) blocked = true;
+			}
+			auto& hurt = target->GetComponent<CombatHurtboxComponent>();
+			int region = -1;
+			bool bodyContact = false;
+			if (hurt.canBeHit && hurt.team != burst.team)
+				CombatShapes::ForEachHurtSphere(scene,*target,hurt,[&](int j, const CombatShapes::Sphere& sphere) {
+					float t;
+					if (RayIntersectsSphere(ray,sphere.center,sphere.radius+burst.radius,t) && (t < distance || (!blocked && t == distance))) { distance = t; region = j; bodyContact = true; }
+				});
+			pos += ray.direction * distance; burst.remaining -= distance;
+			burst.impactFlash = bodyContact || blocked;
+			UpdateBurstLight(e->GetComponent<LightComponent>(),burst,pos);
+			if (bodyContact && region < 0 && !burst.press->damageApplied && !target->GetComponent<CombatStatsComponent>().isDead)
+			{
+				auto& incoming = target->GetComponent<PlayerStrikeBones>();
+				incoming.incomingBurstDamage += burst.damage; incoming.incomingBurstPosture += burst.posture;
+				incoming.incomingBurstOwner = burst.owner; burst.press->damageApplied = true;
+			}
+			if (region >= 0)
+			{
+				target->GetComponent<SparringRig>().Push(burst.direction,burst.posture >= 20.f ? 11.f : 6.f);
+				if (!target->GetComponent<CombatStatsComponent>().isDead && !burst.press->damageApplied)
+				{
+					burst.press->damageApplied = true;
+					hurt.wasHitThisStep = true; hurt.damageTakenThisStep += burst.damage;
+					hurt.lastHitByEntityId = burst.owner; hurt.lastHitActivationId = burst.activation;
+					auto& rig = target->GetComponent<SparringRig>();
+					rig.pendingDamage += burst.damage; rig.pendingPosture += burst.posture;
+					rig.CountHit(); rig.lastAttacker = burst.owner; rig.lastRegion = region;
+				}
+			}
+			auto& fx = e->GetComponent<ParticleEmitterComponent>();
+			const bool heavy = burst.posture >= 20;
+			if (bodyContact || blocked || burst.remaining <= 0)
+			{
+				fx.emitting = false; burst.fade = heavy ? .28f : .22f;
+				if (bodyContact || blocked)
+				{
+					if (region >= 0)
+					{
+						burst.impactRegion = region;
+						// Reserve a slot even when the trail fills the pool. Keep it alive until cleanup.
+						burst.glowParticle = static_cast<int>(fx.particles.size())-1;
+						auto& glow = fx.particles.back(); glow = Particle{}; glow.alive = true;
+						glow.position = regionCenter(region); glow.sizeStart = 2.6f*SparringRig::radius[region]; glow.sizeEnd = .08f;
+						glow.colorStart = {.5f,1,1,.9f}; glow.colorEnd = {.12f,.8f,1,0}; glow.lifetime = burst.fade;
+					}
+					EmitPressure(fx,pos,burst.direction,heavy,PressureStage::Impact,burst.remaining);
+					if (heavy) EmitSparringRing(fx,pos,burst.direction,true);
+					fx.burstRequestCount = heavy ? 18 : 8; fx.spreadAngle = heavy ? 175.f : 50.f; fx.emitSpeed = 5;
+				}
+			}
+			else if ((burst.ringTimer -= dt) <= 0)
+			{
+				EmitPressure(fx,pos,burst.direction,heavy,PressureStage::Wake,burst.remaining);
+				if (heavy) EmitSparringRing(fx,pos,burst.direction,false);
+				burst.ringTimer = .06f;
+			}
+		}
+		for (auto id : expired) scene.DestroyEntity(id);
 	}
 
 	uint64_t PhysicsSystem::MakePairKey(uint32_t idA, uint32_t idB)

@@ -8,6 +8,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "imgui.h"
+#include "character/CombatShapes.h"
 #include "components/BossAIComponent.h"
 #include "components/CombatAttackComponent.h"
 #include "components/CombatStatsComponent.h"
@@ -66,10 +67,9 @@ namespace MyEngine::Editor::Panels
 			if (entity->HasComponent<CombatAttackComponent>())
 			{
 				++attackEntityCount;
-				const auto& attack = entity->GetComponent<CombatAttackComponent>();
-				if (attack.phase == CombatAttackComponent::AttackPhase::Active)
-					++activeHitboxCount;
 			}
+			if (entity->HasComponent<::CombatHitboxComponent>() && entity->GetComponent<::CombatHitboxComponent>().active)
+				++activeHitboxCount;
 			if (entity->HasComponent<::CombatHurtboxComponent>())
 			{
 				++hurtboxCount;
@@ -141,43 +141,36 @@ namespace MyEngine::Editor::Panels
 			return;
 
 		ImDrawList* drawList = ImGui::GetForegroundDrawList();
+		const glm::vec3 right = glm::normalize(glm::vec3(glm::inverse(context.viewMatrix)[0]));
+		auto drawSphere = [&](const CombatShapes::Sphere& sphere, ImU32 color) {
+			ImVec2 center, edge;
+			if (ProjectWorldPointToScreen(sphere.center, context.viewMatrix, context.projectionMatrix, context.viewportWidth, context.viewportHeight, center) &&
+				ProjectWorldPointToScreen(sphere.center + right * sphere.radius, context.viewMatrix, context.projectionMatrix, context.viewportWidth, context.viewportHeight, edge))
+				drawList->AddCircle(center,std::max(2.0f,std::abs(edge.x-center.x)),color,24,2.0f);
+		};
 		for (const auto& entity : context.scene->GetEntities())
 		{
 			if (!entity || !entity->HasComponent<::TransformComponent>())
 				continue;
 
-			const auto& transform = entity->GetComponent<::TransformComponent>();
-
 			if (entity->HasComponent<::CombatHitboxComponent>())
 			{
 				const auto& hitbox = entity->GetComponent<::CombatHitboxComponent>();
-				const glm::vec3 center = transform.position + hitbox.center;
-				const glm::vec3 edge = center + glm::vec3(hitbox.radius, 0.0f, 0.0f);
-				ImVec2 centerScreen;
-				ImVec2 edgeScreen;
-				if (ProjectWorldPointToScreen(center, context.viewMatrix, context.projectionMatrix, context.viewportWidth, context.viewportHeight, centerScreen) &&
-					ProjectWorldPointToScreen(edge, context.viewMatrix, context.projectionMatrix, context.viewportWidth, context.viewportHeight, edgeScreen))
+				if (hitbox.active && hitbox.radius > 0)
 				{
-					float pixelRadius = std::max(2.0f, std::abs(edgeScreen.x - centerScreen.x));
-					ImU32 color = hitbox.active ? IM_COL32(255, 80, 80, 230) : IM_COL32(140, 70, 70, 160);
-					drawList->AddCircle(centerScreen, pixelRadius, color, 24, 2.0f);
+					const int slot = entity->HasComponent<CombatAttackComponent>() ? entity->GetComponent<CombatAttackComponent>().activeAttackIndex : -1;
+					const auto strikes = CombatShapes::SampleStrikes(*context.scene,*entity,slot,hitbox.center,hitbox.radius);
+					for (int i = 0; i < strikes.count; ++i) drawSphere(strikes.spheres[i],IM_COL32(255,80,80,230));
 				}
 			}
 
 			if (entity->HasComponent<::CombatHurtboxComponent>())
 			{
 				const auto& hurtbox = entity->GetComponent<::CombatHurtboxComponent>();
-				const glm::vec3 center = transform.position + hurtbox.center;
-				const glm::vec3 edge = center + glm::vec3(hurtbox.radius, 0.0f, 0.0f);
-				ImVec2 centerScreen;
-				ImVec2 edgeScreen;
-				if (ProjectWorldPointToScreen(center, context.viewMatrix, context.projectionMatrix, context.viewportWidth, context.viewportHeight, centerScreen) &&
-					ProjectWorldPointToScreen(edge, context.viewMatrix, context.projectionMatrix, context.viewportWidth, context.viewportHeight, edgeScreen))
-				{
-					float pixelRadius = std::max(2.0f, std::abs(edgeScreen.x - centerScreen.x));
-					ImU32 color = hurtbox.wasHitThisStep ? IM_COL32(255, 220, 80, 240) : IM_COL32(80, 255, 120, 200);
-					drawList->AddCircle(centerScreen, pixelRadius, color, 24, 2.0f);
-				}
+				if (hurtbox.canBeHit && hurtbox.radius > 0)
+					CombatShapes::ForEachHurtSphere(*context.scene,*entity,hurtbox,[&](int, const CombatShapes::Sphere& sphere) {
+						drawSphere(sphere,hurtbox.wasHitThisStep ? IM_COL32(255,220,80,240) : IM_COL32(80,255,120,200));
+					});
 			}
 		}
 	}

@@ -1,6 +1,9 @@
 #include "systems/CombatSystem.h"
+#include "character/CombatShapes.h"
+#include "character/SparringEnergyBurst.h"
 
 #include "components/BossAIComponent.h"
+#include "components/AnimationStateMachineComponent.h"
 #include "components/CombatAttackComponent.h"
 #include "components/CombatHitboxComponent.h"
 #include "components/CombatHurtboxComponent.h"
@@ -34,7 +37,7 @@ namespace MyEngine
 			return glm::normalize(glm::vec3(std::cos(yawRadians), 0.0f, std::sin(yawRadians)));
 		}
 
-		static void EnsureFallbackAttacks(CombatAttackComponent& attack)
+		static void EnsureFallbackAttacks(CombatAttackComponent& attack, bool sparringPlayer = false)
 		{
 			if (!attack.attacks.empty())
 				return;
@@ -63,6 +66,11 @@ namespace MyEngine
 
 			attack.attacks.push_back(light);
 			attack.attacks.push_back(heavy);
+			if (sparringPlayer)
+			{
+				heavy.name = "PowerCombo";
+				attack.attacks.push_back(heavy);
+			}
 		}
 
 		static bool TryLoadAttackSetFromJson(CombatAttackComponent& attack)
@@ -185,7 +193,7 @@ namespace MyEngine
 				continue;
 
 			auto& attack = entity->GetComponent<CombatAttackComponent>();
-			EnsureFallbackAttacks(attack);
+			EnsureFallbackAttacks(attack,entity->HasComponent<PlayerStrikeBones>());
 
 			if (attack.autoLoadFromJson && (attack.requestReloadFromJson || attack.loadedFromJson == false))
 			{
@@ -317,8 +325,14 @@ namespace MyEngine
 	void CombatSystem::UpdateAttackPhases(Scene& scene, float deltaTime)
 	{
 		uint32_t sparringPlayer = 0;
+		std::shared_ptr<Entity> partner, shooter;
+		std::shared_ptr<BurstPress> launchPress;
+		int launchSlot = -1;
+		std::shared_ptr<Entity> rangedVictim;
+		int rangedSlot = -1;
+		uint32_t rangedActivation = 0;
 		for (const auto& e : scene.GetEntities())
-			if (e && e->HasComponent<SparringPartnerComponent>()) { sparringPlayer = e->GetComponent<SparringPartnerComponent>().playerId; break; }
+			if (e && e->HasComponent<SparringPartnerComponent>()) { partner = e; sparringPlayer = e->GetComponent<SparringPartnerComponent>().playerId; break; }
 		for (const auto& entity : scene.GetEntities())
 		{
 			if (!entity ||
@@ -330,6 +344,14 @@ namespace MyEngine
 
 			auto& attack = entity->GetComponent<CombatAttackComponent>();
 			auto& hitbox = entity->GetComponent<CombatHitboxComponent>();
+			if (entity->HasComponent<SparringRig>() && entity->GetComponent<SparringRig>().down)
+			{
+				entity->GetComponent<SparringPartnerComponent>().rangedAttack = false;
+				entity->GetComponent<SparringPartnerComponent>().EndCombo();
+				attack.phase = CombatAttackComponent::AttackPhase::Idle;
+				attack.activeAttackIndex = -1; attack.attackRequested = attack.isAttacking = hitbox.active = false;
+				continue;
+			}
 
 			EnsureFallbackAttacks(attack);
 			if (attack.attacks.empty())
@@ -351,6 +373,14 @@ namespace MyEngine
 				attack.attackRequested = true;
 			}
 
+			auto* strikes = entity->GetID() == sparringPlayer && entity->HasComponent<PlayerStrikeBones>() ? &entity->GetComponent<PlayerStrikeBones>() : nullptr;
+			if (strikes && (playerRequestedAttack || (attack.attackRequested && !strikes->queuedPress)) &&
+				!entity->GetComponent<CombatStatsComponent>().isDead)
+			{
+				shooter = entity;
+				launchSlot = std::clamp(attack.selectedAttackIndex,0,static_cast<int>(attack.attacks.size())-1);
+				launchPress = strikes->queuedPress = std::make_shared<BurstPress>(BurstPress{++strikes->pressCounter,partner->GetID()});
+			}
 			attack.cooldownTimer = std::max(0.0f, attack.cooldownTimer - deltaTime);
 			hitbox.active = false;
 
@@ -362,8 +392,20 @@ namespace MyEngine
 				if (attack.attackRequested && attack.cooldownTimer <= 0.0f)
 				{
 					attack.attackRequested = false;
+					if (strikes) strikes->meleePress = std::move(strikes->queuedPress);
 					attack.activeAttackIndex = std::clamp(attack.selectedAttackIndex, 0, static_cast<int>(attack.attacks.size()) - 1);
 					attack.phase = CombatAttackComponent::AttackPhase::Startup;
+					if (entity->HasComponent<SparringPartnerComponent>() && entity->HasComponent<AnimationStateMachineComponent>())
+					{
+						auto& sm = entity->GetComponent<AnimationStateMachineComponent>();
+						const char* trigger = attack.activeAttackIndex == 0 ? "Attack1" : attack.activeAttackIndex == 1 ? "Attack2" : "Attack3";
+						const int idx = sm.stateMachine ? sm.stateMachine->FindParameterIndex(trigger) : -1;
+						if (idx >= 0 && sm.stateMachine->parameters[idx].type == AnimationStateMachineParameterType::Trigger)
+						{
+							if (sm.parameterValues.size() < sm.stateMachine->parameters.size()) sm.parameterValues.resize(sm.stateMachine->parameters.size());
+							sm.parameterValues[idx].triggerValue = true;
+						}
+					}
 					attack.fractionalFrame = 0;
 					attack.phaseFrame = 0;
 					attack.isAttacking = true;
@@ -396,6 +438,13 @@ namespace MyEngine
 					++attack.attackActivationCounter;
 
 					hitbox.activationId = attack.attackActivationCounter;
+					hitbox.active = true;
+					if (entity == partner && partner->GetComponent<SparringPartnerComponent>().rangedAttack)
+					{
+						hitbox.active = false;
+						rangedVictim = scene.GetEntitySharedByID(sparringPlayer);
+						rangedSlot = attack.activeAttackIndex; rangedActivation = hitbox.activationId;
+					}
 					hitbox.damage = def.damage;
 					hitbox.center = def.hitboxCenter;
 					hitbox.radius = def.hitboxRadius;
@@ -403,7 +452,7 @@ namespace MyEngine
 			}
 			else if (attack.phase == CombatAttackComponent::AttackPhase::Active)
 			{
-				hitbox.active = true;
+				hitbox.active = entity != partner || !partner->GetComponent<SparringPartnerComponent>().rangedAttack;
 				hitbox.damage = def.damage;
 				hitbox.center = def.hitboxCenter;
 				hitbox.radius = def.hitboxRadius;
@@ -411,6 +460,7 @@ namespace MyEngine
 				if (attack.phaseFrame >= std::max(1, def.activeFrames))
 				{
 					attack.phase = CombatAttackComponent::AttackPhase::Recovery;
+					if (entity == partner) partner->GetComponent<SparringPartnerComponent>().rangedAttack = false;
 					attack.phaseFrame = 0;
 					hitbox.active = false;
 				}
@@ -427,6 +477,9 @@ namespace MyEngine
 				}
 			}
 		}
+		if (launchPress) LaunchSparringBurst(scene,*shooter,*partner,launchSlot,launchPress);
+		if (rangedVictim && rangedVictim->HasComponent<PlayerStrikeBones>() && rangedVictim->HasComponent<CombatHurtboxComponent>() && !rangedVictim->GetComponent<CombatStatsComponent>().isDead)
+			LaunchSparringBurst(scene,*partner,*rangedVictim,rangedSlot,std::make_shared<BurstPress>(BurstPress{rangedActivation,sparringPlayer}));
 	}
 
 	void CombatSystem::ResolveCombatHits(Scene& scene, float deltaTime)
@@ -451,7 +504,10 @@ namespace MyEngine
 			if (stats.isDead)
 				continue;
 
-			if (hurtbox.wasHitThisStep)
+			auto* rig = entity->HasComponent<SparringRig>() ? &entity->GetComponent<SparringRig>() : nullptr;
+			auto* incoming = entity->HasComponent<PlayerStrikeBones>() ? &entity->GetComponent<PlayerStrikeBones>() : nullptr;
+			const bool burstHit = incoming && (incoming->incomingBurstDamage > 0 || incoming->incomingBurstPosture > 0);
+			if (rig ? (rig->pendingDamage > 0 || rig->pendingPosture > 0 || (!rig->down && rig->standingHits >= SparringRig::knockdownHits)) : hurtbox.wasHitThisStep || burstHit)
 			{
 				float postureDamage = hurtbox.damageTakenThisStep;
 				if (auto attacker = scene.GetEntitySharedByID(hurtbox.lastHitByEntityId))
@@ -464,20 +520,30 @@ namespace MyEngine
 					}
 				}
 
+				const float damage = rig ? rig->pendingDamage : hurtbox.damageTakenThisStep + (burstHit ? incoming->incomingBurstDamage : 0.f);
+				if (burstHit) postureDamage += incoming->incomingBurstPosture;
+				if (rig) postureDamage = rig->pendingPosture;
 				if (stats.guarding)
 					postureDamage *= stats.guardPostureMultiplier;
 
-				stats.health = std::max(0.0f, stats.health - hurtbox.damageTakenThisStep);
+				if (!entity->HasComponent<SparringPartnerComponent>() || !entity->GetComponent<SparringPartnerComponent>().infiniteHealth)
+					stats.health = std::max(0.0f, stats.health - damage);
 				stats.posture = std::clamp(stats.posture + postureDamage, 0.0f, stats.maxPosture);
-				stats.lastDamageTaken = hurtbox.damageTakenThisStep;
+				stats.lastDamageTaken = damage;
 				stats.lastPostureDamageTaken = postureDamage;
-				stats.lastHitByEntityId = hurtbox.lastHitByEntityId;
+				stats.lastHitByEntityId = rig ? rig->lastAttacker : burstHit ? incoming->incomingBurstOwner : hurtbox.lastHitByEntityId;
+				if (burstHit) incoming->incomingBurstDamage = incoming->incomingBurstPosture = 0;
 
 				if (stats.health <= 0.0f)
 				{
 					stats.isDead = true;
 					stats.reactionState = CombatStatsComponent::HitReactionState::KnockedDown;
 					stats.reactionTimer = 9999.0f;
+				}
+				else if (rig && (rig->standingHits >= SparringRig::knockdownHits || rig->down))
+				{
+					stats.reactionState = CombatStatsComponent::HitReactionState::KnockedDown;
+					stats.reactionTimer = std::max(0.f,SparringRig::recoverySeconds - (rig->down ? rig->downTime : 0.f));
 				}
 				else if (stats.posture >= stats.maxPosture)
 				{
@@ -488,6 +554,15 @@ namespace MyEngine
 				{
 					stats.reactionState = CombatStatsComponent::HitReactionState::Hitstun;
 					stats.reactionTimer = 0.2f;
+				}
+				if (rig)
+				{
+					if (!rig->down && (stats.isDead || rig->standingHits >= SparringRig::knockdownHits))
+					{
+						rig->BeginDown();
+						entity->GetComponent<CombatHitboxComponent>().active = false;
+					}
+					rig->pendingDamage = rig->pendingPosture = 0;
 				}
 			}
 			else

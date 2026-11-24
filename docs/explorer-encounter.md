@@ -2,13 +2,19 @@
 
 Turn **Explorer: On** before Play. Use **Follow Me** to call the explorer or **Resume Exploring** to let it investigate the map. All behavior is noncombat.
 
-Turn **Sparring: On** before single-player Play for a reactive opponent. Without an attack, it faces you and tries to hold 2–3 units of spacing. Swing nearby: it tries to dodge, then closes for one counter. Among attacks already in reach it prefers the strongest whose startup fits your remaining recovery with two frames to spare. For short or expired recovery it tries the quickest reachable attack during its brief counter window. Counters use normal combat hitboxes and can miss.
+Turn **Sparring: On** before single-player Play. The partner starts by spacing, then closes in to jab if you leave an opening. Swing nearby and it tries to dodge, then counter. Among attacks in reach it prefers the strongest whose startup fits your remaining recovery with two frames to spare. For short openings it tries the quickest reachable attack. Both opening attacks and counters use normal melee contact and can miss.
 
 Move behind a wall with a walkable way around it to try pursuit. The partner uses the navigation grid, checks local clearance, and retries with a lateral step when stalled. It can use supported vaults and checked jumps, but will not teleport across an unreachable gap. It does not follow explorer markers. Both encounter toggles can be enabled together; Stop removes the partner and any player combat components added only for training.
 
+### Sparring contact and knockdowns
+
+The partner strikes with its right hand (attack slot 0), right foot (slot 1), or left hand (other slots). Its head, chest, hips, elbows, hands, knees and feet can receive hits. Overlapping regions still count as one target for a single-hit activation. Common humanoid bone names drive these volumes; unmatched regions use a fixed humanoid layout and unmatched striking limbs use the attack's authored reach.
+
+Any four confirmed hits while standing knock the partner down. A melee hit and burst from the same press count once. Heavy hits push harder but do not skip the four-hit requirement. The partner has infinite health by default. After three seconds it stands as soon as there is walkable support and room for its capsule, with posture and the hit count reset. Hits on the downed body push it without restarting recovery. A lethal hit with infinite health disabled still causes a permanent knockout.
+
 ## Memory across runs
 
-**Sparring camera:** During Play, click the right stick (**R3**) to frame the player and the sparring partner together. Click R3 again to release. The partner need not be on screen, but must be alive and within the primary camera’s lock-on distance (18 units by default). Without a sparring partner, R3 retains its third-person follow toggle. **V** still switches camera modes.
+**Play camera:** Each right-stick click (**R3**) advances one mode: **Free → Lock on to sparring partner → Third-person follow → Free**. Lock-on is skipped if there is no live sparring partner within range (18 units by default). The partner need not be on screen. **V** retains the free/follow toggle.
 
 During a fight, the partner scores the side it actually dodged toward: a confirmed player hit lowers that side’s score; a resolved active swing without contact raises it. It prefers the better side but still tries alternatives and checks the landing. Scores reset on spawn. **Decision replay** includes dodge and counter hit/miss outcomes; a canceled windup is not a successful dodge. A player doubling back during a flank triggers a fresh pursuit route rather than following the stale flank.
 

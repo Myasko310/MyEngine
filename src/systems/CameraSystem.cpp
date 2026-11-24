@@ -111,17 +111,27 @@ namespace MyEngine
         return glm::distance(player->GetComponent<TransformComponent>().position, partner->GetComponent<TransformComponent>().position) <= range;
     }
 
-    void CameraSystem::ToggleSparringLock(Scene& scene, const std::shared_ptr<Entity>& player, const std::shared_ptr<Entity>& partner)
+    void CameraSystem::CyclePlayCamera(Scene& scene, const std::shared_ptr<Entity>& player, const std::shared_ptr<Entity>& partner)
     {
-        const bool release = partner && m_SparringPartner.lock() == partner;
+        const bool wasLocked = !m_SparringPartner.expired();
         ClearSparringLock();
-        if (release) return;
         for (const auto& e : scene.GetEntities())
         {
             if (!e || !e->HasComponent<CameraComponent>() || !e->HasComponent<TransformComponent>()) continue;
-            const auto& cam = e->GetComponent<CameraComponent>();
+            auto& cam = e->GetComponent<CameraComponent>();
             if (!cam.isPrimary) continue;
-            if (CanFramePartner(scene, player, partner, cam.lockOnMaxDistance)) { m_SparringPlayer = player; m_SparringPartner = partner; }
+            if (!wasLocked && !cam.thirdPerson && CanFramePartner(scene, player, partner, cam.lockOnMaxDistance))
+            {
+                m_SparringPlayer = player;
+                m_SparringPartner = partner;
+            }
+            else
+            {
+                cam.thirdPerson = wasLocked || !cam.thirdPerson;
+                cam.lockOnEnabled = false;
+                cam.lockOnTargetID = 0;
+                if (cam.thirdPerson && player) cam.followTargetID = player->GetID();
+            }
             break;
         }
     }

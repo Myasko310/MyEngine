@@ -40,5 +40,6 @@ namespace MyEngine
 		// Optional per-light spot shadow overrides (0 / negative = use global)
 		int spotShadowSizeOverride = 0;
 		float spotShadowPCFRadiusOverride = -1.0f;
+		bool transientEffect = false;
 	};
 }

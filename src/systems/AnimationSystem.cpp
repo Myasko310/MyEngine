@@ -1,4 +1,5 @@
 #include "systems/AnimationSystem.h"
+#include "character/SparringRig.h"
 
 #include "animation/RelaxedFallAnimation.h"
 #include "components/AnimationComponent.h"
@@ -833,6 +834,11 @@ namespace MyEngine
 
 			auto& anim = entity->GetComponent<AnimationComponent>();
 			auto& skel = entity->GetComponent<SkeletonComponent>();
+			if (entity->HasComponent<SparringRig>() && entity->GetComponent<SparringRig>().down)
+			{
+				if (skel.skeleton) entity->GetComponent<SparringRig>().ApplyPalette(anim,*skel.skeleton);
+				continue;
+			}
 			AnimationStateMachineComponent* stateMachineComponent = entity->HasComponent<AnimationStateMachineComponent>()
 				? &entity->GetComponent<AnimationStateMachineComponent>()
 				: nullptr;

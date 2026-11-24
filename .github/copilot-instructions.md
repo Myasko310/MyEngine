@@ -1,7 +1,8 @@
 # Copilot Instructions
 
 ## Project Guidelines
-- After each engine addition, build the workspace in Debug and run the registered Debug CTest smoke suites without waiting for a separate request. Use the same build tree for both commands, enable `--output-on-failure` and `--no-tests=error`, and report the actual outcome. A canceled run or a build alone is not a test pass.
+- After each engine addition and whenever a fix or investigation needs validation, build the workspace in Debug and run its registered Debug CTest smoke suites directly. Do not ask the user to start builds, debugging, or tests. Use the same build tree for the build and CTest, with `--output-on-failure` and `--no-tests=error`. Investigate failures using build diagnostics, test logs, or the debugger as appropriate; fix issues within scope and rerun validation. Report build and test results separately. A canceled run or a build alone is not a test pass.
+- If validation is canceled or cannot execute, mark the affected check as unverified and continue with other work. Do not repeatedly retry a blocked command, present it as a manual next step, or wait for the user to run it.
 - For major engine work, use milestone-based delivery with review gates, prioritize authoritative server/client networking first, use a hybrid plugin SDK (static core + optional dynamic plugins), target 120 FPS on high-end GPUs, and require a full automated test matrix including performance baselines before considering features complete. Deliver one milestone per PR and start with smoke-test-level coverage initially.
 - Address movement, camera, and world-position choppiness to ensure smooth gameplay experience, focusing on optimizing these aspects rather than just animation playback.
 - When startup options are missing, it refers to the inability to launch the engine itself, not missing in-engine menus.

@@ -29,6 +29,8 @@ namespace
 		glm::vec3 position;
 		float     size;
 		glm::vec4 color;
+		glm::vec4 axisStretch;
+		glm::vec2 markAge;
 	};
 
 	// Quad vertices (two triangles, positions only; billboard expansion is
@@ -165,6 +167,12 @@ namespace MyEngine
 			glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE,
 				sizeof(InstanceData), (void*)offsetof(InstanceData, color));
 			glVertexAttribDivisor(3, 1);
+			glEnableVertexAttribArray(4);
+			glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData), (void*)offsetof(InstanceData, axisStretch));
+			glVertexAttribDivisor(4, 1);
+			glEnableVertexAttribArray(5);
+			glVertexAttribPointer(5, 2, GL_FLOAT, GL_FALSE, sizeof(InstanceData), (void*)offsetof(InstanceData, markAge));
+			glVertexAttribDivisor(5, 1);
 
 			glBindVertexArray(0);
 
@@ -248,7 +256,7 @@ namespace MyEngine
 				p.position  += p.velocity * deltaTime;
 			}
 
-			auto spawnParticles = [&](int toSpawn)
+			auto spawnParticles = [&](int toSpawn, bool alongTrail)
 			{
 				for (int i = 0; i < toSpawn; ++i)
 				{
@@ -260,8 +268,10 @@ namespace MyEngine
 					if (!slot) break;
 
 					slot->alive      = true;
+					slot->mark = Particle::Mark::Soft;
+					slot->stretch = 1.f;
 					slot->age        = 0.0f;
-					slot->position   = spawnPos;
+					slot->position   = alongTrail ? glm::mix(emitter.previousEmissionPosition, emitterPos, (i + 1.0f) / toSpawn) + spawnOffset : spawnPos;
 					slot->colorStart = emitter.colorStart;
 					slot->colorEnd   = emitter.colorEnd;
 					slot->sizeStart  = emitter.sizeStart;
@@ -291,12 +301,13 @@ namespace MyEngine
 				emitter.spawnAccum += emitter.spawnRate * deltaTime;
 				int toSpawn = static_cast<int>(emitter.spawnAccum);
 				emitter.spawnAccum -= static_cast<float>(toSpawn);
-				spawnParticles(toSpawn);
+				spawnParticles(toSpawn, emitter.pressureTrail);
+				if (emitter.pressureTrail && toSpawn > 0) emitter.previousEmissionPosition = emitterPos;
 			}
 
 			if (emitter.burstRequestCount > 0)
 			{
-				spawnParticles(emitter.burstRequestCount);
+				spawnParticles(emitter.burstRequestCount, false);
 				emitter.burstRequestCount = 0;
 			}
 		}
@@ -345,13 +356,15 @@ namespace MyEngine
 				float t = p.lifetime > 0.0f ? (p.age / p.lifetime) : 1.0f;
 				t = std::clamp(t, 0.0f, 1.0f);
 				float size = glm::mix(p.sizeStart, p.sizeEnd, t);
-				if (!frustum.IsSphereVisible(p.position, std::abs(size) * billboardRadius))
+				if (!frustum.IsSphereVisible(p.position, std::abs(size) * billboardRadius * p.stretch))
 					continue;
 
 				InstanceData inst;
 				inst.position = p.position;
 				inst.size = size;
 				inst.color = glm::mix(p.colorStart, p.colorEnd, t);
+				inst.axisStretch = glm::vec4(p.strokeAxis,p.stretch);
+				inst.markAge = glm::vec2(static_cast<float>(p.mark),t);
 				m_Impl->instanceBuffer.push_back(inst);
 			}
 
@@ -384,6 +397,7 @@ namespace MyEngine
 				m_Impl->shader->SetBool("u_UseTexture", false);
 			}
 			m_Impl->shader->SetInt("u_Texture", 0);
+			m_Impl->shader->SetBool("u_PressureTrail", emitter.pressureTrail);
 
 			// Blend mode per emitter
 			if (emitter.blendMode == ParticleEmitterComponent::BlendMode::Additive)

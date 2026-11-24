@@ -16,6 +16,10 @@ struct Particle
 	float     lifetime  { 1.0f }; // total lifetime in seconds
 	float     age       { 0.0f }; // current age in seconds
 	bool      alive     { false };
+	enum class Mark { Soft, Brush, Impact, Crescent };
+	Mark mark = Mark::Soft;
+	glm::vec3 strokeAxis{1,0,0};
+	float stretch = 1.f;
 };
 
 // Per-entity emitter settings + live particle pool.
@@ -69,6 +73,8 @@ struct ParticleEmitterComponent
 	std::string texturePath;
 
 	// ---------- Runtime state (managed by ParticleSystem, not serialized) ----------
+	bool pressureTrail = false;
+	glm::vec3 previousEmissionPosition{0.0f};
 	std::vector<Particle> particles;        // live pool
 	float                 spawnAccum = 0.0f; // fractional particle debt
 	unsigned int          textureID  = 0;    // GL texture handle (0 = none)
